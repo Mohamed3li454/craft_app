@@ -1,4 +1,4 @@
-import 'package:craft_app/Features/home/presentation/views/home_view.dart';
+import 'package:craft_app/Features/Splash/presentation/views/splash_view.dart';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -12,7 +12,8 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const MaterialApp(
-      home: HomeView(),
+      debugShowCheckedModeBanner: false,
+      home: SplashView(),
     );
   }
 }
