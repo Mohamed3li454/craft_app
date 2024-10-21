@@ -1,6 +1,6 @@
 import 'package:craft_app/Features/Splash/presentation/views/splash_view.dart';
 import 'package:craft_app/Features/home/presentation/views/bot_view.dart';
-import 'package:craft_app/Features/home/presentation/views/widgets/suggetion_box.dart';
+import 'package:craft_app/Features/home/presentation/views/widgets/suggestion%20_box.dart';
 import 'package:craft_app/core/utils/styles.dart';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
@@ -72,7 +72,7 @@ class _HomeViewBodyState extends State<HomeViewBody>
                   ),
                   child: GestureDetector(
                     onTap: () {
-                      Get.to(() => const SplashView(),
+                      Get.to(() => const BotView(),
                           transition: Transition.circularReveal,
                           duration: const Duration(milliseconds: 1500));
                     },
@@ -87,14 +87,23 @@ class _HomeViewBodyState extends State<HomeViewBody>
                 );
               },
             ),
-            // SizedBox(
-            //   height: 50,
-            // ),
-            // const SuggetionBox(
-            //   header: "hello",
-            //   body: "heloosdjskdjsadas",
-            //   color: Colors.black,
-            // ),
+            SizedBox(
+              height: 50,
+            ),
+            const SuggestionBox(
+              shadowcolor: Color.fromARGB(70, 144, 238, 144),
+              header: "Josefin Sans",
+              body:
+                  "Whereas disregard and contempt for human rights have resulted",
+              color: Color(0xffA5D6A7),
+            ),
+            const SuggestionBox(
+              shadowcolor: Color.fromARGB(70, 173, 216, 230),
+              header: "Josefin Sans",
+              body:
+                  "Whereas disregard and contempt for human rights have resulted",
+              color: Color.fromARGB(255, 135, 215, 226),
+            ),
           ],
         ),
       ],
