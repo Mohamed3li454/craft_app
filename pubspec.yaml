@@ -33,6 +33,7 @@ dependencies:
   dash_chat_2: ^0.0.21
   flutter:
     sdk: flutter
+  flutter_bloc: ^8.1.6
   flutter_tesseract_ocr: ^0.4.27
   get: ^4.6.6
   google_fonts: ^6.2.1
