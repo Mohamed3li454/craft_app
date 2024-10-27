@@ -9,7 +9,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_tesseract_ocr/flutter_tesseract_ocr.dart';
 
 class BotViewBody extends StatefulWidget {
-  const BotViewBody({super.key});
+  const BotViewBody({super.key, required this.suggestiontext});
+  final String suggestiontext;
 
   @override
   State<BotViewBody> createState() => _BotViewBodyState();
@@ -33,7 +34,7 @@ class _BotViewBodyState extends State<BotViewBody>
   @override
   void initState() {
     super.initState();
-
+    _usermessage.text = widget.suggestiontext;
     // إعداد AnimationController لمدة 1 ثانية
     _controller = AnimationController(
       vsync: this,
@@ -131,7 +132,7 @@ class _BotViewBodyState extends State<BotViewBody>
           ),
           Expanded(
             child: TextField(
-              controller: _usermessage,
+              controller: _usermessage, // تم إزالة .text ليستخدم الكائن مباشرة
               decoration: InputDecoration(
                 hintText: "Type your message...",
                 border: OutlineInputBorder(),

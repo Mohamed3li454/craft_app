@@ -1,10 +1,7 @@
-import 'package:craft_app/Features/Splash/presentation/views/splash_view.dart';
-import 'package:craft_app/Features/home/presentation/views/bot_view.dart';
+import 'package:craft_app/Features/home/presentation/views/widgets/custom_animated_button.dart';
+import 'package:craft_app/Features/home/presentation/views/widgets/custom_text_widget.dart';
 import 'package:craft_app/Features/home/presentation/views/widgets/suggestion%20_box.dart';
-import 'package:craft_app/core/utils/styles.dart';
 import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';
-import 'package:get/get.dart';
 
 class HomeViewBody extends StatefulWidget {
   const HomeViewBody({super.key});
@@ -56,92 +53,33 @@ class _HomeViewBodyState extends State<HomeViewBody>
             ),
             const CustomTextWidget(),
             const SizedBox(height: 50),
-            AnimatedBuilder(
+            CustomAnimatedButton(
               animation: _animation,
-              builder: (context, child) {
-                return Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.white.withOpacity(0.8),
-                        blurRadius: _animation.value,
-                        spreadRadius: _animation.value,
-                      ),
-                    ],
-                  ),
-                  child: GestureDetector(
-                    onTap: () {
-                      Get.to(() => const BotView(),
-                          transition: Transition.circularReveal,
-                          duration: const Duration(milliseconds: 1500));
-                    },
-                    child: SizedBox(
-                      height: 200,
-                      child: Lottie.asset(
-                        "assets/Animation - 1729151259606.json",
-                        fit: BoxFit.fill,
-                      ),
-                    ),
-                  ),
-                );
-              },
             ),
-            SizedBox(
+            const SizedBox(
               height: 50,
             ),
             const SuggestionBox(
               shadowcolor: Color.fromARGB(70, 144, 238, 144),
-              header: "Josefin Sans",
-              body:
-                  "Whereas disregard and contempt for human rights have resulted",
+              header: "Academic Assistance",
+              body: "Can you help me with my math homework",
               color: Color(0xffA5D6A7),
             ),
             const SuggestionBox(
               shadowcolor: Color.fromARGB(70, 173, 216, 230),
-              header: "Josefin Sans",
-              body:
-                  "Whereas disregard and contempt for human rights have resulted",
+              header: "Health Improvement Tips",
+              body: "What are some healthy habits I can start with",
               color: Color.fromARGB(255, 135, 215, 226),
+            ),
+            const SuggestionBox(
+              shadowcolor: Color.fromARGB(70, 240, 190, 150),
+              header: "Personal Development",
+              body: "How can I improve my communication skills",
+              color: Color.fromARGB(255, 244, 164, 96),
             ),
           ],
         ),
       ],
-    );
-  }
-}
-
-class CustomTextWidget extends StatelessWidget {
-  const CustomTextWidget({
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        children: [
-          Text(
-            "Hello there ",
-            style: Styles.textStyle50,
-          ),
-          ShaderMask(
-            shaderCallback: (bounds) => const LinearGradient(
-              colors: [
-                Color(0xffaef696),
-                Color(0xff2f8d79),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ).createShader(
-                Rect.fromLTWH(0.0, 0.0, bounds.width, bounds.height)),
-            child: Text(
-              "I'm Craft",
-              style: Styles.textStyle50,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
