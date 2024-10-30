@@ -20,26 +20,45 @@ class BotCubit extends Cubit<BotState> {
         .join("\n");
   }
 
+  void addUserMessage(ChatMessage message) {
+    _messages.insert(0, message);
+    emit(BotMessageSent(List.from(_messages)));
+  }
+
   Future<void> sendMessage(String userText) async {
-    final userMessage =
-        ChatMessage(user: _user, createdAt: DateTime.now(), text: userText);
+    // إضافة رسالة المستخدم إلى الشات فورًا
+    final userMessage = ChatMessage(
+      user: _user,
+      createdAt: DateTime.now(),
+      text: userText,
+    );
+
     _messages.insert(0, userMessage);
-    emit(BotMessageSent(_messages));
-    emit(BotLoading());
+    emit(BotMessageSent(List.from(_messages)));
 
-    final model =
-        GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: apikey);
-    final content = [Content.text(_chatHistory)];
-    final response = await model.generateContent(content);
+    // استدعاء رد البوت مع حالة الانتظار
+    await _getBotResponse();
+  }
 
-    // ignore: unnecessary_null_comparison
-    if (response != null && response.text != null) {
-      final botMessage = ChatMessage(
-          user: _bot, createdAt: DateTime.now(), text: response.text!);
-      _messages.insert(0, botMessage);
-      emit(BotMessageSent(_messages));
-    } else {
-      emit(BotError("Error in bot response."));
+  Future<void> _getBotResponse() async {
+    emit(BotWaitingForResponse(List.from(_messages)));
+
+    try {
+      final model =
+          GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: apikey);
+      final content = [Content.text(_chatHistory)];
+      final response = await model.generateContent(content);
+
+      if (response != null && response.text != null) {
+        final botMessage = ChatMessage(
+            user: _bot, createdAt: DateTime.now(), text: response.text!);
+        _messages.insert(0, botMessage);
+        emit(BotMessageSent(List.from(_messages)));
+      } else {
+        emit(BotError("Error in bot response."));
+      }
+    } catch (e) {
+      emit(BotError("Failed to get bot response."));
     }
   }
 
@@ -51,24 +70,32 @@ class BotCubit extends Cubit<BotState> {
     );
 
     _messages.insert(0, imageMessage);
-    emit(BotMessageSent(_messages));
-    emit(BotLoading());
+    emit(BotMessageSent(List.from(_messages)));
 
-    String extractedText = await FlutterTesseractOcr.extractText(imagePath);
+    await _getBotResponseWithImage(imagePath);
+  }
 
-    final model =
-        GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: apikey);
-    final content = [Content.text(extractedText)];
-    final response = await model.generateContent(content);
+  Future<void> _getBotResponseWithImage(String imagePath) async {
+    emit(BotWaitingForResponse(List.from(_messages)));
 
-    // ignore: unnecessary_null_comparison
-    if (response != null && response.text != null) {
-      final botMessage = ChatMessage(
-          user: _bot, createdAt: DateTime.now(), text: response.text!);
-      _messages.insert(0, botMessage);
-      emit(BotMessageSent(_messages));
-    } else {
-      emit(BotError("Error in bot response."));
+    try {
+      String extractedText = await FlutterTesseractOcr.extractText(imagePath);
+
+      final model =
+          GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: apikey);
+      final content = [Content.text(extractedText)];
+      final response = await model.generateContent(content);
+
+      if (response != null && response.text != null) {
+        final botMessage = ChatMessage(
+            user: _bot, createdAt: DateTime.now(), text: response.text!);
+        _messages.insert(0, botMessage);
+        emit(BotMessageSent(List.from(_messages)));
+      } else {
+        emit(BotError("Error in bot response."));
+      }
+    } catch (e) {
+      emit(BotError("Failed to get response from bot with image."));
     }
   }
 }

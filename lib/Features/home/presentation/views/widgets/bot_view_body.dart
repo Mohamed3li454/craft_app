@@ -29,20 +29,24 @@ class _BotViewBodyState extends State<BotViewBody> {
     return Column(
       children: [
         Expanded(
-          child: BlocBuilder<BotCubit, BotState>(
-            builder: (context, state) {
-              if (state is BotLoading) {
-                return Center(
-                  child: Lottie.asset("assets/Animation - 1729151439930.json"),
-                );
-              } else if (state is BotMessageSent) {
-                return _buildMessageList(state.messages);
-              } else if (state is BotError) {
-                return Center(child: Text(state.message));
-              }
-              return const Center(child: Text("No messages"));
-            },
-          ),
+          child: BlocBuilder<BotCubit, BotState>(builder: (context, state) {
+            if (state is BotWaitingForResponse) {
+              return Stack(
+                children: [
+                  _buildMessageList(state.messages),
+                  Center(
+                    child:
+                        Lottie.asset("assets/Animation - 1729151439930.json"),
+                  ),
+                ],
+              );
+            } else if (state is BotMessageSent) {
+              return _buildMessageList(state.messages);
+            } else if (state is BotError) {
+              return Center(child: Text(state.message));
+            }
+            return const Center(child: Text("No messages"));
+          }),
         ),
         _buildMessageInput(context),
       ],
@@ -70,7 +74,6 @@ class _BotViewBodyState extends State<BotViewBody> {
               final pickedFile =
                   await ImagePicker().pickImage(source: ImageSource.gallery);
               if (pickedFile != null) {
-                // ignore: use_build_context_synchronously
                 context.read<BotCubit>().sendImage(pickedFile.path);
               }
             },

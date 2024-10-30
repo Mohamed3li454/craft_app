@@ -6,6 +6,11 @@ class BotInitial extends BotState {}
 
 class BotLoading extends BotState {}
 
+class BotWaitingForResponse extends BotState {
+  final List<ChatMessage> messages;
+  BotWaitingForResponse(this.messages);
+}
+
 class BotMessageSent extends BotState {
   final List<ChatMessage> messages;
   BotMessageSent(this.messages);
