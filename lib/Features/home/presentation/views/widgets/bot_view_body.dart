@@ -4,6 +4,7 @@ import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_c
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:dash_chat_2/dash_chat_2.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:lottie/lottie.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -118,17 +119,25 @@ class _BotViewBodyState extends State<BotViewBody> {
               height: 150,
               width: 150,
             )
-          : Text(
-              message.text,
-              style: TextStyle(
-                color: isBot ? Colors.white : Colors.black,
-              ),
-            ),
+          : isBot
+              ? MarkdownBody(
+                  data: message.text,
+                  selectable: true,
+                  styleSheet: MarkdownStyleSheet.fromTheme(
+                    Theme.of(context).copyWith(
+                      textTheme: Theme.of(context).textTheme.apply(
+                            bodyColor: Colors.white,
+                          ),
+                    ),
+                  ),
+                )
+              : Text(
+                  message.text,
+                  style: const TextStyle(color: Colors.black),
+                ),
     );
   }
 }
-
-
 // import 'dart:io';
 // import 'package:craft_app/conests.dart';
 // import 'package:dash_chat_2/dash_chat_2.dart';
