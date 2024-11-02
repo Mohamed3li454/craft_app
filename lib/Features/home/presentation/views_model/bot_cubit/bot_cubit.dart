@@ -1,3 +1,5 @@
+// ignore_for_file: unnecessary_null_comparison
+
 import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_state.dart';
 import 'package:craft_app/conests.dart';
 import 'package:dash_chat_2/dash_chat_2.dart';
@@ -11,13 +13,11 @@ class BotCubit extends Cubit<BotState> {
   BotCubit() : super(BotInitial());
 
   final _user = ChatUser(id: "1", firstName: "Mohamed");
-  final _bot = ChatUser(id: "2", firstName: "bot");
+  final _bot = ChatUser(id: "2", firstName: "Craft");
   final List<ChatMessage> _messages = [];
 
   String get _chatHistory {
-    return _messages.reversed
-        .map((msg) => "${msg.user.firstName}: ${msg.text}")
-        .join("\n");
+    return _messages.reversed.map((msg) => " ${msg.text}").join("\n");
   }
 
   void addUserMessage(ChatMessage message) {
@@ -26,7 +26,6 @@ class BotCubit extends Cubit<BotState> {
   }
 
   Future<void> sendMessage(String userText) async {
-    // إضافة رسالة المستخدم إلى الشات فورًا
     final userMessage = ChatMessage(
       user: _user,
       createdAt: DateTime.now(),
@@ -36,7 +35,6 @@ class BotCubit extends Cubit<BotState> {
     _messages.insert(0, userMessage);
     emit(BotMessageSent(List.from(_messages)));
 
-    // استدعاء رد البوت مع حالة الانتظار
     await _getBotResponse();
   }
 
@@ -45,7 +43,7 @@ class BotCubit extends Cubit<BotState> {
 
     try {
       final model =
-          GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: apikey);
+          GenerativeModel(model: 'gemini-1.5-pro-001', apiKey: apikey);
       final content = [Content.text(_chatHistory)];
       final response = await model.generateContent(content);
 
@@ -82,7 +80,7 @@ class BotCubit extends Cubit<BotState> {
       String extractedText = await FlutterTesseractOcr.extractText(imagePath);
 
       final model =
-          GenerativeModel(model: 'gemini-1.5-flash-latest', apiKey: apikey);
+          GenerativeModel(model: 'gemini-1.5-pro-001', apiKey: apikey);
       final content = [Content.text(extractedText)];
       final response = await model.generateContent(content);
 

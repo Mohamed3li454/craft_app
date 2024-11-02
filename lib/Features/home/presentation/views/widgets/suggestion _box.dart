@@ -1,4 +1,5 @@
-// ignore_for_file: public_member_api_docs, sort_constructors_first
+// ignore_for_file: file_names
+
 import 'package:craft_app/Features/home/presentation/views/bot_view.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';

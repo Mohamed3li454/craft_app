@@ -29,7 +29,7 @@ class CustomAnimatedButton extends StatelessWidget {
           ),
           child: GestureDetector(
             onTap: () {
-              Get.to(() => BotView(),
+              Get.to(() => const BotView(),
                   transition: Transition.circularReveal,
                   duration: const Duration(milliseconds: 1500));
             },

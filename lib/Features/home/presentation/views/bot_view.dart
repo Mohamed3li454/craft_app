@@ -10,7 +10,7 @@ class BotView extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(),
       body: BotViewBody(
-        suggestiontext: suggestiontext,
+        suggestionText: suggestiontext,
       ),
     );
   }
