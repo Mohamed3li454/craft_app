@@ -1,3 +1,5 @@
+import 'package:animated_text_kit/animated_text_kit.dart';
+import 'package:craft_app/Features/home/presentation/views/widgets/custom_appbar.dart';
 import 'package:craft_app/Features/home/presentation/views/widgets/message_input.dart';
 import 'package:craft_app/Features/home/presentation/views/widgets/message_list.dart';
 import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_state.dart';
@@ -25,30 +27,67 @@ class _BotViewBodyState extends State<BotViewBody> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Stack(
       children: [
-        Expanded(
-          child: BlocBuilder<BotCubit, BotState>(
-            builder: (context, state) {
-              if (state is BotWaitingForResponse) {
-                return Stack(
-                  children: [
-                    messageList(messages: state.messages),
-                    Center(
-                        child: Lottie.asset(
-                            "assets/Animation - 1729151439930.json")),
-                  ],
-                );
-              } else if (state is BotMessageSent) {
-                return messageList(messages: state.messages);
-              } else if (state is BotError) {
-                return Center(child: Text(state.message));
-              }
-              return const Center(child: Text("No messages"));
-            },
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xff0c3d97),
+                Color(0xff0c3d97),
+                Color(0xff0a1833),
+                Color(0xff0b1222)
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
           ),
         ),
-        MessageInput(controller: _userMessageController),
+        Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 35),
+              child: const CustomAppBar(),
+            ),
+            Expanded(
+              child: BlocBuilder<BotCubit, BotState>(
+                builder: (context, state) {
+                  if (state is BotWaitingForResponse) {
+                    return Stack(
+                      children: [
+                        messageList(messages: state.messages),
+                        Center(
+                            child: Lottie.asset(
+                                "assets/Animation - 1729151439930.json")),
+                      ],
+                    );
+                  } else if (state is BotMessageSent) {
+                    return messageList(messages: state.messages);
+                  } else if (state is BotError) {
+                    return Center(child: Text(state.message));
+                  }
+                  return Center(
+                    child: AnimatedTextKit(
+                      animatedTexts: [
+                        TypewriterAnimatedText(
+                          'Start searching now 🔍',
+                          speed: const Duration(milliseconds: 70),
+                          textStyle: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 30,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                      totalRepeatCount: 100,
+                    ),
+                  );
+                },
+              ),
+            ),
+            MessageInput(controller: _userMessageController),
+          ],
+        )
       ],
     );
   }
