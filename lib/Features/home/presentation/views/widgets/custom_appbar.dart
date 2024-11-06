@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:lottie/lottie.dart';
 
 class CustomAppBar extends StatelessWidget {
   const CustomAppBar({super.key});
@@ -8,10 +9,16 @@ class CustomAppBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-      decoration: const BoxDecoration(
-        color: Color(0xff0c3d97),
-        borderRadius: BorderRadius.vertical(
+      decoration: BoxDecoration(
+        color: const Color(0xff0c3d97),
+        borderRadius: const BorderRadius.vertical(
           bottom: Radius.circular(16),
+        ),
+        border: Border(
+          bottom: BorderSide(
+            color: const Color(0xff2f8d79).withOpacity(0.5),
+            width: 3,
+          ),
         ),
       ),
       child: Row(
@@ -33,25 +40,16 @@ class CustomAppBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
+          Row(
             children: [
-              Text(
-                "Doctor Asklepios.ai",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                "251 Chats Left • GPT-6",
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
-              ),
+              SizedBox(
+                  height: 50,
+                  width: 50,
+                  child: Lottie.asset(
+                    "assets/Animation - 1730895861296.json",
+                    // fit: BoxFit.fill,
+                  )),
+              const SizedBox(height: 4),
             ],
           ),
           const Spacer(),

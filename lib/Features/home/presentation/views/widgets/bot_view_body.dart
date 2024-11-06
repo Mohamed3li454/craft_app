@@ -1,5 +1,5 @@
-import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:craft_app/Features/home/presentation/views/widgets/custom_appbar.dart';
+import 'package:craft_app/Features/home/presentation/views/widgets/gradient_animated_text.dart';
 import 'package:craft_app/Features/home/presentation/views/widgets/message_input.dart';
 import 'package:craft_app/Features/home/presentation/views/widgets/message_list.dart';
 import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_state.dart';
@@ -45,9 +45,9 @@ class _BotViewBodyState extends State<BotViewBody> {
         ),
         Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 35),
-              child: const CustomAppBar(),
+            const Padding(
+              padding: EdgeInsets.only(top: 35),
+              child: CustomAppBar(),
             ),
             Expanded(
               child: BlocBuilder<BotCubit, BotState>(
@@ -66,22 +66,7 @@ class _BotViewBodyState extends State<BotViewBody> {
                   } else if (state is BotError) {
                     return Center(child: Text(state.message));
                   }
-                  return Center(
-                    child: AnimatedTextKit(
-                      animatedTexts: [
-                        TypewriterAnimatedText(
-                          'Start searching now 🔍',
-                          speed: const Duration(milliseconds: 70),
-                          textStyle: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 30,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                      totalRepeatCount: 100,
-                    ),
-                  );
+                  return const GradientAnimatedText();
                 },
               ),
             ),

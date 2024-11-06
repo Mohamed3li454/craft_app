@@ -26,23 +26,40 @@ class MessageInput extends StatelessWidget {
             },
           ),
           Expanded(
-            child: TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: "Type your message...",
-                border: OutlineInputBorder(),
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E2C),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: TextField(
+                controller: controller,
+                style: const TextStyle(color: Colors.white),
+                maxLines: null,
+                decoration: const InputDecoration(
+                  hintText: "Type your message...",
+                  hintStyle: TextStyle(color: Colors.grey),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 16),
+                ),
               ),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.send),
-            onPressed: () {
-              final text = controller.text;
-              if (text.isNotEmpty) {
-                context.read<BotCubit>().sendMessage(text);
-                controller.clear();
-              }
-            },
+          const SizedBox(width: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.blue,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.send, color: Colors.white),
+              onPressed: () {
+                final text = controller.text;
+                if (text.isNotEmpty) {
+                  context.read<BotCubit>().sendMessage(text);
+                  controller.clear();
+                }
+              },
+            ),
           ),
         ],
       ),
