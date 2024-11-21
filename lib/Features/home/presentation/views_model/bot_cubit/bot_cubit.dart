@@ -8,9 +8,13 @@ import 'package:flutter_tesseract_ocr/android_ios.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 class BotCubit extends Cubit<BotState> {
-  BotCubit() : super(BotInitial());
+  BotCubit() : super(BotInitial()) {
+    _loadMessagesFromCache(); // تحميل الرسائل عند بداية الـ Cubit
+  }
 
   final _user = ChatUser(id: "1", firstName: "Mohamed");
   final _bot = ChatUser(id: "2", firstName: "Craft");
@@ -20,9 +24,29 @@ class BotCubit extends Cubit<BotState> {
     return _messages.reversed.map((msg) => " ${msg.text}").join("\n");
   }
 
+  // تخزين الرسائل في SharedPreferences
+  Future<void> _cacheMessages() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> messagesJson =
+        _messages.map((msg) => json.encode(msg.toJson())).toList();
+    await prefs.setStringList('messages', messagesJson);
+  }
+
+  // تحميل الرسائل من SharedPreferences
+  Future<void> _loadMessagesFromCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? messagesJson = prefs.getStringList('messages');
+    if (messagesJson != null) {
+      _messages.addAll(
+          messagesJson.map((msg) => ChatMessage.fromJson(json.decode(msg))));
+    }
+    emit(BotMessageSent(List.from(_messages))); // إرسال الرسائل بعد تحميلها
+  }
+
   void addUserMessage(ChatMessage message) {
     _messages.insert(0, message);
     emit(BotMessageSent(List.from(_messages)));
+    _cacheMessages(); // تخزين الرسائل بعد إضافتها
   }
 
   Future<void> sendMessage(String userText) async {
@@ -35,6 +59,7 @@ class BotCubit extends Cubit<BotState> {
     _messages.insert(0, userMessage);
     emit(BotMessageSent(List.from(_messages)));
 
+    await _cacheMessages(); // تخزين الرسائل بعد إرسالها
     await _getBotResponse();
   }
 
@@ -52,6 +77,7 @@ class BotCubit extends Cubit<BotState> {
             user: _bot, createdAt: DateTime.now(), text: response.text!);
         _messages.insert(0, botMessage);
         emit(BotMessageSent(List.from(_messages)));
+        await _cacheMessages(); // تخزين الرسائل بعد استلام الرد
       } else {
         emit(BotError("Error in bot response."));
       }
@@ -70,6 +96,7 @@ class BotCubit extends Cubit<BotState> {
     _messages.insert(0, imageMessage);
     emit(BotMessageSent(List.from(_messages)));
 
+    await _cacheMessages(); // تخزين الرسائل بعد إرسال الصورة
     await _getBotResponseWithImage(imagePath);
   }
 
@@ -89,6 +116,7 @@ class BotCubit extends Cubit<BotState> {
             user: _bot, createdAt: DateTime.now(), text: response.text!);
         _messages.insert(0, botMessage);
         emit(BotMessageSent(List.from(_messages)));
+        await _cacheMessages(); // تخزين الرسائل بعد استلام الرد
       } else {
         emit(BotError("Error in bot response."));
       }
