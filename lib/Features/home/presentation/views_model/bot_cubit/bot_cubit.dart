@@ -27,21 +27,45 @@ class BotCubit extends Cubit<BotState> {
 
   // تخزين الرسائل في SharedPreferences
   Future<void> _cacheMessages() async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> messagesJson =
-        _messages.map((msg) => json.encode(msg.toJson())).toList();
-    await prefs.setStringList('messages', messagesJson);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      List<String> messagesJson =
+          _messages.map((msg) => json.encode(msg.toJson())).toList();
+      await prefs.setStringList('current_chat_messages', messagesJson);
+      print(
+          'Messages cached successfully: ${messagesJson.length} messages'); // للتتبع
+    } catch (e) {
+      print('Error caching messages: $e');
+    }
   }
 
   // تحميل الرسائل من SharedPreferences
   Future<void> _loadMessagesFromCache() async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String>? messagesJson = prefs.getStringList('messages');
-    if (messagesJson != null) {
-      _messages.addAll(
-          messagesJson.map((msg) => ChatMessage.fromJson(json.decode(msg))));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      List<String>? messagesJson = prefs.getStringList('current_chat_messages');
+
+      if (messagesJson != null && messagesJson.isNotEmpty) {
+        _messages.clear(); // مسح الرسائل الحالية قبل التحميل
+        _messages.addAll(
+            messagesJson.map((msg) => ChatMessage.fromJson(json.decode(msg))));
+        print('Loaded ${_messages.length} messages from cache');
+      } else {
+        print('No cached messages found');
+      }
+
+      emit(BotMessageSent(List.from(_messages)));
+    } catch (e) {
+      print('Error loading messages from cache: $e');
+      emit(BotError('Failed to load previous messages'));
     }
-    emit(BotMessageSent(List.from(_messages))); // إرسال الرسائل بعد تحميلها
+  }
+
+  Future<void> saveCurrentChatBeforeExit() async {
+    if (_messages.isNotEmpty) {
+      await _cacheMessages();
+      print('Chat saved before exit');
+    }
   }
 
   void addUserMessage(ChatMessage message) {
@@ -151,6 +175,7 @@ class BotCubit extends Cubit<BotState> {
     final prefs = await SharedPreferences.getInstance();
     List<String>? oldChats = prefs.getStringList('old_chats') ?? [];
 
+    // حفظ الدردشة الحالية فقط إذا كانت غير فارغة
     if (_messages.isNotEmpty) {
       List<Map<String, dynamic>> currentChatJson =
           _messages.map((msg) => msg.toJson()).toList();
@@ -158,8 +183,14 @@ class BotCubit extends Cubit<BotState> {
       await prefs.setStringList('old_chats', oldChats);
     }
 
+    // مسح الرسائل الحالية
     _messages.clear();
-    emit(BotMessageSent([])); // تحديث واجهة الشات
+
+    // حذف الرسائل المخزنة الحالية
+    await prefs.remove('current_chat_messages');
+
+    // تحديث الواجهة
+    emit(BotMessageSent([]));
   }
 
   Future<List<List<ChatMessage>>> getOldChats() async {
@@ -181,22 +212,41 @@ class BotCubit extends Cubit<BotState> {
   }
 
   Future<void> loadOldChat(int index) async {
-    currentChatIndex = index;
     final prefs = await SharedPreferences.getInstance();
     List<String>? oldChats = prefs.getStringList('old_chats') ?? [];
 
     if (index < oldChats.length) {
       try {
-        // فك تشفير JSON
+        // فك تشفير JSON للدردشة القديمة
         List<dynamic> decodedChat = json.decode(oldChats[index]);
         List<ChatMessage> oldChat = decodedChat
             .map((msgJson) =>
                 ChatMessage.fromJson(msgJson as Map<String, dynamic>))
             .toList();
 
+        // التعامل مع الدردشة الحالية قبل تحميل الدردشة القديمة
+        if (_messages.isNotEmpty) {
+          // حفظ الدردشة الحالية كدردشة قديمة
+          List<Map<String, dynamic>> currentChatJson =
+              _messages.map((msg) => msg.toJson()).toList();
+          oldChats.add(json.encode(currentChatJson));
+        }
+
+        // مسح الرسائل الحالية وتحميل الدردشة القديمة
         _messages.clear();
         _messages.addAll(oldChat);
-        emit(BotMessageSent(List.from(_messages))); // تحديث الواجهة
+
+        // إزالة الدردشة القديمة من القائمة
+        oldChats.removeAt(index);
+
+        // حفظ التغييرات
+        await prefs.setStringList('old_chats', oldChats);
+
+        // تخزين الرسائل الجديدة
+        await _cacheMessages();
+
+        // تحديث الواجهة
+        emit(BotMessageSent(List.from(_messages)));
       } catch (e) {
         emit(BotError("Failed to load chat: ${e.toString()}"));
       }
