@@ -19,6 +19,7 @@ class BotCubit extends Cubit<BotState> {
   final _user = ChatUser(id: "1", firstName: "Mohamed");
   final _bot = ChatUser(id: "2", firstName: "Craft");
   final List<ChatMessage> _messages = [];
+  int? currentChatIndex;
 
   String get _chatHistory {
     return _messages.reversed.map((msg) => " ${msg.text}").join("\n");
@@ -67,8 +68,7 @@ class BotCubit extends Cubit<BotState> {
     emit(BotWaitingForResponse(List.from(_messages)));
 
     try {
-      final model =
-          GenerativeModel(model: 'gemini-1.5-pro-001', apiKey: apikey);
+      final model = GenerativeModel(model: 'gemini-1.5-pro', apiKey: apikey);
       final content = [Content.text(_chatHistory)];
       final response = await model.generateContent(content);
 
@@ -106,8 +106,7 @@ class BotCubit extends Cubit<BotState> {
     try {
       String extractedText = await FlutterTesseractOcr.extractText(imagePath);
 
-      final model =
-          GenerativeModel(model: 'gemini-1.5-pro-001', apiKey: apikey);
+      final model = GenerativeModel(model: 'gemini-1.5-pro', apiKey: apikey);
       final content = [Content.text(extractedText)];
       final response = await model.generateContent(content);
 
@@ -122,6 +121,85 @@ class BotCubit extends Cubit<BotState> {
       }
     } catch (e) {
       emit(BotError("Failed to get response from bot with image."));
+    }
+  }
+
+  Future<void> clearChatCache(int chatIndex) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // جلب الشاتات القديمة
+    List<String>? oldChats = prefs.getStringList('old_chats') ?? [];
+
+    if (chatIndex >= 0 && chatIndex < oldChats.length) {
+      // حذف الشات المعين باستخدام الفهرس
+      oldChats.removeAt(chatIndex);
+
+      // تحديث قائمة الشاتات
+      await prefs.setStringList('old_chats', oldChats);
+
+      // إذا كان الشات الحالي هو الشات الذي يتم حذفه، احذف الرسائل كمان
+      if (chatIndex == oldChats.length) {
+        await prefs.remove('messages');
+        _messages.clear();
+      }
+    }
+
+    emit(BotMessageSent([])); // تحديث الواجهة بعد الحذف
+  }
+
+  Future<void> startNewChat() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? oldChats = prefs.getStringList('old_chats') ?? [];
+
+    if (_messages.isNotEmpty) {
+      List<Map<String, dynamic>> currentChatJson =
+          _messages.map((msg) => msg.toJson()).toList();
+      oldChats.add(json.encode(currentChatJson));
+      await prefs.setStringList('old_chats', oldChats);
+    }
+
+    _messages.clear();
+    emit(BotMessageSent([])); // تحديث واجهة الشات
+  }
+
+  Future<List<List<ChatMessage>>> getOldChats() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? oldChats = prefs.getStringList('old_chats') ?? [];
+
+    try {
+      return oldChats.map((chatJson) {
+        List<dynamic> chatList = json.decode(chatJson) as List<dynamic>;
+        return chatList
+            .map((msgJson) =>
+                ChatMessage.fromJson(msgJson as Map<String, dynamic>))
+            .toList();
+      }).toList();
+    } catch (e) {
+      print("Error decoding old chats: $e");
+      return [];
+    }
+  }
+
+  Future<void> loadOldChat(int index) async {
+    currentChatIndex = index;
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? oldChats = prefs.getStringList('old_chats') ?? [];
+
+    if (index < oldChats.length) {
+      try {
+        // فك تشفير JSON
+        List<dynamic> decodedChat = json.decode(oldChats[index]);
+        List<ChatMessage> oldChat = decodedChat
+            .map((msgJson) =>
+                ChatMessage.fromJson(msgJson as Map<String, dynamic>))
+            .toList();
+
+        _messages.clear();
+        _messages.addAll(oldChat);
+        emit(BotMessageSent(List.from(_messages))); // تحديث الواجهة
+      } catch (e) {
+        emit(BotError("Failed to load chat: ${e.toString()}"));
+      }
     }
   }
 }
