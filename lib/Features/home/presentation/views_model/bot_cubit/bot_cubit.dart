@@ -1,10 +1,11 @@
-// ignore_for_file: unnecessary_null_comparison
+// ignore_for_file: unnecessary_null_comparison, avoid_print
+
+import 'dart:io';
 
 import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_state.dart';
 import 'package:craft_app/conests.dart';
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_tesseract_ocr/android_ios.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -13,40 +14,38 @@ import 'dart:convert';
 
 class BotCubit extends Cubit<BotState> {
   BotCubit() : super(BotInitial()) {
-    _loadMessagesFromCache(); // تحميل الرسائل عند بداية الـ Cubit
+    _loadMessagesFromCache();
   }
 
   final _user = ChatUser(id: "1", firstName: "Mohamed");
   final _bot = ChatUser(id: "2", firstName: "Craft");
   final List<ChatMessage> _messages = [];
+  List<ChatMessage> get messages => _messages;
   int? currentChatIndex;
 
   String get _chatHistory {
     return _messages.reversed.map((msg) => " ${msg.text}").join("\n");
   }
 
-  // تخزين الرسائل في SharedPreferences
   Future<void> _cacheMessages() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       List<String> messagesJson =
           _messages.map((msg) => json.encode(msg.toJson())).toList();
       await prefs.setStringList('current_chat_messages', messagesJson);
-      print(
-          'Messages cached successfully: ${messagesJson.length} messages'); // للتتبع
+      print('Messages cached successfully: ${messagesJson.length} messages');
     } catch (e) {
       print('Error caching messages: $e');
     }
   }
 
-  // تحميل الرسائل من SharedPreferences
   Future<void> _loadMessagesFromCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       List<String>? messagesJson = prefs.getStringList('current_chat_messages');
 
       if (messagesJson != null && messagesJson.isNotEmpty) {
-        _messages.clear(); // مسح الرسائل الحالية قبل التحميل
+        _messages.clear();
         _messages.addAll(
             messagesJson.map((msg) => ChatMessage.fromJson(json.decode(msg))));
         print('Loaded ${_messages.length} messages from cache');
@@ -71,7 +70,7 @@ class BotCubit extends Cubit<BotState> {
   void addUserMessage(ChatMessage message) {
     _messages.insert(0, message);
     emit(BotMessageSent(List.from(_messages)));
-    _cacheMessages(); // تخزين الرسائل بعد إضافتها
+    _cacheMessages();
   }
 
   Future<void> sendMessage(String userText) async {
@@ -84,7 +83,7 @@ class BotCubit extends Cubit<BotState> {
     _messages.insert(0, userMessage);
     emit(BotMessageSent(List.from(_messages)));
 
-    await _cacheMessages(); // تخزين الرسائل بعد إرسالها
+    await _cacheMessages();
     await _getBotResponse();
   }
 
@@ -92,7 +91,8 @@ class BotCubit extends Cubit<BotState> {
     emit(BotWaitingForResponse(List.from(_messages)));
 
     try {
-      final model = GenerativeModel(model: 'gemini-1.5-pro', apiKey: apikey);
+      final model =
+          GenerativeModel(model: 'gemini-2.0-flash-exp', apiKey: apikey);
       final content = [Content.text(_chatHistory)];
       final response = await model.generateContent(content);
 
@@ -101,7 +101,7 @@ class BotCubit extends Cubit<BotState> {
             user: _bot, createdAt: DateTime.now(), text: response.text!);
         _messages.insert(0, botMessage);
         emit(BotMessageSent(List.from(_messages)));
-        await _cacheMessages(); // تخزين الرسائل بعد استلام الرد
+        await _cacheMessages();
       } else {
         emit(BotError("Error in bot response."));
       }
@@ -120,7 +120,7 @@ class BotCubit extends Cubit<BotState> {
     _messages.insert(0, imageMessage);
     emit(BotMessageSent(List.from(_messages)));
 
-    await _cacheMessages(); // تخزين الرسائل بعد إرسال الصورة
+    await _cacheMessages();
     await _getBotResponseWithImage(imagePath);
   }
 
@@ -128,10 +128,18 @@ class BotCubit extends Cubit<BotState> {
     emit(BotWaitingForResponse(List.from(_messages)));
 
     try {
-      String extractedText = await FlutterTesseractOcr.extractText(imagePath);
+      final imageBytes = await File(imagePath).readAsBytes();
 
-      final model = GenerativeModel(model: 'gemini-1.5-pro', apiKey: apikey);
-      final content = [Content.text(extractedText)];
+      final model = GenerativeModel(
+        model: 'gemini-2.0-flash-exp',
+        apiKey: apikey,
+      );
+
+      final content = [
+        Content.multi(
+            [TextPart(_chatHistory), DataPart('image/jpeg', imageBytes)])
+      ];
+
       final response = await model.generateContent(content);
 
       if (response != null && response.text != null) {
@@ -139,43 +147,42 @@ class BotCubit extends Cubit<BotState> {
             user: _bot, createdAt: DateTime.now(), text: response.text!);
         _messages.insert(0, botMessage);
         emit(BotMessageSent(List.from(_messages)));
-        await _cacheMessages(); // تخزين الرسائل بعد استلام الرد
+        await _cacheMessages();
       } else {
         emit(BotError("Error in bot response."));
       }
     } catch (e) {
-      emit(BotError("Failed to get response from bot with image."));
+      emit(BotError("Failed to get response from bot with image: $e"));
     }
   }
 
-  Future<void> clearChatCache(int chatIndex) async {
+  void setCurrentChatIndex(int index) {
+    currentChatIndex = index;
+  }
+
+  Future<void> clearChatCache(int? chatIndex) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // جلب الشاتات القديمة
     List<String>? oldChats = prefs.getStringList('old_chats') ?? [];
 
-    if (chatIndex >= 0 && chatIndex < oldChats.length) {
-      // حذف الشات المعين باستخدام الفهرس
+    if (chatIndex != null && chatIndex >= 0 && chatIndex < oldChats.length) {
       oldChats.removeAt(chatIndex);
 
-      // تحديث قائمة الشاتات
       await prefs.setStringList('old_chats', oldChats);
-
-      // إذا كان الشات الحالي هو الشات الذي يتم حذفه، احذف الرسائل كمان
-      if (chatIndex == oldChats.length) {
-        await prefs.remove('messages');
-        _messages.clear();
-      }
     }
 
-    emit(BotMessageSent([])); // تحديث الواجهة بعد الحذف
+    _messages.clear();
+    await prefs.remove('current_chat_messages');
+
+    currentChatIndex = null;
+
+    emit(BotMessageSent([]));
   }
 
   Future<void> startNewChat() async {
     final prefs = await SharedPreferences.getInstance();
     List<String>? oldChats = prefs.getStringList('old_chats') ?? [];
 
-    // حفظ الدردشة الحالية فقط إذا كانت غير فارغة
     if (_messages.isNotEmpty) {
       List<Map<String, dynamic>> currentChatJson =
           _messages.map((msg) => msg.toJson()).toList();
@@ -183,13 +190,10 @@ class BotCubit extends Cubit<BotState> {
       await prefs.setStringList('old_chats', oldChats);
     }
 
-    // مسح الرسائل الحالية
     _messages.clear();
 
-    // حذف الرسائل المخزنة الحالية
     await prefs.remove('current_chat_messages');
 
-    // تحديث الواجهة
     emit(BotMessageSent([]));
   }
 
@@ -217,35 +221,27 @@ class BotCubit extends Cubit<BotState> {
 
     if (index < oldChats.length) {
       try {
-        // فك تشفير JSON للدردشة القديمة
         List<dynamic> decodedChat = json.decode(oldChats[index]);
         List<ChatMessage> oldChat = decodedChat
             .map((msgJson) =>
                 ChatMessage.fromJson(msgJson as Map<String, dynamic>))
             .toList();
 
-        // التعامل مع الدردشة الحالية قبل تحميل الدردشة القديمة
         if (_messages.isNotEmpty) {
-          // حفظ الدردشة الحالية كدردشة قديمة
           List<Map<String, dynamic>> currentChatJson =
               _messages.map((msg) => msg.toJson()).toList();
           oldChats.add(json.encode(currentChatJson));
         }
 
-        // مسح الرسائل الحالية وتحميل الدردشة القديمة
         _messages.clear();
         _messages.addAll(oldChat);
 
-        // إزالة الدردشة القديمة من القائمة
         oldChats.removeAt(index);
 
-        // حفظ التغييرات
         await prefs.setStringList('old_chats', oldChats);
 
-        // تخزين الرسائل الجديدة
         await _cacheMessages();
 
-        // تحديث الواجهة
         emit(BotMessageSent(List.from(_messages)));
       } catch (e) {
         emit(BotError("Failed to load chat: ${e.toString()}"));
@@ -267,16 +263,12 @@ class ImagePickerCubit extends Cubit<BotState> {
       final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
 
       if (pickedFile != null) {
-        // ignore: unused_local_variable
-        String extractedText =
-            await FlutterTesseractOcr.extractText(pickedFile.path);
         emit(BotMessageSent([
           ChatMessage(
               user: _user,
               createdAt: DateTime.now(),
               customProperties: {'image': pickedFile.path})
         ]));
-        // Add extracted text to chat or proceed with other operations
       } else {
         emit(BotError("No image selected."));
       }

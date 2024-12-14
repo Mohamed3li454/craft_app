@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class OldChatsScreen extends StatefulWidget {
+  const OldChatsScreen({super.key});
+
   @override
+  // ignore: library_private_types_in_public_api
   _OldChatsScreenState createState() => _OldChatsScreenState();
 }
 
@@ -28,10 +31,10 @@ class _OldChatsScreenState extends State<OldChatsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("Old Chats"),
+        title: const Text("Old Chats"),
       ),
       body: _oldChats.isEmpty
-          ? Center(child: Text("No old chats found"))
+          ? const Center(child: Text("No old chats found"))
           : ListView.builder(
               itemCount: _oldChats.length,
               itemBuilder: (context, index) {
@@ -44,17 +47,19 @@ class _OldChatsScreenState extends State<OldChatsScreen> {
                   title: Text("Chat ${index + 1}"),
                   subtitle: Text(previewText),
                   trailing: IconButton(
-                    icon: Icon(Icons.delete, color: Colors.red),
+                    icon: const Icon(Icons.delete, color: Colors.red),
                     onPressed: () async {
+                      context.read<BotCubit>().setCurrentChatIndex(index);
                       await context.read<BotCubit>().clearChatCache(index);
                       setState(() {
-                        _oldChats.removeAt(index); // تحديث الواجهة
+                        _oldChats.removeAt(index);
                       });
                     },
                   ),
                   onTap: () {
                     context.read<BotCubit>().loadOldChat(index);
-                    Navigator.pop(context); // الرجوع لشاشة الدردشة
+
+                    Navigator.pop(context);
                   },
                 );
               },

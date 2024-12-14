@@ -1,3 +1,5 @@
+// ignore_for_file: unused_local_variable, use_build_context_synchronously
+
 import 'package:craft_app/Features/home/presentation/views/widgets/old_chat_view.dart';
 import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_cubit.dart';
 import 'package:dash_chat_2/dash_chat_2.dart';
@@ -93,9 +95,8 @@ class CustomAppBar extends StatelessWidget {
               title: const Text("مسح الشات الحالي"),
               onTap: () async {
                 final botCubit = context.read<BotCubit>();
-                final currentChatIndex = botCubit.currentChatIndex;
 
-                if (currentChatIndex != null) {
+                if (botCubit.messages.isNotEmpty) {
                   showDialog(
                     context: context,
                     builder: (BuildContext context) {
@@ -112,9 +113,10 @@ class CustomAppBar extends StatelessWidget {
                             child: const Text("حذف",
                                 style: TextStyle(color: Colors.red)),
                             onPressed: () async {
-                              await botCubit.clearChatCache(currentChatIndex);
-                              Navigator.pop(context); // إغلاق نافذة التأكيد
-                              Navigator.pop(context); // إغلاق القائمة
+                              await botCubit
+                                  .clearChatCache(botCubit.currentChatIndex);
+                              Navigator.pop(context);
+                              Navigator.pop(context); // إغلاق القائمة السفلية
                             },
                           ),
                         ],
@@ -133,7 +135,7 @@ class CustomAppBar extends StatelessWidget {
               title: const Text("بدء شات جديد (الاحتفاظ بالقديم)"),
               onTap: () {
                 context.read<BotCubit>().startNewChat();
-                Navigator.pop(context); // إغلاق القائمة
+                Navigator.pop(context);
               },
             ),
             IconButton(
@@ -141,15 +143,14 @@ class CustomAppBar extends StatelessWidget {
                 List<List<ChatMessage>> oldChats =
                     await context.read<BotCubit>().getOldChats();
 
-                // هنا يمكن فتح شاشة جديدة لاستعراض الشاتات القديمة
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => OldChatsScreen(),
+                    builder: (context) => const OldChatsScreen(),
                   ),
                 );
               },
-              icon: Icon(Icons.history),
+              icon: const Icon(Icons.history),
             ),
           ],
         );
