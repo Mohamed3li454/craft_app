@@ -62,7 +62,9 @@ class _BotViewBodyState extends State<BotViewBody> {
                       ],
                     );
                   } else if (state is BotMessageSent) {
-                    return messageList(messages: state.messages);
+                    return state.messages.isEmpty
+                        ? const GradientAnimatedText()
+                        : messageList(messages: state.messages);
                   } else if (state is BotError) {
                     return Center(child: Text(state.message));
                   }
