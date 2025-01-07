@@ -1,6 +1,4 @@
 // ignore_for_file: unused_local_variable, use_build_context_synchronously
-
-import 'package:craft_app/Features/home/presentation/views/widgets/old_chat_view.dart';
 import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_cubit.dart';
 import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_state.dart';
 import 'package:dash_chat_2/dash_chat_2.dart';
@@ -28,8 +26,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
         ),
         border: Border(
           bottom: BorderSide(
-            color: const Color(0xff2f8d79).withOpacity(0.5),
-            width: 3,
+            color: const Color(0xff2f8d79).withValues(alpha: 0.5),
           ),
         ),
       ),
@@ -37,7 +34,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
         children: [
           Container(
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(8),
             ),
             child: IconButton(
@@ -67,7 +64,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
           const Spacer(),
           Container(
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(8),
             ),
             child: IconButton(
@@ -88,23 +85,23 @@ class _CustomAppBarState extends State<CustomAppBar> {
 
   void _showMenuDrawer(BuildContext context) {
     showModalBottomSheet(
+      backgroundColor: const Color(0xff0a1833),
       context: context,
-      isScrollControlled: true, // يتيح توسعة الـ BottomSheet بالكامل
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (BuildContext context) {
         return DraggableScrollableSheet(
-          initialChildSize: 0.5, // النسبة المبدئية لارتفاع الـ BottomSheet
-          minChildSize: 0.3, // أقل نسبة ارتفاع
-          maxChildSize: 0.9, // أقصى نسبة ارتفاع
-          expand: false, // يسمح بالسحب بدلاً من التمدد التلقائي
+          initialChildSize: 0.5,
+          minChildSize: 0.3,
+          maxChildSize: 0.9,
+          expand: false,
           builder: (BuildContext context, ScrollController scrollController) {
             return SingleChildScrollView(
               controller: scrollController,
               child: Column(
                 children: [
-                  // الشريط العلوي
                   Container(
                     width: 50,
                     height: 6,
@@ -114,59 +111,133 @@ class _CustomAppBarState extends State<CustomAppBar> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  // الأزرار
-                  ListTile(
-                    leading:
-                        const Icon(Icons.delete_forever, color: Colors.red),
-                    title: const Text("مسح الشات الحالي"),
-                    onTap: () async {
-                      final botCubit = context.read<BotCubit>();
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        ElevatedButton(
+                          onPressed: () async {
+                            final botCubit = context.read<BotCubit>();
 
-                      if (botCubit.messages.isNotEmpty) {
-                        showDialog(
-                          context: context,
-                          builder: (BuildContext context) {
-                            return AlertDialog(
-                              title: const Text("تأكيد الحذف"),
-                              content: const Text(
-                                  "هل أنت متأكد أنك تريد حذف الشات الحالي؟"),
-                              actions: [
-                                TextButton(
-                                  child: const Text("إلغاء"),
-                                  onPressed: () => Navigator.pop(context),
+                            if (botCubit.messages.isNotEmpty) {
+                              showDialog(
+                                context: context,
+                                builder: (BuildContext context) {
+                                  return AlertDialog(
+                                    backgroundColor: const Color(0xff0b1222),
+                                    title: const Text(
+                                      "تأكيد الحذف",
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                    content: const Text(
+                                      "هل أنت متأكد أنك تريد حذف الشات الحالي؟",
+                                      style: TextStyle(color: Colors.white70),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        child: const Text(
+                                          "إلغاء",
+                                          style: TextStyle(color: Colors.grey),
+                                        ),
+                                        onPressed: () => Navigator.pop(context),
+                                      ),
+                                      TextButton(
+                                        child: const Text(
+                                          "حذف",
+                                          style: TextStyle(color: Colors.red),
+                                        ),
+                                        onPressed: () async {
+                                          await botCubit.clearChatCache(
+                                              botCubit.currentChatIndex);
+                                          Navigator.pop(context);
+                                          Navigator.pop(context);
+                                        },
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("لا يوجد شات لحذفه حاليًا!"),
                                 ),
-                                TextButton(
-                                  child: const Text("حذف",
-                                      style: TextStyle(color: Colors.red)),
-                                  onPressed: () async {
-                                    await botCubit.clearChatCache(
-                                        botCubit.currentChatIndex);
-                                    Navigator.pop(context);
-                                    Navigator.pop(
-                                        context); // إغلاق القائمة السفلية
-                                  },
-                                ),
-                              ],
-                            );
+                              );
+                            }
                           },
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text("لا يوجد شات لحذفه حاليًا!")),
-                        );
-                      }
-                    },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                                const Color(0xffd62828), // اللون الأحمر
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(30), // الحواف الدائرية
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 20, horizontal: 30),
+                            minimumSize: Size(
+                                MediaQuery.of(context).size.width / 2.5,
+                                70), // حجم الزر
+                          ),
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.delete, size: 24, color: Colors.white),
+                              SizedBox(height: 8),
+                              Text(
+                                "Delete",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: () {
+                            context.read<BotCubit>().startNewChat();
+                            Navigator.pop(context);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                                const Color(0xff0c3d97), // اللون الأزرق
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(30), // الحواف الدائرية
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 20, horizontal: 30),
+                            minimumSize: Size(
+                                MediaQuery.of(context).size.width / 2.5,
+                                70), // حجم الزر
+                          ),
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.chat, size: 24, color: Colors.white),
+                              SizedBox(height: 8),
+                              Text(
+                                "New Chat",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  ListTile(
-                    leading: const Icon(Icons.chat, color: Colors.blue),
-                    title: const Text("بدء شات جديد (الاحتفاظ بالقديم)"),
-                    onTap: () {
-                      context.read<BotCubit>().startNewChat();
-                      Navigator.pop(context);
-                    },
+                  const Divider(
+                    color: Color(0xff2f8d79), // لون الفاصل الأخضر
+                    thickness: 1,
+                    indent: 100,
+                    endIndent: 100,
                   ),
-                  const Divider(), // فاصل بين الأزرار وقائمة الشاتات
                   // قائمة الشاتات القديمة
                   BlocBuilder<BotCubit, BotState>(
                     builder: (context, state) {
@@ -185,7 +256,10 @@ class _CustomAppBarState extends State<CustomAppBar> {
                             return const Padding(
                               padding: EdgeInsets.all(16.0),
                               child: Center(
-                                child: Text("لا توجد شاتات محفوظة"),
+                                child: Text(
+                                  "There's no chats to show",
+                                  style: TextStyle(color: Colors.white70),
+                                ),
                               ),
                             );
                           }
@@ -197,27 +271,32 @@ class _CustomAppBarState extends State<CustomAppBar> {
                             itemBuilder: (context, index) {
                               final chat = oldChats[index];
                               final previewText = chat.isNotEmpty
-                                  ? chat.last.text ?? "No Text"
+                                  ? chat.last.text
                                   : "Empty Chat";
 
-                              return ListTile(
-                                title: Text("شات ${index + 1}"),
-                                subtitle: Text(previewText),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.delete,
-                                      color: Colors.red),
-                                  onPressed: () async {
-                                    await botCubit.clearChatCache(index);
-                                    setState(() {
-                                      oldChats.removeAt(index);
-                                    });
+                              return Card(
+                                shadowColor: const Color(0xff2f8d79),
+                                elevation: 5,
+                                color: const Color(0xff0b1222), // خلفية الشات
+                                child: ListTile(
+                                  leading: Lottie.asset(
+                                    "assets/Animation - 1729151259606.json",
+                                    fit: BoxFit.fill,
+                                  ),
+                                  title: Text(
+                                    "Chat ${index + 1}",
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                  subtitle: Text(
+                                    previewText,
+                                    style:
+                                        const TextStyle(color: Colors.white70),
+                                  ),
+                                  onTap: () {
+                                    botCubit.loadOldChat(index);
+                                    Navigator.pop(context);
                                   },
                                 ),
-                                onTap: () {
-                                  botCubit.loadOldChat(index);
-                                  Navigator.pop(
-                                      context); // إغلاق الـ BottomSheet
-                                },
                               );
                             },
                           );

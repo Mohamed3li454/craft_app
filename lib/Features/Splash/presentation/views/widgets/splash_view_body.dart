@@ -27,13 +27,13 @@ class SplashViewBody extends StatelessWidget {
                 children: [
                   SizedBox(
                     height: 250,
-                    child: Lottie.asset("assets/Animation - 1729151259606.json",
-                        fit: BoxFit.fill),
+                    child: Lottie.asset("assets/Animation - 1736005984483.json",
+                        fit: BoxFit.fill, repeat: false),
                   ),
                 ],
               ),
               nextScreen: const HomeView(),
-              duration: 3500,
+              duration: 3000,
               splashIconSize: 250,
               centered: true,
               backgroundColor: Colors.transparent, // Ensure transparency

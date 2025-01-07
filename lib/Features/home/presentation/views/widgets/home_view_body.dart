@@ -47,17 +47,11 @@ class _HomeViewBodyState extends State<HomeViewBody>
           ),
         ),
         Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            const SizedBox(
-              height: 50,
-            ),
             const CustomTextWidget(),
-            const SizedBox(height: 50),
             CustomAnimatedButton(
               animation: _animation,
-            ),
-            const SizedBox(
-              height: 50,
             ),
             const SuggestionBox(
               shadowcolor: Color.fromARGB(70, 144, 238, 144),

@@ -21,7 +21,7 @@ class CustomAnimatedButton extends StatelessWidget {
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.white.withOpacity(0.8),
+                color: Colors.white.withValues(alpha: 0.8),
                 blurRadius: _animation.value,
                 spreadRadius: _animation.value,
               ),

@@ -27,7 +27,7 @@ class SuggestionBox extends StatelessWidget {
         Get.to(() => BotView(suggestiontext: body));
       },
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+        margin: const EdgeInsets.symmetric(vertical: 0, horizontal: 10),
         decoration: BoxDecoration(
             boxShadow: [
               BoxShadow(
@@ -37,7 +37,7 @@ class SuggestionBox extends StatelessWidget {
             ],
             color: color,
             borderRadius: const BorderRadius.all(Radius.circular(15))),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
         width: double.infinity,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
