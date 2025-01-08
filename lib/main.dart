@@ -23,9 +23,10 @@ class MyApp extends StatelessWidget {
           create: (context) => ImagePickerCubit(),
         )
       ],
-      child: const GetMaterialApp(
+      child: GetMaterialApp(
+        darkTheme: ThemeData.dark(),
         debugShowCheckedModeBanner: false,
-        home: SplashView(),
+        home: const SplashView(),
       ),
     );
   }
