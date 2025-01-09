@@ -46,32 +46,38 @@ class _HomeViewBodyState extends State<HomeViewBody>
             ),
           ),
         ),
-        Column(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            const CustomTextWidget(),
-            CustomAnimatedButton(
-              animation: _animation,
+        SingleChildScrollView(
+          child: SizedBox(
+            // This ensures the content takes at least the full screen height
+            height: MediaQuery.of(context).size.height,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                const CustomTextWidget(),
+                CustomAnimatedButton(
+                  animation: _animation,
+                ),
+                const SuggestionBox(
+                  shadowcolor: Color.fromARGB(70, 144, 238, 144),
+                  header: "Academic Assistance",
+                  body: "Can you help me with my math homework",
+                  color: Color(0xffA5D6A7),
+                ),
+                const SuggestionBox(
+                  shadowcolor: Color.fromARGB(70, 173, 216, 230),
+                  header: "Health Improvement Tips",
+                  body: "What are some healthy habits I can start with",
+                  color: Color.fromARGB(255, 135, 215, 226),
+                ),
+                const SuggestionBox(
+                  shadowcolor: Color.fromARGB(70, 240, 190, 150),
+                  header: "Personal Development",
+                  body: "How can I improve my communication skills",
+                  color: Color.fromARGB(255, 244, 164, 96),
+                ),
+              ],
             ),
-            const SuggestionBox(
-              shadowcolor: Color.fromARGB(70, 144, 238, 144),
-              header: "Academic Assistance",
-              body: "Can you help me with my math homework",
-              color: Color(0xffA5D6A7),
-            ),
-            const SuggestionBox(
-              shadowcolor: Color.fromARGB(70, 173, 216, 230),
-              header: "Health Improvement Tips",
-              body: "What are some healthy habits I can start with",
-              color: Color.fromARGB(255, 135, 215, 226),
-            ),
-            const SuggestionBox(
-              shadowcolor: Color.fromARGB(70, 240, 190, 150),
-              header: "Personal Development",
-              body: "How can I improve my communication skills",
-              color: Color.fromARGB(255, 244, 164, 96),
-            ),
-          ],
+          ),
         ),
       ],
     );
