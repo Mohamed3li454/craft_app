@@ -1,1 +1,1 @@
-const apikey = "Ypur API Key";
+const apikey = "Your API Key";

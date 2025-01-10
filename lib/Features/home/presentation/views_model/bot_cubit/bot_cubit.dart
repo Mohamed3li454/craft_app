@@ -1,10 +1,7 @@
 // ignore_for_file: unnecessary_null_comparison, avoid_print, non_constant_identifier_names
 
 import 'dart:io';
-
 import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_state.dart';
-
-import 'package:craft_app/conests.dart';
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
