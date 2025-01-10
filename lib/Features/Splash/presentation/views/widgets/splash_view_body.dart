@@ -27,8 +27,10 @@ class SplashViewBody extends StatelessWidget {
                 children: [
                   SizedBox(
                     height: 250,
-                    child: Lottie.asset("assets/Animation - 1736005984483.json",
-                        fit: BoxFit.fill, repeat: false),
+                    child: Lottie.asset(
+                        "assets/Animation/Animation - 1736005984483.json",
+                        fit: BoxFit.fill,
+                        repeat: false),
                   ),
                 ],
               ),

@@ -1,8 +1,9 @@
-// ignore_for_file: unnecessary_null_comparison, avoid_print
+// ignore_for_file: unnecessary_null_comparison, avoid_print, non_constant_identifier_names
 
 import 'dart:io';
 
 import 'package:craft_app/Features/home/presentation/views_model/bot_cubit/bot_state.dart';
+
 import 'package:craft_app/conests.dart';
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -11,6 +12,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class BotCubit extends Cubit<BotState> {
   BotCubit() : super(BotInitial()) {
@@ -22,6 +24,7 @@ class BotCubit extends Cubit<BotState> {
   final List<ChatMessage> _messages = [];
   List<ChatMessage> get messages => _messages;
   int? currentChatIndex;
+  String api_key = dotenv.env['API_KEY'] ?? '';
 
   String get _chatHistory {
     return _messages.reversed.map((msg) => " ${msg.text}").join("\n");
@@ -92,7 +95,7 @@ class BotCubit extends Cubit<BotState> {
 
     try {
       final model =
-          GenerativeModel(model: 'gemini-2.0-flash-exp', apiKey: apikey);
+          GenerativeModel(model: 'gemini-2.0-flash-exp', apiKey: api_key);
       final content = [Content.text(_chatHistory)];
       final response = await model.generateContent(content);
 
@@ -132,7 +135,7 @@ class BotCubit extends Cubit<BotState> {
 
       final model = GenerativeModel(
         model: 'gemini-2.0-flash-exp',
-        apiKey: apikey,
+        apiKey: api_key,
       );
 
       final content = [

@@ -6,7 +6,7 @@
 
     
     <application
-        android:label="craft_app"
+        android:label="Craft"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         

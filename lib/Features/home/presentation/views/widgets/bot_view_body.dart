@@ -55,10 +55,10 @@ class _BotViewBodyState extends State<BotViewBody> {
                   if (state is BotWaitingForResponse) {
                     return Stack(
                       children: [
-                        messageList(messages: state.messages),
+                        // messageList(messages: state.messages),
                         Center(
                             child: Lottie.asset(
-                                "assets/Animation - 1729151439930.json")),
+                                "assets/Animation/Animation - 1729151439930.json")),
                       ],
                     );
                   } else if (state is BotMessageSent) {

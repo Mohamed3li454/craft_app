@@ -1,8 +1,8 @@
 // custom_app_bar.dart
+import 'package:craft_app/Features/home/presentation/views/widgets/menu_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:lottie/lottie.dart';
-import 'menu_drawer.dart'; // سيتم استيراد ملف menu_drawer.dart
 
 class CustomAppBar extends StatefulWidget {
   const CustomAppBar({super.key});
@@ -52,7 +52,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
                   height: 50,
                   width: 50,
                   child: Lottie.asset(
-                    "assets/Animation - 1730895861296.json",
+                    "assets/Animation/Animation - 1730895861296.json",
                     // fit: BoxFit.fill,
                   )),
               const SizedBox(height: 4),
@@ -66,7 +66,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
             ),
             child: IconButton(
               onPressed: () {
-                showMenuDrawer(context); // استدعاء الدالة من menu_drawer.dart
+                showMenuDrawer(context);
               },
               icon: const Icon(
                 FontAwesomeIcons.barsStaggered,

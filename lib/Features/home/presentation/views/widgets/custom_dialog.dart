@@ -41,8 +41,10 @@ class CustomDialog extends StatelessWidget {
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Lottie.asset("assets/Animation - 1736357472964.json",
-                        fit: BoxFit.fill, repeat: true),
+                    Lottie.asset(
+                        "assets/Animation/Animation - 1736357472964.json",
+                        fit: BoxFit.fill,
+                        repeat: true),
                     const SizedBox(height: 20),
                     const Text(
                       "No Internet Connection",
@@ -67,8 +69,7 @@ class CustomDialog extends StatelessWidget {
                         Navigator.pop(context);
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            const Color(0xFFFF6F91), // زر بلون وردي
+                        backgroundColor: const Color(0xFFFF6F91),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),

@@ -36,7 +36,7 @@ class CustomAnimatedButton extends StatelessWidget {
             child: SizedBox(
               height: 200,
               child: Lottie.asset(
-                "assets/Animation - 1729151259606.json",
+                "assets/Animation/Animation - 1729151259606.json",
                 fit: BoxFit.fill,
               ),
             ),
