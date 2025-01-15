@@ -7,7 +7,6 @@ class HomeViewBody extends StatefulWidget {
   const HomeViewBody({super.key});
 
   @override
-  // ignore: library_private_types_in_public_api
   _HomeViewBodyState createState() => _HomeViewBodyState();
 }
 
@@ -35,6 +34,13 @@ class _HomeViewBodyState extends State<HomeViewBody>
 
   @override
   Widget build(BuildContext context) {
+    // Get screen size
+    final Size screenSize = MediaQuery.of(context).size;
+    final double verticalPadding =
+        screenSize.height * 0.02; // 2% of screen height
+    final double horizontalPadding =
+        screenSize.width * 0.04; // 4% of screen width
+
     return Stack(
       children: [
         Container(
@@ -46,38 +52,61 @@ class _HomeViewBodyState extends State<HomeViewBody>
             ),
           ),
         ),
-        SingleChildScrollView(
-          child: SizedBox(
-            // This ensures the content takes at least the full screen height
-            height: MediaQuery.of(context).size.height,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                const CustomTextWidget(),
-                CustomAnimatedButton(
-                  animation: _animation,
+        LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
                 ),
-                const SuggestionBox(
-                  shadowcolor: Color.fromARGB(70, 144, 238, 144),
-                  header: "Academic Assistance",
-                  body: "Can you help me with my math homework",
-                  color: Color(0xffA5D6A7),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    vertical: verticalPadding,
+                    horizontal: horizontalPadding,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      const CustomTextWidget(),
+                      CustomAnimatedButton(
+                        animation: _animation,
+                      ),
+                      _buildSuggestionBoxes(screenSize),
+                    ],
+                  ),
                 ),
-                const SuggestionBox(
-                  shadowcolor: Color.fromARGB(70, 173, 216, 230),
-                  header: "Health Improvement Tips",
-                  body: "What are some healthy habits I can start with",
-                  color: Color.fromARGB(255, 135, 215, 226),
-                ),
-                const SuggestionBox(
-                  shadowcolor: Color.fromARGB(70, 240, 190, 150),
-                  header: "Personal Development",
-                  body: "How can I improve my communication skills",
-                  color: Color.fromARGB(255, 244, 164, 96),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSuggestionBoxes(Size screenSize) {
+    return Column(
+      children: [
+        SizedBox(height: screenSize.height * 0.02), // Spacing
+        SuggestionBox(
+          shadowcolor: const Color.fromARGB(70, 144, 238, 144),
+          header: "Academic Assistance",
+          body: "Can you help me with my math homework",
+          color: const Color(0xffA5D6A7),
+        ),
+        SizedBox(height: screenSize.height * 0.02), // Spacing between boxes
+        SuggestionBox(
+          shadowcolor: const Color.fromARGB(70, 173, 216, 230),
+          header: "Health Improvement Tips",
+          body: "What are some healthy habits I can start with",
+          color: const Color.fromARGB(255, 135, 215, 226),
+        ),
+        SizedBox(height: screenSize.height * 0.02), // Spacing between boxes
+        SuggestionBox(
+          shadowcolor: const Color.fromARGB(70, 240, 190, 150),
+          header: "Personal Development",
+          body: "How can I improve my communication skills",
+          color: const Color.fromARGB(255, 244, 164, 96),
         ),
       ],
     );

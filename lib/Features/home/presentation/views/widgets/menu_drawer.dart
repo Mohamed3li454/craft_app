@@ -95,17 +95,21 @@ void showMenuDrawer(BuildContext context) {
 Widget _buildButtonRow(BuildContext context) {
   return Padding(
     padding: const EdgeInsets.symmetric(horizontal: 16.0),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _buildDeleteButton(context),
-        _buildNewChatButton(context),
-      ],
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _buildDeleteButton(context, constraints.maxWidth),
+            _buildNewChatButton(context, constraints.maxWidth),
+          ],
+        );
+      },
     ),
   );
 }
 
-Widget _buildDeleteButton(BuildContext context) {
+Widget _buildDeleteButton(BuildContext context, double maxWidth) {
   return ElevatedButton(
     onPressed: () async {
       final botCubit = context.read<BotCubit>();
@@ -123,7 +127,7 @@ Widget _buildDeleteButton(BuildContext context) {
       backgroundColor: _deleteButtonColor,
       shape: _buttonShape,
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 30),
-      minimumSize: Size(MediaQuery.of(context).size.width / 2.5, 70),
+      minimumSize: Size(maxWidth / 2.5, 70),
     ),
     child: const Column(
       mainAxisSize: MainAxisSize.min,
@@ -136,7 +140,7 @@ Widget _buildDeleteButton(BuildContext context) {
   );
 }
 
-Widget _buildNewChatButton(BuildContext context) {
+Widget _buildNewChatButton(BuildContext context, double maxWidth) {
   return ElevatedButton(
     onPressed: () {
       context.read<BotCubit>().startNewChat();
@@ -146,7 +150,7 @@ Widget _buildNewChatButton(BuildContext context) {
       backgroundColor: _newChatButtonColor,
       shape: _buttonShape,
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 30),
-      minimumSize: Size(MediaQuery.of(context).size.width / 2.5, 70),
+      minimumSize: Size(maxWidth / 2.5, 70),
     ),
     child: const Column(
       mainAxisSize: MainAxisSize.min,
