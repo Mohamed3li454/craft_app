@@ -1,11 +1,9 @@
-// ignore_for_file: library_private_types_in_public_api
-
 import 'dart:async';
 import 'dart:io';
 
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class MessageItem extends StatefulWidget {
@@ -19,7 +17,7 @@ class MessageItem extends StatefulWidget {
   });
 
   @override
-  _MessageItemState createState() => _MessageItemState();
+  State<MessageItem> createState() => _MessageItemState();
 }
 
 class _MessageItemState extends State<MessageItem> {
