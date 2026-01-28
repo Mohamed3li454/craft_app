@@ -91,22 +91,29 @@ class BotCubit extends Cubit<BotState> {
     emit(BotWaitingForResponse(List.from(_messages)));
 
     try {
+      if (api_key.isEmpty) {
+        emit(BotError("API key not configured. Check .env file."));
+        return;
+      }
+
       final model =
-          GenerativeModel(model: 'gemini-2.0-flash-exp', apiKey: api_key);
+          GenerativeModel(model: 'gemini-3-flash-preview', apiKey: api_key);
       final content = [Content.text(_chatHistory)];
       final response = await model.generateContent(content);
 
-      if (response != null && response.text != null) {
+      if (response.text != null && response.text!.isNotEmpty) {
         final botMessage = ChatMessage(
             user: _bot, createdAt: DateTime.now(), text: response.text!);
         _messages.insert(0, botMessage);
         emit(BotMessageSent(List.from(_messages)));
         await _cacheMessages();
       } else {
-        emit(BotError("Error in bot response."));
+        emit(BotError("Empty response received from AI."));
       }
     } catch (e) {
-      emit(BotError("Failed to get bot response."));
+      print("Bot Error: $e");
+      emit(BotError(
+          "Failed to get response: ${e.toString().split('\n').first}"));
     }
   }
 
@@ -128,10 +135,15 @@ class BotCubit extends Cubit<BotState> {
     emit(BotWaitingForResponse(List.from(_messages)));
 
     try {
+      if (api_key.isEmpty) {
+        emit(BotError("API key not configured. Check .env file."));
+        return;
+      }
+
       final imageBytes = await File(imagePath).readAsBytes();
 
       final model = GenerativeModel(
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-3-flash-preview',
         apiKey: api_key,
       );
 
@@ -142,17 +154,19 @@ class BotCubit extends Cubit<BotState> {
 
       final response = await model.generateContent(content);
 
-      if (response != null && response.text != null) {
+      if (response.text != null && response.text!.isNotEmpty) {
         final botMessage = ChatMessage(
             user: _bot, createdAt: DateTime.now(), text: response.text!);
         _messages.insert(0, botMessage);
         emit(BotMessageSent(List.from(_messages)));
         await _cacheMessages();
       } else {
-        emit(BotError("Error in bot response."));
+        emit(BotError("Empty response received from AI."));
       }
     } catch (e) {
-      emit(BotError("Failed to get response from bot with image: $e"));
+      print("Bot Error with image: $e");
+      emit(BotError(
+          "Failed to get response: ${e.toString().split('\n').first}"));
     }
   }
 
