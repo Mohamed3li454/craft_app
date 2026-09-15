@@ -15,16 +15,29 @@ class GeminiService {
   String get _fallbackModelName =>
       dotenv.env['GEMINI_FALLBACK_MODEL'] ?? 'gemini-3.1-flash-lite';
 
+  String _extractLatestUserQuery(String history) {
+    final lines =
+        history.trim().split('\n').where((l) => l.trim().isNotEmpty).toList();
+    if (lines.isEmpty) return history;
+    final lastLine = lines.last.trim();
+    return lastLine.replaceFirst(
+      RegExp(r'^(User|Mohamed|User\s*:|Mohamed\s*:)\s*', caseSensitive: false),
+      '',
+    );
+  }
+
   Future<String> generateTextResponse(String history) async {
     String prompt = history;
+    final latestQuery = _extractLatestUserQuery(history);
 
-    if (_webSearchService.shouldSearchWeb(history)) {
+    if (_webSearchService.shouldSearchWeb(latestQuery) ||
+        _webSearchService.shouldSearchWeb(history)) {
       try {
-        final searchResults = await _webSearchService.search(history);
+        final searchResults = await _webSearchService.search(latestQuery);
         if (searchResults.isNotEmpty) {
           final searchContext =
               _webSearchService.formatSearchContext(searchResults);
-          prompt = '$searchContext\nسؤال المستخدم:\n$history';
+          prompt = '$searchContext\nاستفسار ومحادثة المستخدم:\n$history';
         }
       } catch (_) {
         // Fall back gracefully to standard prompt if search fails

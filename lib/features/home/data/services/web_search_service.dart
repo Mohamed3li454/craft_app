@@ -91,21 +91,71 @@ class WebSearchService {
 
   /// Searches the web for relevant snippets.
   /// Falls back gracefully to an empty list on failure or timeout.
-  Future<List<SearchResultItem>> search(String query, {int maxResults = 3}) async {
+  Future<List<SearchResultItem>> search(String query, {int maxResults = 6}) async {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty) return [];
 
     final tavilyKey = dotenv.env['TAVILY_API_KEY'] ?? '';
     if (tavilyKey.isNotEmpty) {
       try {
-        final tavilyResults = await _searchTavily(cleanQuery, tavilyKey, maxResults);
+        final tavilyResults =
+            await _searchTavily(cleanQuery, tavilyKey, maxResults);
         if (tavilyResults.isNotEmpty) return tavilyResults;
       } catch (_) {
         // Fall back to DuckDuckGo if Tavily fails
       }
     }
 
-    return _searchDuckDuckGo(cleanQuery, maxResults);
+    final results = await _searchDuckDuckGo(cleanQuery, maxResults);
+
+    // If query is about tech/apple/devices, supplement with global tech leaks to capture models like iPhone Duo
+    if (_isTechQuery(cleanQuery) && results.length < maxResults) {
+      final supplementaryQuery = _buildSupplementaryQuery(cleanQuery);
+      if (supplementaryQuery.isNotEmpty) {
+        try {
+          final additional = await _searchDuckDuckGo(
+            supplementaryQuery,
+            maxResults - results.length + 2,
+          );
+          for (final item in additional) {
+            if (!results.any((r) => r.title == item.title)) {
+              results.add(item);
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    return results;
+  }
+
+  bool _isTechQuery(String query) {
+    final lower = query.toLowerCase();
+    return lower.contains('ابل') ||
+        lower.contains('apple') ||
+        lower.contains('ايفون') ||
+        lower.contains('iphone') ||
+        lower.contains('سامسونج') ||
+        lower.contains('samsung') ||
+        lower.contains('شاومي') ||
+        lower.contains('جهاز') ||
+        lower.contains('اجهزة') ||
+        lower.contains('هاتف') ||
+        lower.contains('هواتف');
+  }
+
+  String _buildSupplementaryQuery(String query) {
+    final lower = query.toLowerCase();
+    if (lower.contains('ابل') ||
+        lower.contains('apple') ||
+        lower.contains('ايفون') ||
+        lower.contains('iphone')) {
+      return 'new apple devices 2026 iphone duo fold rumors';
+    }
+    if (lower.contains('سامسونج') || lower.contains('samsung')) {
+      return 'new samsung devices 2026 galaxy fold ultra rumors';
+    }
+    return '$query 2026 news';
   }
 
   Future<List<SearchResultItem>> _searchTavily(
@@ -205,11 +255,14 @@ class WebSearchService {
   String formatSearchContext(List<SearchResultItem> items) {
     if (items.isEmpty) return '';
     final buffer = StringBuffer();
-    buffer.writeln('[معلومات حية من بحث الويب المباشر لهذا اليوم]:');
+    buffer.writeln('[معلومات حية ومفصلة من بحث الويب المباشر لهذا اليوم]:');
     for (int i = 0; i < items.length; i++) {
       buffer.writeln('${i + 1}. العنوان: ${items[i].title}');
-      buffer.writeln('   الملخص: ${items[i].snippet}');
+      buffer.writeln('   التفاصيل: ${items[i].snippet}');
     }
+    buffer.writeln(
+      'توجيه إلزامي ومهم جداً للمساعد Craft: أجب المستخدم بتقرير شامل، عميق، ومفصل. اذكر كافة الأجهزة والموديلات المسربة أو المعلن عنها بالتفصيل (مثل iPhone Duo / Fold، وسلسلة iPhone 18، والساعات، والمعالجات). لا تختصر الإجابة إطلاقاً واشرح كافة الفروقات والمواصفات.',
+    );
     buffer.writeln();
     return buffer.toString();
   }

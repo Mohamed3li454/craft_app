@@ -65,9 +65,17 @@ class _MessageItemState extends State<MessageItem> {
     super.dispose();
   }
 
+  bool _isArabicOrRtl(String text) {
+    final arabicRegex = RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]');
+    return arabicRegex.hasMatch(text);
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isBot = widget.message.isBot;
+    final String contentToRender = isBot ? displayedText : widget.message.text;
+    final bool isRtl = _isArabicOrRtl(contentToRender);
+
     return Align(
       alignment: isBot ? Alignment.centerLeft : Alignment.centerRight,
       child: Container(
@@ -101,27 +109,65 @@ class _MessageItemState extends State<MessageItem> {
                   ),
                 ),
               )
-            : isBot
-                ? MarkdownBody(
-                    data: sanitizeText(displayedText),
-                    selectable: true,
-                    styleSheet: MarkdownStyleSheet.fromTheme(
-                      Theme.of(context).copyWith(
-                        textTheme: Theme.of(context).textTheme.apply(
-                              fontSizeFactor: 1.2,
-                              fontFamily: 'Poppins',
-                              bodyColor: Colors.white,
-                            ),
+            : Directionality(
+                textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
+                child: isBot
+                    ? MarkdownBody(
+                        data: sanitizeText(displayedText),
+                        selectable: true,
+                        styleSheet: MarkdownStyleSheet.fromTheme(
+                          Theme.of(context).copyWith(
+                            textTheme: Theme.of(context).textTheme.apply(
+                                  fontSizeFactor: 1.1,
+                                  fontFamily: isRtl
+                                      ? GoogleFonts.cairo().fontFamily
+                                      : 'Poppins',
+                                  bodyColor: Colors.white,
+                                ),
+                          ),
+                        ).copyWith(
+                          p: isRtl
+                              ? GoogleFonts.cairo(
+                                  fontSize: 15,
+                                  height: 1.6,
+                                  color: Colors.white,
+                                )
+                              : GoogleFonts.poppins(
+                                  fontSize: 15,
+                                  height: 1.5,
+                                  color: Colors.white,
+                                ),
+                          listBullet: isRtl
+                              ? GoogleFonts.cairo(
+                                  fontSize: 15,
+                                  color: Colors.white,
+                                )
+                              : GoogleFonts.poppins(
+                                  fontSize: 15,
+                                  color: Colors.white,
+                                ),
+                          strong: isRtl
+                              ? GoogleFonts.cairo(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                )
+                              : null,
+                          pPadding: const EdgeInsets.only(bottom: 6),
+                        ),
+                      )
+                    : Text(
+                        sanitizeText(widget.message.text),
+                        style: isRtl
+                            ? GoogleFonts.cairo(
+                                fontSize: 16,
+                                color: Colors.black,
+                              )
+                            : GoogleFonts.openSans(
+                                fontSize: 16,
+                                color: Colors.black,
+                              ),
                       ),
-                    ),
-                  )
-                : Text(
-                    sanitizeText(widget.message.text),
-                    style: GoogleFonts.openSans(
-                      fontSize: 16,
-                      color: Colors.black,
-                    ),
-                  ),
+              ),
       ),
     );
   }
