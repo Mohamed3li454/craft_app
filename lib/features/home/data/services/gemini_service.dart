@@ -1,16 +1,37 @@
 import 'dart:io';
 import 'package:craft_app/constants/craft_persona.dart';
+import 'package:craft_app/features/home/data/services/web_search_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiService {
+  final WebSearchService _webSearchService;
+
+  GeminiService({WebSearchService? webSearchService})
+      : _webSearchService = webSearchService ?? WebSearchService();
+
   String get _apiKey => dotenv.env['API_KEY'] ?? '';
   String get _modelName => dotenv.env['GEMINI_MODEL'] ?? 'gemini-3.8-flash';
   String get _fallbackModelName =>
       dotenv.env['GEMINI_FALLBACK_MODEL'] ?? 'gemini-3.1-flash-lite';
 
-  Future<String> generateTextResponse(String history) {
-    return _generate([Content.text(history)]);
+  Future<String> generateTextResponse(String history) async {
+    String prompt = history;
+
+    if (_webSearchService.shouldSearchWeb(history)) {
+      try {
+        final searchResults = await _webSearchService.search(history);
+        if (searchResults.isNotEmpty) {
+          final searchContext =
+              _webSearchService.formatSearchContext(searchResults);
+          prompt = '$searchContext\nسؤال المستخدم:\n$history';
+        }
+      } catch (_) {
+        // Fall back gracefully to standard prompt if search fails
+      }
+    }
+
+    return _generate([Content.text(prompt)]);
   }
 
   Future<String> generateImageResponse(String history, String imagePath) async {

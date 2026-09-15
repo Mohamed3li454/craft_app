@@ -4,6 +4,7 @@ import 'package:craft_app/features/home/data/repos/home_repo.dart';
 import 'package:craft_app/features/home/data/repos/home_repo_impl.dart';
 import 'package:craft_app/features/home/data/services/chat_local_service.dart';
 import 'package:craft_app/features/home/data/services/gemini_service.dart';
+import 'package:craft_app/features/home/data/services/web_search_service.dart';
 
 /// Lightweight ServiceLocator registry initialized at app startup.
 class ServiceLocator {
@@ -11,13 +12,15 @@ class ServiceLocator {
 
   static late final ApiService apiService;
   static late final ChatLocalService chatLocalService;
+  static late final WebSearchService webSearchService;
   static late final GeminiService geminiService;
   static late final HomeRepo homeRepo;
 
   static void init() {
     apiService = ApiService(DioFactory.dio);
     chatLocalService = ChatLocalService();
-    geminiService = GeminiService();
+    webSearchService = WebSearchService();
+    geminiService = GeminiService(webSearchService: webSearchService);
     homeRepo = HomeRepoImpl(
       geminiService: geminiService,
       chatLocalService: chatLocalService,
