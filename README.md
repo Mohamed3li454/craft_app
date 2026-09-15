@@ -74,7 +74,7 @@ Whether you need academic homework assistance, health habits coaching, communica
 | **Language** | Dart (`^3.5.0`) | Strongly typed, null-safe application logic |
 | **Architecture** | Feature-First Clean Architecture + Cubit | UI → Cubit → Repo Contract → Remote/Local Services |
 | **State Management** | `flutter_bloc` & `equatable` | Predictable, reactive state management with value equality |
-| **AI Engine** | `google_generative_ai` | Official Google Gemini SDK (`gemini-3.6-flash`, fallback `gemini-3.5-flash-lite`) |
+| **AI Engine** | `google_generative_ai` | Official Google Gemini SDK (`gemini-3.8-flash`, fallback `gemini-3.1-flash-lite`) |
 | **Networking & HTTP** | `dio` | Centralized `DioFactory` and `ApiService` for REST endpoints |
 | **Local Persistence** | `shared_preferences` | Active chat cache (`current_chat_messages`) & archives (`old_chats`) |
 | **Config & Secrets** | `flutter_dotenv` | Secure runtime loading of Gemini API key from `assets/.env` |
@@ -186,7 +186,7 @@ lib/
         │   (google_generative_ai SDK)    │   │    (SharedPreferences)    │
         │  • generateTextResponse()       │   │  • cacheMessages()        │
         │  • generateImageResponse()      │   │  • loadCachedMessages()   │
-        │  • Model: gemini-3.6-flash      │   │  • getOldChats()          │
+        │  • Model: gemini-3.8-flash      │   │  • getOldChats()          │
         └────────────────┬────────────────┘   │  • saveOldChats()         │
                          │                    └───────────────────────────┘
                          ▼
@@ -280,8 +280,8 @@ Ensure `assets/.env` contains:
 
 ```env
 API_KEY=your_actual_gemini_api_key_here
-GEMINI_MODEL=gemini-3.6-flash
-GEMINI_FALLBACK_MODEL=gemini-3.5-flash-lite
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_FALLBACK_MODEL=gemini-3.1-flash-lite
 ```
 
 > **Note**: `assets/.env` is ignored by `.gitignore` to prevent credential exposure. If `.env` is absent at startup, `main.dart` catches the error gracefully.

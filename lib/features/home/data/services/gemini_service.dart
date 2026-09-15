@@ -5,9 +5,9 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiService {
   String get _apiKey => dotenv.env['API_KEY'] ?? '';
-  String get _modelName => dotenv.env['GEMINI_MODEL'] ?? 'gemini-3.6-flash';
+  String get _modelName => dotenv.env['GEMINI_MODEL'] ?? 'gemini-3.8-flash';
   String get _fallbackModelName =>
-      dotenv.env['GEMINI_FALLBACK_MODEL'] ?? 'gemini-3.5-flash-lite';
+      dotenv.env['GEMINI_FALLBACK_MODEL'] ?? 'gemini-3.1-flash-lite';
 
   Future<String> generateTextResponse(String history) {
     return _generate([Content.text(history)]);
@@ -15,12 +15,32 @@ class GeminiService {
 
   Future<String> generateImageResponse(String history, String imagePath) async {
     final imageBytes = await File(imagePath).readAsBytes();
+    final mimeType = _getMimeType(imagePath);
     return _generate([
       Content.multi([
-        TextPart(history),
-        DataPart('image/jpeg', imageBytes),
+        if (history.trim().isNotEmpty) TextPart(history),
+        DataPart(mimeType, imageBytes),
       ]),
     ]);
+  }
+
+  String _getMimeType(String path) {
+    final ext = path.split('.').last.toLowerCase();
+    switch (ext) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      case 'heic':
+      case 'heif':
+        return 'image/heic';
+      case 'jpg':
+      case 'jpeg':
+      default:
+        return 'image/jpeg';
+    }
   }
 
   Future<String> _generate(List<Content> content) async {
