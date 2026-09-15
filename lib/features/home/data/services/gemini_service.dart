@@ -51,7 +51,14 @@ class GeminiService {
       if (!shouldUseFallback(error) || _fallbackModelName == _modelName) {
         rethrow;
       }
-      return _generateWithModel(_fallbackModelName, content);
+      try {
+        return await _generateWithModel(_fallbackModelName, content);
+      } catch (fallbackError) {
+        // If fallback also fails, throw original or detailed error
+        throw Exception(
+          'Primary ($_modelName) and Fallback ($_fallbackModelName) both failed: $error',
+        );
+      }
     }
   }
 
@@ -79,7 +86,20 @@ class GeminiService {
   }
 
   static bool shouldUseFallback(Object error) {
-    return isQuotaOrRateLimit(error) || isModelUnavailable(error);
+    return isQuotaOrRateLimit(error) ||
+        isModelUnavailable(error) ||
+        isServerOverloadedOrUnavailable(error);
+  }
+
+  static bool isServerOverloadedOrUnavailable(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('503') ||
+        message.contains('500') ||
+        message.contains('unavailable') ||
+        message.contains('high demand') ||
+        message.contains('overloaded') ||
+        message.contains('temporarily') ||
+        message.contains('deadline_exceeded');
   }
 
   static bool isQuotaOrRateLimit(Object error) {
