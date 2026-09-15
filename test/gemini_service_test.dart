@@ -38,4 +38,17 @@ void main() {
       );
     });
   });
+
+  group('GeminiService.shouldUseFallback', () {
+    test('falls back when the model is no longer available', () {
+      expect(
+        GeminiService.shouldUseFallback(
+          Exception(
+            'This model models/gemini-2.5-flash is no longer available to new users.',
+          ),
+        ),
+        isTrue,
+      );
+    });
+  });
 }

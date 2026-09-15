@@ -5,9 +5,9 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiService {
   String get _apiKey => dotenv.env['API_KEY'] ?? '';
-  String get _modelName => dotenv.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash';
+  String get _modelName => dotenv.env['GEMINI_MODEL'] ?? 'gemini-3.6-flash';
   String get _fallbackModelName =>
-      dotenv.env['GEMINI_FALLBACK_MODEL'] ?? 'gemini-2.5-flash-lite';
+      dotenv.env['GEMINI_FALLBACK_MODEL'] ?? 'gemini-3.5-flash-lite';
 
   Future<String> generateTextResponse(String history) {
     return _generate([Content.text(history)]);
@@ -28,7 +28,7 @@ class GeminiService {
     try {
       return await _generateWithModel(_modelName, content);
     } catch (error) {
-      if (!isQuotaOrRateLimit(error) || _fallbackModelName == _modelName) {
+      if (!shouldUseFallback(error) || _fallbackModelName == _modelName) {
         rethrow;
       }
       return _generateWithModel(_fallbackModelName, content);
@@ -58,6 +58,10 @@ class GeminiService {
     }
   }
 
+  static bool shouldUseFallback(Object error) {
+    return isQuotaOrRateLimit(error) || isModelUnavailable(error);
+  }
+
   static bool isQuotaOrRateLimit(Object error) {
     final message = error.toString().toLowerCase();
     return message.contains('resource_exhausted') ||
@@ -65,5 +69,12 @@ class GeminiService {
         message.contains('rate limit') ||
         message.contains('too many requests') ||
         message.contains('429');
+  }
+
+  static bool isModelUnavailable(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('no longer available') ||
+        message.contains('not found') ||
+        message.contains('is not supported');
   }
 }

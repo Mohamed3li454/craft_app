@@ -4,13 +4,13 @@
 
 **Next-Gen AI Assistant & Conversational Intelligence Powered by Google Gemini**
 
-A modern, high-performance Flutter application engineered for fluid conversational AI, multimodal vision queries, real-time typewriter response streaming, chat history archiving, and offline resilience. Built with Google Gemini 2.5 Flash, full dark theme aesthetics, and a robust Feature-First Cubit architecture.
+A modern, high-performance Flutter application engineered for fluid conversational AI, multimodal vision queries, real-time typewriter response streaming, chat history archiving, and offline resilience. Built with Google Gemini 3.6 Flash, full dark theme aesthetics, and a robust Feature-First Cubit architecture.
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.5+-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.5+-0175C2?style=for-the-badge&logo=dart&logoColor=white)](https://dart.dev)
 [![Architecture](https://img.shields.io/badge/Architecture-Feature--First%20%2B%20Cubit-0c3d97?style=for-the-badge)](https://flutter.dev)
 [![State Management](https://img.shields.io/badge/State%20Management-Flutter%20Bloc%20%2F%20Cubit-42A5F5?style=for-the-badge&logo=bloc&logoColor=white)](https://bloclibrary.dev)
-[![AI Engine](https://img.shields.io/badge/AI%20Engine-Google%20Gemini%202.5-8E75FF?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev)
+[![AI Engine](https://img.shields.io/badge/AI%20Engine-Google%20Gemini%203.6-8E75FF?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev)
 [![Storage](https://img.shields.io/badge/Local%20Storage-SharedPreferences-FF6F00?style=for-the-badge)](https://pub.dev/packages/shared_preferences)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
@@ -37,7 +37,7 @@ A modern, high-performance Flutter application engineered for fluid conversation
 
 **Craft** is an intelligent personal AI assistant mobile application built with Flutter and powered by the **Google Gemini Generative AI SDK**. Designed around an immersive deep-space aesthetic (`#0B1222`, `#0A1833`, `#0C3D97`), Craft provides instant, natural conversations, visual problem-solving, and effortless chat session organization.
 
-Whether you need academic homework assistance, health habits coaching, communication skills guidance, or image analysis, Craft leverages **Gemini 2.5 Flash** for rapid, accurate, and context-aware responses formatted in rich GitHub-flavored Markdown.
+Whether you need academic homework assistance, health habits coaching, communication skills guidance, or image analysis, Craft leverages **Gemini 3.6 Flash** for rapid, accurate, and context-aware responses formatted in rich GitHub-flavored Markdown.
 
 ### 💡 Core Interaction Experiences:
 1. **Interactive Prompt Launchpad**: An animated welcome dashboard featuring glowing pulsing triggers and curated suggestion cards that route directly to pre-populated chat queries.
@@ -48,7 +48,7 @@ Whether you need academic homework assistance, health habits coaching, communica
 
 ## ✨ Key Features
 
-- **🧠 Google Gemini 2.5 Flash Integration**: Real-time generative AI responses for both text queries and vision queries using the official `google_generative_ai` SDK with full conversational history context. Falls back to Gemini 2.5 Flash-Lite when quota or rate limits are hit.
+- **🧠 Google Gemini 3.6 Flash Integration**: Real-time generative AI responses for both text queries and vision queries using the official `google_generative_ai` SDK with full conversational history context. Falls back to Gemini 3.5 Flash-Lite when quota or rate limits are hit.
 - **📷 Multimodal Vision Analysis**: Attach images directly from your device gallery via `image_picker`. Gemini processes the image bytes (`DataPart('image/jpeg', bytes)`) alongside prompt context to explain, extract, or solve visual content.
 - **⚡ Progressive Typewriter Animation**: Bot responses render through a custom character-by-character typewriter effect (`Timer.periodic` at 2ms) with duplicate message ID tracking (`Set<String> displayedMessageIds`) to avoid re-animating previously loaded historical messages.
 - **📝 Rich Markdown & Code Formatting**: Bot messages render using `flutter_markdown_plus` (`MarkdownBody`), supporting bold, headers, lists, code blocks, and selectable text tailored to Poppins typography.
@@ -74,7 +74,7 @@ Whether you need academic homework assistance, health habits coaching, communica
 | **Language** | Dart (`^3.5.0`) | Strongly typed, null-safe application logic |
 | **Architecture** | Feature-First Clean Architecture + Cubit | UI → Cubit → Repo Contract → Remote/Local Services |
 | **State Management** | `flutter_bloc` & `equatable` | Predictable, reactive state management with value equality |
-| **AI Engine** | `google_generative_ai` | Official Google Gemini SDK (`gemini-2.5-flash`, fallback `gemini-2.5-flash-lite`) |
+| **AI Engine** | `google_generative_ai` | Official Google Gemini SDK (`gemini-3.6-flash`, fallback `gemini-3.5-flash-lite`) |
 | **Networking & HTTP** | `dio` | Centralized `DioFactory` and `ApiService` for REST endpoints |
 | **Local Persistence** | `shared_preferences` | Active chat cache (`current_chat_messages`) & archives (`old_chats`) |
 | **Config & Secrets** | `flutter_dotenv` | Secure runtime loading of Gemini API key from `assets/.env` |
@@ -186,7 +186,7 @@ lib/
         │   (google_generative_ai SDK)    │   │    (SharedPreferences)    │
         │  • generateTextResponse()       │   │  • cacheMessages()        │
         │  • generateImageResponse()      │   │  • loadCachedMessages()   │
-        │  • Model: gemini-2.5-flash      │   │  • getOldChats()          │
+        │  • Model: gemini-3.6-flash      │   │  • getOldChats()          │
         └────────────────┬────────────────┘   │  • saveOldChats()         │
                          │                    └───────────────────────────┘
                          ▼
@@ -280,8 +280,8 @@ Ensure `assets/.env` contains:
 
 ```env
 API_KEY=your_actual_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-GEMINI_FALLBACK_MODEL=gemini-2.5-flash-lite
+GEMINI_MODEL=gemini-3.6-flash
+GEMINI_FALLBACK_MODEL=gemini-3.5-flash-lite
 ```
 
 > **Note**: `assets/.env` is ignored by `.gitignore` to prevent credential exposure. If `.env` is absent at startup, `main.dart` catches the error gracefully.
