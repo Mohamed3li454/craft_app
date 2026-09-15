@@ -37,7 +37,7 @@ void main() {
       ];
 
       final formatted = service.formatSearchContext(items);
-      expect(formatted, contains('[معلومات حية من بحث الويب المباشر لهذا اليوم]:'));
+      expect(formatted, contains('[معلومات حية ومفصلة من بحث الويب المباشر لهذا اليوم]:'));
       expect(formatted, contains('الأهرام اليومية'));
       expect(formatted, contains('اليوم السابع'));
     });
