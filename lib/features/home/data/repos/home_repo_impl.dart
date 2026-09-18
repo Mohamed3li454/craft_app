@@ -3,23 +3,23 @@ import 'package:dio/dio.dart';
 import 'package:craft_app/core/errors/failure.dart';
 import 'package:craft_app/features/home/data/models/chat_message_model.dart';
 import 'package:craft_app/features/home/data/repos/home_repo.dart';
+import 'package:craft_app/features/home/data/services/ai_remote_service.dart';
 import 'package:craft_app/features/home/data/services/chat_local_service.dart';
-import 'package:craft_app/features/home/data/services/gemini_service.dart';
 
 /// Concrete implementation of HomeRepo orchestrating remote AI and local cache operations.
 class HomeRepoImpl implements HomeRepo {
-  final GeminiService geminiService;
+  final AiRemoteService aiRemoteService;
   final ChatLocalService chatLocalService;
 
   HomeRepoImpl({
-    required this.geminiService,
+    required AiRemoteService geminiService,
     required this.chatLocalService,
-  });
+  }) : aiRemoteService = geminiService;
 
   @override
   Future<Either<Failure, String>> getBotResponse(String history) async {
     try {
-      final response = await geminiService.generateTextResponse(history);
+      final response = await aiRemoteService.generateTextResponse(history);
       return right(response);
     } catch (e) {
       if (e is Failure) return left(e);
@@ -37,7 +37,7 @@ class HomeRepoImpl implements HomeRepo {
   ) async {
     try {
       final response =
-          await geminiService.generateImageResponse(history, imagePath);
+          await aiRemoteService.generateImageResponse(history, imagePath);
       return right(response);
     } catch (e) {
       if (e is Failure) return left(e);

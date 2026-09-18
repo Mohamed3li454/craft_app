@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'package:craft_app/constants/craft_persona.dart';
+import 'package:craft_app/features/home/data/services/ai_remote_service.dart';
 import 'package:craft_app/features/home/data/services/web_search_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
-class GeminiService {
+class GeminiService implements AiRemoteService {
   final WebSearchService _webSearchService;
 
   GeminiService({WebSearchService? webSearchService})
@@ -26,6 +27,7 @@ class GeminiService {
     );
   }
 
+  @override
   Future<String> generateTextResponse(String history) async {
     String prompt = history;
     final latestQuery = _extractLatestUserQuery(history);
@@ -47,6 +49,7 @@ class GeminiService {
     return _generate([Content.text(prompt)]);
   }
 
+  @override
   Future<String> generateImageResponse(String history, String imagePath) async {
     final imageBytes = await File(imagePath).readAsBytes();
     final mimeType = _getMimeType(imagePath);
