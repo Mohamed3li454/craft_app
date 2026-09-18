@@ -20,7 +20,7 @@ export class WhatsAppAdapter {
     }
 
     const cleanTo = to.replace(/[^\d]/g, '');
-    const url = `https://graph.facebook.com/v25.0/${this.phoneNumberId}/messages`;
+    const url = `https://graph.facebook.com/v22.0/${this.phoneNumberId}/messages`;
 
     try {
       const response = await fetch(url, {
