@@ -47,9 +47,6 @@ export class WhatsAppWebhookHandler {
       return;
     }
 
-    // 2. Respond 200 OK immediately to satisfy Meta's 3-second timeout requirement
-    res.status(200).send('EVENT_RECEIVED');
-
     try {
       const body = req.body;
       const entry = body?.entry?.[0];
@@ -59,6 +56,7 @@ export class WhatsAppWebhookHandler {
 
       if (!message) {
         // Status updates, acknowledgements, etc.
+        res.status(200).send('EVENT_RECEIVED');
         return;
       }
 
@@ -68,6 +66,7 @@ export class WhatsAppWebhookHandler {
 
       if (!text || !from) {
         logger.debug('Non-text or empty WhatsApp message received, skipping', { messageType: message.type });
+        res.status(200).send('EVENT_RECEIVED');
         return;
       }
 
@@ -75,6 +74,7 @@ export class WhatsAppWebhookHandler {
       const alreadyProcessed = await this.webhookRepo.isEventProcessed(eventId);
       if (alreadyProcessed) {
         logger.debug(`Duplicate webhook event [${eventId}] ignored`);
+        res.status(200).send('EVENT_RECEIVED');
         return;
       }
       await this.webhookRepo.markEventProcessed(eventId, 'whatsapp', { from, text });
@@ -90,8 +90,13 @@ export class WhatsAppWebhookHandler {
 
       // 5. Send reply back to WhatsApp user
       await this.whatsappAdapter.sendTextMessage(from, agentResult.replyText);
+
+      res.status(200).send('EVENT_RECEIVED');
     } catch (err: any) {
       logger.error('Error processing WhatsApp webhook payload', { error: err.message });
+      if (!res.headersSent) {
+        res.status(200).send('EVENT_RECEIVED');
+      }
     }
   };
 }
