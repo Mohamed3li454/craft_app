@@ -45,6 +45,40 @@ export function createApp(): Application {
     });
   });
 
+  // Privacy Policy and Terms of Service endpoints for Meta compliance
+  app.get('/privacy', (_req: Request, res: Response) => {
+    res.status(200).send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Privacy Policy - Craft Agent</title></head>
+        <body style="font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6;">
+          <h1>Privacy Policy for Craft Agent</h1>
+          <p>Last updated: September 18, 2026</p>
+          <p>Craft Agent provides an intelligent AI assistant accessible via WhatsApp and mobile clients.</p>
+          <h2>Information We Collect</h2>
+          <p>We process messages you send to Craft Agent strictly to understand your requests, perform user-requested actions, and generate conversational replies.</p>
+          <h2>Data Protection</h2>
+          <p>We do not sell, rent, or share personal information with third parties. Your chat data is used solely for the functionality of the AI assistant.</p>
+          <h2>Contact Us</h2>
+          <p>For questions or data deletion requests, contact us at mohhamed4413@gmail.com.</p>
+        </body>
+      </html>
+    `);
+  });
+
+  app.get('/terms', (_req: Request, res: Response) => {
+    res.status(200).send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Terms of Service - Craft Agent</title></head>
+        <body style="font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6;">
+          <h1>Terms of Service for Craft Agent</h1>
+          <p>Craft Agent is provided as an AI assistant service. By using this service, you agree to respectful and lawful use.</p>
+        </body>
+      </html>
+    `);
+  });
+
   // 5. Initialize Controllers
   const chatController = new ChatController();
   const whatsappHandler = new WhatsAppWebhookHandler();
