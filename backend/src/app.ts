@@ -95,8 +95,28 @@ export function createApp(): Application {
   app.get('/webhooks/whatsapp', whatsappHandler.verifyWebhook);
   app.post('/webhooks/whatsapp', whatsappHandler.handleIncoming);
 
+  // 4.1 Root Endpoint
+  app.get('/', (_req: Request, res: Response) => {
+    res.status(200).json({
+      status: 'online',
+      service: 'craft-agent-backend',
+      environment: config.nodeEnv,
+      version: '1.0.0',
+      endpoints: {
+        health: '/health',
+        privacy: '/privacy',
+        terms: '/terms',
+        whatsappWebhook: '/webhooks/whatsapp',
+        chatApi: '/api/v1/chat',
+      },
+    });
+  });
+
   // 8. Global Error Handler Middleware
   app.use(errorHandler);
 
   return app;
 }
+
+const defaultApp = createApp();
+export default defaultApp;
