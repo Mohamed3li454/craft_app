@@ -38,8 +38,8 @@ export const config: AppConfig = {
   corsOrigin: process.env.CORS_ORIGIN || '*',
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-    fallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.0-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+    fallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.1-flash-lite',
     isMockMode: !process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.startsWith('your_'),
   },
   database: {
