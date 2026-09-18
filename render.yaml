@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: craft-agent-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash
+      - key: GEMINI_FALLBACK_MODEL
+        value: gemini-3.1-flash-lite
+      - key: WHATSAPP_VERIFY_TOKEN
+        value: craft_secret_verify_token_2026
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        value: "1221939377680241"
