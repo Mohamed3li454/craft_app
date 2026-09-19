@@ -4,7 +4,7 @@ import { logger } from '../../core/logger';
 import { verifyMetaSignature } from './signature';
 import { WhatsAppAdapter } from './adapter';
 import { WebhookRepository } from '../../database/repositories/webhook.repo';
-import { AgentOrchestrator } from '../agent/orchestrator';
+import { AgentOrchestrator, AgentMediaAttachment } from '../agent/orchestrator';
 import { ConfirmationService } from '../confirmation/confirmation.service';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { parseDueAt } from '../../database/repositories/reminder.repo';
@@ -137,21 +137,75 @@ export class WhatsAppWebhookHandler {
         }
       }
 
-      // 4. Handle Text Messages
-      const text = message.text?.body || '';
-      if (!text) {
-        logger.debug('Non-text message received without interactive handler, skipping', { messageType });
+      // 4. Extract message content and media attachments (image, document, text)
+      let text = '';
+      let mediaAttachment: AgentMediaAttachment | undefined;
+
+      if (messageType === 'text') {
+        text = message.text?.body || '';
+      } else if (messageType === 'image') {
+        text = message.image?.caption || '';
+        const mediaId = message.image?.id;
+        const mimeType = message.image?.mime_type || 'image/jpeg';
+        if (mediaId) {
+          const downloaded = await this.whatsappAdapter.downloadMedia(mediaId);
+          if (downloaded) {
+            mediaAttachment = {
+              buffer: downloaded.buffer,
+              mimeType: downloaded.mimeType || mimeType,
+            };
+          }
+        }
+      } else if (messageType === 'document') {
+        text = message.document?.caption || '';
+        const mediaId = message.document?.id;
+        const filename = message.document?.filename;
+        const mimeType = message.document?.mime_type || 'application/octet-stream';
+        if (mediaId) {
+          const downloaded = await this.whatsappAdapter.downloadMedia(mediaId);
+          if (downloaded) {
+            mediaAttachment = {
+              buffer: downloaded.buffer,
+              mimeType: downloaded.mimeType || mimeType,
+              filename,
+            };
+          }
+        }
+      } else {
+        logger.debug('Unhandled message type received without interactive handler, skipping', {
+          messageType,
+        });
         res.status(200).send('EVENT_RECEIVED');
         return;
       }
 
-      logger.info(`Received WhatsApp message from [${from}]: "${text}"`);
+      // If user sent a media file but download failed completely and there is no text
+      if (!text && !mediaAttachment && (messageType === 'image' || messageType === 'document')) {
+        logger.warn('Failed to retrieve media binary from Meta Graph API', { messageType });
+        await this.whatsappAdapter.sendTextMessage(
+          from,
+          'عذراً، تعذر تحميل الملف المرفق من واتساب حالياً. يرجى إعادة إرساله مرة أخرى.'
+        );
+        res.status(200).send('EVENT_RECEIVED');
+        return;
+      }
+
+      if (!text && !mediaAttachment) {
+        logger.debug('Message received with neither text nor media, skipping');
+        res.status(200).send('EVENT_RECEIVED');
+        return;
+      }
+
+      logger.info(
+        `Received WhatsApp message from [${from}]: type="${messageType}", text="${text}", hasMedia=${!!mediaAttachment}`
+      );
 
       // 5. Run through unified Agent Orchestrator
       const agentResult = await this.orchestrator.run({
         userId: `wa_${from}`,
         channel: 'whatsapp',
         text,
+        media: mediaAttachment,
       });
 
       // 6. Send reply back to WhatsApp user (Interactive Buttons if confirmation needed, else text)

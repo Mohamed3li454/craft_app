@@ -125,4 +125,64 @@ export class WhatsAppAdapter {
       return this.sendTextMessage(to, bodyText);
     }
   }
+
+  /**
+   * Downloads media binary payload (image, document, etc.) from Meta Graph API
+   */
+  public async downloadMedia(
+    mediaId: string
+  ): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    if (!this.accessToken) {
+      logger.warn('[WhatsApp Mock Mode] Missing access token for media download', { mediaId });
+      return null;
+    }
+
+    try {
+      // 1. Get media retrieval URL from Meta Graph API
+      const metaRes = await fetch(`https://graph.facebook.com/v22.0/${mediaId}`, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+
+      if (!metaRes.ok) {
+        logger.error('Failed to get media URL from Meta Graph API', {
+          status: metaRes.status,
+          mediaId,
+        });
+        return null;
+      }
+
+      const mediaData: any = await metaRes.json();
+      const downloadUrl = mediaData.url;
+      const mimeType = mediaData.mime_type || 'application/octet-stream';
+
+      if (!downloadUrl) {
+        logger.error('No download URL returned from Meta Graph API for media', { mediaData });
+        return null;
+      }
+
+      // 2. Download the binary stream with Bearer auth
+      const fileRes = await fetch(downloadUrl, {
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'User-Agent': 'Craft-Backend/1.0',
+        },
+      });
+
+      if (!fileRes.ok) {
+        logger.error('Failed to download binary media from Meta CDN', {
+          status: fileRes.status,
+          mediaId,
+        });
+        return null;
+      }
+
+      const arrayBuffer = await fileRes.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      logger.info(`Successfully downloaded media [${mediaId}] (${buffer.length} bytes, mime: ${mimeType})`);
+      return { buffer, mimeType };
+    } catch (err: any) {
+      logger.error('Exception downloading media from WhatsApp', { error: err.message, mediaId });
+      return null;
+    }
+  }
 }

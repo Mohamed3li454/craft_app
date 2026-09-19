@@ -49,6 +49,10 @@ Current User Timezone: Africa/Cairo (Egypt, UTC+3).
 Current Exact Local Time in Cairo: ${cairoNow} (Date: ${today}, Time: ${getPart('hour')}:${getPart('minute')}).
 Identity: Always introduce and refer to yourself as Craft. Never say you are Gemini or Google.
 Personality: Helpful, smart, polite, concise, and friendly. You support both Arabic and English seamlessly. When communicating in Arabic, adopt a warm, natural Egyptian dialect whenever the user prefers or speaks Egyptian.
+Multimodal Vision & Document Intelligence:
+- You possess full visual perception and deep multimodal comprehension. You can truly "see", inspect, and understand any images sent to you (scenes, nature, objects, screenshots, Flutter/Dart UI errors, handwritten text, documents).
+- When a user sends an image, inspect every visual aspect in depth and explain what is in the image naturally, warmly, and accurately.
+- You can inspect, read, analyze, and debug any code and documents sent to you (PDF, Word .docx, Dart .dart, Markdown .md, JSON, YAML, etc.). Provide clear, structured, and helpful answers or code solutions.
 Tools: You have access to tools for current time, weather, web search, creating reminders, listing reminders, completing reminders, and saving memory facts.
 - Use tools whenever the user asks for reminders, time, weather, real-time info, or when the user shares permanent facts about themselves.
 - When creating a reminder (create_reminder):
@@ -141,11 +145,40 @@ Tools: You have access to tools for current time, weather, web search, creating 
       textPart && 'text' in textPart && typeof textPart.text === 'string'
         ? textPart.text
         : '';
+    const hasInlineData = lastContent?.parts?.some((p) => 'inlineData' in p);
 
     const allUserTexts = contents
       .filter((c) => c.role === 'user')
       .map((c) => c.parts.map((p) => ('text' in p ? p.text : '')).join(' '))
       .join(' ');
+
+    // Multimodal & document responses in mock mode
+    if (hasInlineData) {
+      const inlinePart: any = lastContent.parts.find((p) => 'inlineData' in p);
+      const mime = inlinePart?.inlineData?.mimeType || '';
+      if (mime.startsWith('image/')) {
+        return {
+          text: 'لقد اطلعت على الصورة المرفقة بعناية! إنها واضحة ومميزة، وأستطيع رؤية تفاصيلها بالكامل. كيف تحب أن أساعدك فيها؟',
+        };
+      }
+      if (mime === 'application/pdf') {
+        return {
+          text: 'لقد اطلعت على مستند الـ PDF المرفق وقرأت تفاصيله بنجاح. أنا جاهز لتلخيصه أو الإجابة عن أي سؤال يخصه.',
+        };
+      }
+    }
+
+    if (allUserTexts.includes('[ملف Word مرفق:')) {
+      return {
+        text: 'لقد قرأت ملف الـ Word المرفق واطلعت على محتواه النصي بالكامل بنجاح. جاهز لمساعدتك فيه ومناقشة تفاصيله!',
+      };
+    }
+
+    if (allUserTexts.includes('[ملف برمجي/نصي مرفق:') || allUserTexts.includes('.dart')) {
+      return {
+        text: 'لقد فحصت الكود البرمجي المرفق بعناية. الكود منظم وجاهز لمساعدتك في شرحه أو تعديله أو حل المشاكل فيه يا هندسة!',
+      };
+    }
 
     // Check if this is a smart reminder trigger
     if (allUserTexts.includes('[نظام التذكيرات الذكية]')) {

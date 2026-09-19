@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Content } from '@google/generative-ai';
+import { Content, Part } from '@google/generative-ai';
+import mammoth from 'mammoth';
 import { GeminiProvider } from '../gemini/gemini.provider';
 import { ToolRegistry } from '../tools/registry';
 import { ConfirmationService } from '../confirmation/confirmation.service';
@@ -10,12 +11,19 @@ import { MemoryRepository } from '../../database/repositories/memory.repo';
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 
+export interface AgentMediaAttachment {
+  buffer: Buffer;
+  mimeType: string;
+  filename?: string;
+}
+
 export interface AgentRunInput {
   userId: string;
   conversationId?: string;
   channel: 'flutter' | 'whatsapp';
   text: string;
   mediaUrl?: string;
+  media?: AgentMediaAttachment;
 }
 
 export interface AgentRunOutput {
@@ -37,15 +45,173 @@ export interface AgentRunOutput {
 }
 
 /**
+ * Prepares user prompt and multimodal parts from media attachments:
+ * - Images: inline base64 Part for Gemini vision
+ * - PDFs: inline base64 Part with application/pdf
+ * - Word docs (.docx): extracts raw text via mammoth and embeds in prompt
+ * - Code & text (.dart, .ts, .md, .txt, etc.): decodes UTF-8 and embeds in prompt
+ */
+export async function processMediaAttachment(
+  userText: string,
+  media?: AgentMediaAttachment
+): Promise<{
+  effectivePrompt: string;
+  mediaPart?: Part;
+  historyRecordText: string;
+}> {
+  const cleanText = (userText || '').trim();
+
+  if (!media) {
+    return {
+      effectivePrompt: cleanText,
+      historyRecordText: cleanText,
+    };
+  }
+
+  const filename = media.filename || '';
+  const lastDot = filename.lastIndexOf('.');
+  const ext = lastDot !== -1 ? filename.substring(lastDot).toLowerCase() : '';
+  const mime = (media.mimeType || '').toLowerCase();
+
+  // 1. Image formats (JPEG, PNG, WebP, GIF, HEIC, BMP)
+  const isImage =
+    mime.startsWith('image/') ||
+    ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'].includes(ext);
+  if (isImage) {
+    const defaultImagePrompt = 'حلل هذه الصورة المرفقة واشرح ما تراه فيها بشكل مفصل ودقيق.';
+    const effectivePrompt = cleanText
+      ? `${cleanText}\n(مرفق صورة مع هذا الطلب)`
+      : defaultImagePrompt;
+    const historyRecordText = cleanText ? `[صورة مرفقة] ${cleanText}` : '[صورة مرفقة]';
+    const mediaPart: Part = {
+      inlineData: {
+        data: media.buffer.toString('base64'),
+        mimeType: mime.startsWith('image/') ? mime : 'image/jpeg',
+      },
+    };
+    return { effectivePrompt, mediaPart, historyRecordText };
+  }
+
+  // 2. PDF Documents
+  const isPdf = mime === 'application/pdf' || ext === '.pdf';
+  if (isPdf) {
+    const defaultPdfPrompt = 'اقرأ هذا المستند المرفق بصيغة PDF واشرح أو لخص محتواه بالتفصيل.';
+    const effectivePrompt = cleanText
+      ? `${cleanText}\n(مرفق مستند PDF: ${filename || 'document.pdf'})`
+      : defaultPdfPrompt;
+    const historyRecordText = cleanText
+      ? `[ملف PDF مرفق: ${filename || 'document.pdf'}] ${cleanText}`
+      : `[ملف PDF مرفق: ${filename || 'document.pdf'}]`;
+    const mediaPart: Part = {
+      inlineData: {
+        data: media.buffer.toString('base64'),
+        mimeType: 'application/pdf',
+      },
+    };
+    return { effectivePrompt, mediaPart, historyRecordText };
+  }
+
+  // 3. Word Documents (.docx)
+  const isDocx = ext === '.docx' || mime.includes('wordprocessingml') || mime.includes('msword');
+  if (isDocx) {
+    let docText = '';
+    try {
+      const result = await mammoth.extractRawText({ buffer: media.buffer });
+      docText = result.value.trim();
+    } catch (err: any) {
+      logger.warn('Failed to extract text from DOCX with mammoth', { error: err.message });
+      docText = '(تعذر استخراج النص من ملف Word تلقائياً)';
+    }
+
+    const defaultDocxPrompt = 'اقرأ محتوى هذا المستند المرفق واشرح أهم ما ورد فيه بالتفصيل.';
+    const effectivePrompt = `[ملف Word مرفق: ${filename || 'document.docx'}]\n\nمحتوى المستند:\n\`\`\`text\n${docText}\n\`\`\`\n\n${cleanText || defaultDocxPrompt}`;
+    const historyRecordText = cleanText
+      ? `[ملف Word مرفق: ${filename || 'document.docx'}] ${cleanText}`
+      : `[ملف Word مرفق: ${filename || 'document.docx'}]`;
+
+    return { effectivePrompt, historyRecordText };
+  }
+
+  // 4. Code & Text Files (.dart, .ts, .js, .py, .json, .yaml, .md, .txt, etc.)
+  const codeExtensions: Record<string, string> = {
+    '.dart': 'dart',
+    '.ts': 'typescript',
+    '.tsx': 'typescript',
+    '.js': 'javascript',
+    '.jsx': 'javascript',
+    '.json': 'json',
+    '.yaml': 'yaml',
+    '.yml': 'yaml',
+    '.md': 'markdown',
+    '.txt': 'text',
+    '.py': 'python',
+    '.html': 'html',
+    '.css': 'css',
+    '.xml': 'xml',
+    '.sql': 'sql',
+    '.sh': 'bash',
+    '.env': 'dotenv',
+    '.csv': 'csv',
+    '.java': 'java',
+    '.kt': 'kotlin',
+    '.swift': 'swift',
+    '.c': 'c',
+    '.cpp': 'cpp',
+    '.h': 'c',
+    '.rs': 'rust',
+    '.go': 'go',
+  };
+
+  const isCodeOrText =
+    codeExtensions[ext] !== undefined ||
+    mime.startsWith('text/') ||
+    mime.includes('json') ||
+    mime.includes('xml') ||
+    mime.includes('javascript');
+
+  if (isCodeOrText) {
+    const lang = codeExtensions[ext] || 'text';
+    const textContent = media.buffer.toString('utf-8');
+    const defaultCodePrompt =
+      'افحص واقرأ هذا الكود/الملف المرفق واشرح وظيفته بالتفصيل أو أجب عن أي استفسار بشأنه.';
+    const effectivePrompt = `[ملف برمجي/نصي مرفق: ${filename || 'file'}]\n\`\`\`${lang}\n${textContent}\n\`\`\`\n\n${cleanText || defaultCodePrompt}`;
+    const historyRecordText = cleanText
+      ? `[ملف مرفق: ${filename || 'file'}] ${cleanText}`
+      : `[ملف مرفق: ${filename || 'file'}]`;
+
+    return { effectivePrompt, historyRecordText };
+  }
+
+  // 5. Fallback for other file types: attempt UTF-8 decoding
+  try {
+    const textContent = media.buffer.toString('utf-8');
+    if (!textContent.includes('\u0000')) {
+      const effectivePrompt = `[ملف مرفق: ${filename || 'file'}]\n\`\`\`\n${textContent}\n\`\`\`\n\n${cleanText || 'اقرأ محتوى هذا الملف المرفق واشرحه بالتفصيل.'}`;
+      const historyRecordText = cleanText
+        ? `[ملف مرفق: ${filename || 'file'}] ${cleanText}`
+        : `[ملف مرفق: ${filename || 'file'}]`;
+      return { effectivePrompt, historyRecordText };
+    }
+  } catch {
+    // Binary fallback
+  }
+
+  const effectivePrompt = `[ملف مرفق: ${filename || 'file'} (نوع: ${mime || 'غير معروف'})]\n${cleanText || 'تم استلام الملف المرفق بنجاح.'}`;
+  const historyRecordText = `[ملف مرفق: ${filename || 'file'}] ${cleanText}`.trim();
+  return { effectivePrompt, historyRecordText };
+}
+
+/**
  * Normalizes chat history into alternating Gemini turns:
  * 1. user -> model -> user -> model ... -> user
  * 2. Merges consecutive messages of the same role
  * 3. Drops leading model messages if any exist
- * 4. Guarantees latest user input is the final turn
+ * 4. Guarantees latest user input is the final turn (with optional mediaPart attached)
  */
 export function formatConversationHistory(
   messages: MessageEntity[],
-  currentInput: string
+  currentInput: string,
+  mediaPart?: Part
 ): Content[] {
   const turns: Array<{ role: 'user' | 'model'; text: string }> = [];
 
@@ -57,11 +223,9 @@ export function formatConversationHistory(
   }
 
   // Ensure current input is the latest user turn
-  if (
-    turns.length === 0 ||
-    turns[turns.length - 1].role !== 'user' ||
-    turns[turns.length - 1].text !== currentInput.trim()
-  ) {
+  if (turns.length > 0 && turns[turns.length - 1].role === 'user') {
+    turns[turns.length - 1].text = currentInput.trim();
+  } else {
     turns.push({ role: 'user', text: currentInput.trim() });
   }
 
@@ -84,10 +248,19 @@ export function formatConversationHistory(
     mergedTurns.push({ role: 'user', text: currentInput.trim() });
   }
 
-  return mergedTurns.map((t) => ({
-    role: t.role,
-    parts: [{ text: t.text }],
-  }));
+  return mergedTurns.map((t, index) => {
+    const isLastTurn = index === mergedTurns.length - 1;
+    if (isLastTurn && t.role === 'user' && mediaPart) {
+      return {
+        role: t.role,
+        parts: [mediaPart, { text: t.text }],
+      };
+    }
+    return {
+      role: t.role,
+      parts: [{ text: t.text }],
+    };
+  });
 }
 
 export class AgentOrchestrator {
@@ -103,6 +276,7 @@ export class AgentOrchestrator {
     const agentRunId = uuidv4();
     logger.info(`Starting Agent run [${agentRunId}] on channel [${input.channel}]`, {
       userId: input.userId,
+      hasMedia: !!input.media,
     });
 
     // 1. If WhatsApp channel, consolidate any fragmented conversations into the primary one
@@ -110,29 +284,41 @@ export class AgentOrchestrator {
       await this.chatRepo.consolidateWhatsAppConversations(input.userId);
     }
 
-    // 2. Extract and persist any facts mentioned by user in long-term memory
-    await this.memoryRepo.extractAndSaveFacts(input.userId, input.text);
+    // 2. Process any media attachments (images, PDFs, docx, code files)
+    const { effectivePrompt, mediaPart, historyRecordText } = await processMediaAttachment(
+      input.text,
+      input.media
+    );
+
+    // 3. Extract and persist any facts mentioned by user in long-term memory
+    if (input.text) {
+      await this.memoryRepo.extractAndSaveFacts(input.userId, input.text);
+    }
     const memories = await this.memoryRepo.getMemories(input.userId);
 
-    // 3. Get or create conversation
+    // 4. Get or create conversation
     const conversation = await this.chatRepo.getOrCreateConversation(
       input.userId,
       input.channel
     );
     const conversationId = conversation.id;
 
-    // 4. Persist user message
+    // 5. Persist user message in chat history
     await this.chatRepo.saveMessage(
       conversationId,
       'user',
       input.channel === 'whatsapp' ? 'WhatsApp User' : 'User',
-      input.text,
+      historyRecordText || effectivePrompt,
       input.mediaUrl
     );
 
-    // 5. Load recent history for context (up to 20 past turns for strong multi-turn memory)
+    // 6. Load recent history for context (up to 20 past turns for strong multi-turn memory)
     const recentMessages = await this.chatRepo.getRecentMessages(conversationId, 20);
-    const contents: Content[] = formatConversationHistory(recentMessages, input.text);
+    const contents: Content[] = formatConversationHistory(
+      recentMessages,
+      effectivePrompt,
+      mediaPart
+    );
 
     let iterations = 0;
     const toolCallsExecuted: AgentRunOutput['toolCallsExecuted'] = [];
