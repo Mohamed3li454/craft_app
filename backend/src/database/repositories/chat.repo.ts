@@ -133,11 +133,11 @@ export class ChatRepository {
           `SELECT id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", created_at as "createdAt"
            FROM messages 
            WHERE conversation_id = $1 
-           ORDER BY created_at ASC 
+           ORDER BY created_at DESC 
            LIMIT $2`,
           [conversationId, limit]
         );
-        return res.rows;
+        return res.rows.reverse();
       } catch (err: any) {
         logger.warn('Database query failed in getRecentMessages, using in-memory store', {
           error: err.message,

@@ -1,4 +1,5 @@
 import { AgentTool, ToolContext, ToolExecutionResult } from '../tool.interface';
+import { ReminderRepository } from '../../../database/repositories/reminder.repo';
 
 export class CreateReminderTool implements AgentTool {
   public readonly name = 'create_reminder';
@@ -31,9 +32,114 @@ export class CreateReminderTool implements AgentTool {
       isSensitive: true,
       confirmationDescription: `هل تؤكد إنشاء تذكير بخصوص: "${title}" في موعد: ${time}؟`,
       output: {
-        status: 'scheduled',
+        status: 'pending_confirmation',
         title,
         time,
+      },
+    };
+  }
+}
+
+export class ListRemindersTool implements AgentTool {
+  public readonly name = 'list_reminders';
+  public readonly description = 'Lists all active, uncompleted reminders and tasks for the current user.';
+  public readonly isSensitive = false;
+  public readonly parameters = {
+    type: 'object' as const,
+    properties: {
+      includeCompleted: {
+        type: 'boolean',
+        description: 'Whether to include completed tasks (default false)',
+      },
+    },
+    required: [],
+  };
+
+  constructor(private reminderRepo: ReminderRepository = new ReminderRepository()) {}
+
+  public async execute(
+    args: Record<string, any>,
+    context: ToolContext
+  ): Promise<ToolExecutionResult> {
+    const reminders = await this.reminderRepo.listByUser(
+      context.userId,
+      args.includeCompleted === true
+    );
+
+    if (reminders.length === 0) {
+      return {
+        success: true,
+        output: {
+          count: 0,
+          reminders: [],
+          summary: 'لا توجد أي تذكيرات أو مهام مسجلة حالياً.',
+        },
+      };
+    }
+
+    const formatted = reminders
+      .map(
+        (r, i) =>
+          `${i + 1}. ${r.title}${
+            r.dueAt ? ` (الموعد: ${new Date(r.dueAt).toLocaleString('ar-EG')})` : ''
+          } - ${r.isCompleted ? 'مكتمل ✅' : 'قيد الانتظار ⏳'}`
+      )
+      .join('\n');
+
+    return {
+      success: true,
+      output: {
+        count: reminders.length,
+        reminders,
+        summary: `قائمة التذكيرات الحالية:\n${formatted}`,
+      },
+    };
+  }
+}
+
+export class CompleteReminderTool implements AgentTool {
+  public readonly name = 'complete_reminder';
+  public readonly description = 'Marks an existing reminder or task as completed by title or ID.';
+  public readonly isSensitive = false;
+  public readonly parameters = {
+    type: 'object' as const,
+    properties: {
+      title: {
+        type: 'string',
+        description: 'The title or search term of the reminder to complete',
+      },
+    },
+    required: ['title'],
+  };
+
+  constructor(private reminderRepo: ReminderRepository = new ReminderRepository()) {}
+
+  public async execute(
+    args: Record<string, any>,
+    context: ToolContext
+  ): Promise<ToolExecutionResult> {
+    const title = args.title;
+    if (!title) {
+      return {
+        success: false,
+        error: 'يرجى تحديد عنوان التذكير المراد إتمامه.',
+      };
+    }
+
+    const completed = await this.reminderRepo.complete(title, context.userId);
+    if (!completed) {
+      return {
+        success: false,
+        error: `لم يتم العثور على تذكير نشط بالعنوان "${title}".`,
+      };
+    }
+
+    return {
+      success: true,
+      output: {
+        status: 'completed',
+        reminder: completed,
+        message: `تم إتمام التذكير بنجاح: "${completed.title}" ✅`,
       },
     };
   }

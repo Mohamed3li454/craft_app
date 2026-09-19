@@ -40,7 +40,10 @@ export const config: AppConfig = {
     apiKey: process.env.GEMINI_API_KEY || '',
     model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
     fallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.1-flash-lite',
-    isMockMode: !process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.startsWith('your_'),
+    isMockMode:
+      process.env.GEMINI_MOCK_MODE === 'true' ||
+      !process.env.GEMINI_API_KEY ||
+      process.env.GEMINI_API_KEY.startsWith('your_'),
   },
   database: {
     url: process.env.DATABASE_URL,

@@ -33,7 +33,12 @@ export class GeminiProvider {
 Current Date: ${today}.
 Identity: Always introduce and refer to yourself as Craft. Never say you are Gemini or Google.
 Personality: Helpful, smart, polite, and concise. You support both Arabic and English seamlessly.
-Tools: You have access to tools for current time, weather, web search, reminders, etc. Use tools whenever current real-world information is requested.`;
+Tools: You have access to tools for current time, weather, web search, creating reminders, listing reminders, and completing reminders.
+- Use tools whenever the user asks for reminders, time, weather, or real-time info.
+- When creating a reminder, invoke 'create_reminder' (this will ask for user confirmation).
+- When the user asks to see or list their reminders/tasks, invoke 'list_reminders'.
+- When the user marks a task or reminder as done/finished, invoke 'complete_reminder'.
+- Always remember details mentioned in previous turns of the conversation (such as user name, job, location, past preferences) and reference them naturally.`;
   }
 
   public async generateReply(
@@ -99,7 +104,7 @@ Tools: You have access to tools for current time, weather, web search, reminders
   }
 
   /**
-   * Deterministic mock engine for local testing and CI when no API key is supplied
+   * Deterministic mock engine for local testing and CI when no API key is supplied or GEMINI_MOCK_MODE=true
    */
   private generateMockResponse(contents: Content[]): GeminiMessageResponse {
     const lastContent = contents[contents.length - 1];
@@ -117,6 +122,20 @@ Tools: You have access to tools for current time, weather, web search, reminders
     }
 
     const lower = lastText.toLowerCase();
+
+    // Context / Memory checks across past turns
+    const allUserTexts = contents
+      .filter((c) => c.role === 'user')
+      .map((c) => c.parts.map((p) => ('text' in p ? p.text : '')).join(' '))
+      .join(' ');
+
+    if (lower.includes('شغال ايه') || lower.includes('شغال إيه') || lower.includes('وفين')) {
+      if (allUserTexts.includes('مبرمج') && allUserTexts.includes('القاهرة')) {
+        return {
+          text: 'أنت تعمل كمبرمج فلاتر في القاهرة وفقاً لما أخبرتني به سابقاً! كيف يمكنني مساعدتك في مشروعك اليوم؟',
+        };
+      }
+    }
 
     if (lower.includes('time') || lower.includes('ساعة') || lower.includes('وقت')) {
       return {
@@ -140,9 +159,36 @@ Tools: You have access to tools for current time, weather, web search, reminders
     }
 
     if (
+      lower.includes('list_remind') ||
+      lower.includes('قائمة التذكير') ||
+      lower.includes('تذكيراتي') ||
+      lower.includes('عرض التذكير') ||
+      lower.includes('مهامي')
+    ) {
+      return {
+        text: '',
+        functionCalls: [{ name: 'list_reminders', args: {} }],
+      };
+    }
+
+    if (
+      lower.includes('complete_remind') ||
+      lower.includes('إتمام') ||
+      lower.includes('انتهيت') ||
+      lower.includes('خلصت') ||
+      lower.includes('تم التذكير')
+    ) {
+      return {
+        text: '',
+        functionCalls: [{ name: 'complete_reminder', args: { title: 'اجتماع' } }],
+      };
+    }
+
+    if (
       lower.includes('remind') ||
       lower.includes('تذكير') ||
       lower.includes('ذكر') ||
+      lower.includes('فكر') ||
       lower.includes('نبه')
     ) {
       return {

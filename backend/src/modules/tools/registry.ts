@@ -3,7 +3,7 @@ import { CurrentTimeTool } from './builtins/time.tool';
 import { EchoTool } from './builtins/echo.tool';
 import { WeatherTool } from './builtins/weather.tool';
 import { WebSearchTool } from './builtins/search.tool';
-import { CreateReminderTool } from './builtins/reminder.tool';
+import { CreateReminderTool, ListRemindersTool, CompleteReminderTool } from './builtins/reminder.tool';
 import { logger } from '../../core/logger';
 import { config } from '../../config/env';
 
@@ -28,6 +28,8 @@ export class ToolRegistry {
     this.registerTool(new WeatherTool());
     this.registerTool(new WebSearchTool());
     this.registerTool(new CreateReminderTool());
+    this.registerTool(new ListRemindersTool());
+    this.registerTool(new CompleteReminderTool());
   }
 
   public registerTool(tool: AgentTool): void {

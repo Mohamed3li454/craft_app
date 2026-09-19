@@ -1,11 +1,13 @@
 import { ConfirmationRepository } from '../../database/repositories/confirmation.repo';
+import { ReminderRepository } from '../../database/repositories/reminder.repo';
 import { ConfirmationEntity } from '../../database/repositories/types';
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 
 export class ConfirmationService {
   constructor(
-    private confirmationRepo: ConfirmationRepository = new ConfirmationRepository()
+    private confirmationRepo: ConfirmationRepository = new ConfirmationRepository(),
+    private reminderRepo: ReminderRepository = new ReminderRepository()
   ) {}
 
   public async createConfirmationRequest(
@@ -39,7 +41,12 @@ export class ConfirmationService {
   public async verifyAndResolve(
     token: string,
     decision: 'approved' | 'rejected'
-  ): Promise<{ success: boolean; message: string; confirmation?: ConfirmationEntity }> {
+  ): Promise<{
+    success: boolean;
+    message: string;
+    confirmation?: ConfirmationEntity;
+    executionResult?: any;
+  }> {
     const confirmation = await this.confirmationRepo.getByToken(token);
 
     if (!confirmation) {
@@ -66,11 +73,32 @@ export class ConfirmationService {
       return { success: false, message: 'Failed to update confirmation status.' };
     }
 
+    let executionResult: any = null;
+    if (decision === 'approved') {
+      if (confirmation.actionName === 'create_reminder') {
+        try {
+          const title = confirmation.payload?.title || 'بدون عنوان';
+          const time = confirmation.payload?.time;
+          executionResult = await this.reminderRepo.create(
+            confirmation.userId,
+            title,
+            time
+          );
+          logger.info(`Action [create_reminder] executed successfully for user [${confirmation.userId}]`);
+        } catch (err: any) {
+          logger.error('Failed to execute approved action [create_reminder]', {
+            error: err.message,
+          });
+        }
+      }
+    }
+
     logger.info(`Resolved confirmation token [${token}] with decision: [${decision}]`);
     return {
       success: true,
       message: `Action [${confirmation.actionName}] was successfully ${decision}.`,
       confirmation,
+      executionResult,
     };
   }
 }

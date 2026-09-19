@@ -4,6 +4,7 @@ import { GeminiProvider } from '../gemini/gemini.provider';
 import { ToolRegistry } from '../tools/registry';
 import { ConfirmationService } from '../confirmation/confirmation.service';
 import { ChatRepository } from '../../database/repositories/chat.repo';
+import { MessageEntity } from '../../database/repositories/types';
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 
@@ -31,6 +32,60 @@ export interface AgentRunOutput {
     description: string;
     expiresAt: string;
   };
+}
+
+/**
+ * Normalizes chat history into alternating Gemini turns:
+ * 1. user -> model -> user -> model ... -> user
+ * 2. Merges consecutive messages of the same role
+ * 3. Drops leading model messages if any exist
+ * 4. Guarantees latest user input is the final turn
+ */
+export function formatConversationHistory(
+  messages: MessageEntity[],
+  currentInput: string
+): Content[] {
+  const turns: Array<{ role: 'user' | 'model'; text: string }> = [];
+
+  for (const m of messages) {
+    const text = m.text?.trim();
+    if (!text) continue;
+    const role: 'user' | 'model' = m.senderRole === 'user' ? 'user' : 'model';
+    turns.push({ role, text });
+  }
+
+  // Ensure current input is the latest user turn
+  if (
+    turns.length === 0 ||
+    turns[turns.length - 1].role !== 'user' ||
+    turns[turns.length - 1].text !== currentInput.trim()
+  ) {
+    turns.push({ role: 'user', text: currentInput.trim() });
+  }
+
+  // Merge consecutive turns of identical roles
+  const mergedTurns: Array<{ role: 'user' | 'model'; text: string }> = [];
+  for (const turn of turns) {
+    if (mergedTurns.length > 0 && mergedTurns[mergedTurns.length - 1].role === turn.role) {
+      mergedTurns[mergedTurns.length - 1].text += `\n${turn.text}`;
+    } else {
+      mergedTurns.push({ ...turn });
+    }
+  }
+
+  // Ensure conversation starts with user turn
+  while (mergedTurns.length > 0 && mergedTurns[0].role !== 'user') {
+    mergedTurns.shift();
+  }
+
+  if (mergedTurns.length === 0) {
+    mergedTurns.push({ role: 'user', text: currentInput.trim() });
+  }
+
+  return mergedTurns.map((t) => ({
+    role: t.role,
+    parts: [{ text: t.text }],
+  }));
 }
 
 export class AgentOrchestrator {
@@ -63,20 +118,9 @@ export class AgentOrchestrator {
       input.mediaUrl
     );
 
-    // 3. Load recent history for context
-    const recentMessages = await this.chatRepo.getRecentMessages(conversationId, 10);
-    const contents: Content[] = recentMessages.map((m) => ({
-      role: m.senderRole === 'user' ? 'user' : 'model',
-      parts: [{ text: m.text }],
-    }));
-
-    // If latest message was not in recent (e.g. fresh conversation), append it
-    if (contents.length === 0 || contents[contents.length - 1].parts[0]?.text !== input.text) {
-      contents.push({
-        role: 'user',
-        parts: [{ text: input.text }],
-      });
-    }
+    // 3. Load recent history for context (up to 20 past turns for strong multi-turn memory)
+    const recentMessages = await this.chatRepo.getRecentMessages(conversationId, 20);
+    const contents: Content[] = formatConversationHistory(recentMessages, input.text);
 
     let iterations = 0;
     const toolCallsExecuted: AgentRunOutput['toolCallsExecuted'] = [];
@@ -97,8 +141,12 @@ export class AgentOrchestrator {
         if (!tool) {
           logger.warn(`Unknown tool requested: [${fc.name}]`);
           contents.push({
-            role: 'function' as any,
-            parts: [{ text: JSON.stringify({ error: `Tool ${fc.name} not found` }) }],
+            role: 'model',
+            parts: [{ text: `Called tool: ${fc.name}` }],
+          });
+          contents.push({
+            role: 'user',
+            parts: [{ text: `Tool [${fc.name}] error: Tool not found in registry.` }],
           });
           continue;
         }
@@ -113,9 +161,14 @@ export class AgentOrchestrator {
             fc.args
           );
 
+          let promptDetails = JSON.stringify(fc.args);
+          if (tool.name === 'create_reminder') {
+            promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${fc.args.time || 'قريباً'}`;
+          }
+
           const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
-- العملية: ${tool.name}
-- التفاصيل: ${JSON.stringify(fc.args)}
+- العملية: ${tool.name === 'create_reminder' ? 'إنشاء تذكير جديد' : tool.name}
+- التفاصيل: ${promptDetails}
 يرجى التأكيد باستخدام الرمز: ${confirmation.token}`;
 
           await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', promptNotice);

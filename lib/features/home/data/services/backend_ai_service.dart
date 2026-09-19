@@ -9,8 +9,16 @@ class BackendAiService implements AiRemoteService {
 
   BackendAiService({required ApiService apiService}) : _apiService = apiService;
 
-  String get baseUrl =>
-      dotenv.env['BACKEND_BASE_URL'] ?? 'http://localhost:3000/api/v1';
+  String get baseUrl {
+    final raw = dotenv.isInitialized
+        ? (dotenv.env['BACKEND_BASE_URL'] ??
+            'https://craft-agent-backend.vercel.app/api/v1')
+        : 'https://craft-agent-backend.vercel.app/api/v1';
+    final trimmed = raw.trim();
+    if (trimmed.endsWith('/api/v1')) return trimmed;
+    if (trimmed.endsWith('/')) return '${trimmed}api/v1';
+    return '$trimmed/api/v1';
+  }
 
   @override
   Future<String> generateTextResponse(String history) async {

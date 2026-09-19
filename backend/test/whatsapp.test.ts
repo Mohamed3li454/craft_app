@@ -63,7 +63,7 @@ describe('WhatsApp Integration & Webhook', () => {
   });
 
   test('deduplicates incoming events by wamid', async () => {
-    const eventId = 'wamid.HBgLMjAxMDI4MDY3NDMyFQIAEhgg...';
+    const eventId = `wamid.test.${Date.now()}.${Math.random()}`;
     expect(await repo.isEventProcessed(eventId)).toBe(false);
 
     await repo.markEventProcessed(eventId);

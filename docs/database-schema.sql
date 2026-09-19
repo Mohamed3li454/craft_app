@@ -129,7 +129,20 @@ CREATE TABLE IF NOT EXISTS memory_items (
 
 CREATE INDEX IF NOT EXISTS idx_memory_user ON memory_items(user_id);
 
--- 9. Webhook Events (Deduplication / Idempotency)
+-- 9. Reminders & Tasks Table
+CREATE TABLE IF NOT EXISTS reminders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    due_at TIMESTAMP WITH TIME ZONE,
+    is_completed BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id, is_completed);
+
+-- 10. Webhook Events (Deduplication / Idempotency)
 CREATE TABLE IF NOT EXISTS webhook_events (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id VARCHAR(255) NOT NULL UNIQUE, -- e.g. Meta wamid
@@ -140,3 +153,4 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_webhook_event_id ON webhook_events(event_id);
+

@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts",
-    "test": "jest --passWithNoTests"
+    "test": "GEMINI_MOCK_MODE=true jest --passWithNoTests"
   },
   "keywords": ["ai-agent", "gemini", "whatsapp", "flutter", "typescript"],
   "author": "Mohamed Ali",

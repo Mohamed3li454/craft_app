@@ -49,3 +49,14 @@ export interface WebhookEventEntity {
   processed: boolean;
   receivedAt: Date;
 }
+
+export interface ReminderEntity {
+  id: string;
+  userId: string;
+  title: string;
+  dueAt?: Date | null;
+  isCompleted: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
