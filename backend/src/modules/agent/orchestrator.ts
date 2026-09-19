@@ -92,7 +92,36 @@ export async function processMediaAttachment(
     return { effectivePrompt, mediaPart, historyRecordText };
   }
 
-  // 2. PDF Documents
+  // 2. Audio & Voice Notes (OGG Opus from WhatsApp, MP3, WAV, AAC, M4A)
+  const cleanMime = mime.split(';')[0].trim();
+  const isAudio =
+    cleanMime.startsWith('audio/') ||
+    ['.ogg', '.opus', '.mp3', '.m4a', '.aac', '.wav', '.flac', '.amr'].includes(ext);
+  if (isAudio) {
+    const defaultAudioPrompt =
+      'استمع إلى هذا التسجيل الصوتي المرفق بعناية وافهم ما يقوله المستخدم بدقة، ثم أجب عليه أو نفذ طلبه بالشكل المطلوب كوكيل ذكي.';
+    const effectivePrompt = cleanText
+      ? `${cleanText}\n(مرفق تسجيل صوتي مع هذا الطلب)`
+      : defaultAudioPrompt;
+    const historyRecordText = cleanText
+      ? `[تسجيل صوتي: ${cleanText}]`
+      : '[تسجيل صوتي من المستخدم]';
+
+    let finalAudioMime = cleanMime.startsWith('audio/') ? cleanMime : 'audio/ogg';
+    if (finalAudioMime === 'audio/opus') {
+      finalAudioMime = 'audio/ogg';
+    }
+
+    const mediaPart: Part = {
+      inlineData: {
+        data: media.buffer.toString('base64'),
+        mimeType: finalAudioMime,
+      },
+    };
+    return { effectivePrompt, mediaPart, historyRecordText };
+  }
+
+  // 3. PDF Documents
   const isPdf = mime === 'application/pdf' || ext === '.pdf';
   if (isPdf) {
     const defaultPdfPrompt = 'اقرأ هذا المستند المرفق بصيغة PDF واشرح أو لخص محتواه بالتفصيل.';

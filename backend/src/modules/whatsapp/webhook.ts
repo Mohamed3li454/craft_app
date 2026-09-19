@@ -171,6 +171,20 @@ export class WhatsAppWebhookHandler {
             };
           }
         }
+      } else if (messageType === 'audio') {
+        text = '';
+        const mediaId = message.audio?.id;
+        const mimeType = message.audio?.mime_type || 'audio/ogg';
+        if (mediaId) {
+          const downloaded = await this.whatsappAdapter.downloadMedia(mediaId);
+          if (downloaded) {
+            mediaAttachment = {
+              buffer: downloaded.buffer,
+              mimeType: downloaded.mimeType || mimeType,
+              filename: 'voice_note.ogg',
+            };
+          }
+        }
       } else {
         logger.debug('Unhandled message type received without interactive handler, skipping', {
           messageType,
@@ -180,11 +194,15 @@ export class WhatsAppWebhookHandler {
       }
 
       // If user sent a media file but download failed completely and there is no text
-      if (!text && !mediaAttachment && (messageType === 'image' || messageType === 'document')) {
+      if (
+        !text &&
+        !mediaAttachment &&
+        (messageType === 'image' || messageType === 'document' || messageType === 'audio')
+      ) {
         logger.warn('Failed to retrieve media binary from Meta Graph API', { messageType });
         await this.whatsappAdapter.sendTextMessage(
           from,
-          'عذراً، تعذر تحميل الملف المرفق من واتساب حالياً. يرجى إعادة إرساله مرة أخرى.'
+          'عذراً، تعذر تحميل التسجيل الصوتي/الملف المرفق من واتساب حالياً. يرجى إعادة إرساله مرة أخرى.'
         );
         res.status(200).send('EVENT_RECEIVED');
         return;

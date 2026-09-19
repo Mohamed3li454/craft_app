@@ -38,6 +38,20 @@ describe('Multimodal Vision & File Processing', () => {
       expect(result.historyRecordText).toContain('ايه رأيك في المنظر ده يا كرافت؟');
     });
 
+    test('converts audio/voice note buffer into Gemini inlineData part with cleaned mimeType', async () => {
+      const buffer = Buffer.from('fake-ogg-opus-audio');
+      const result = await processMediaAttachment('', {
+        buffer,
+        mimeType: 'audio/ogg; codecs=opus',
+      });
+
+      expect(result.mediaPart).toBeDefined();
+      expect(result.mediaPart?.inlineData?.mimeType).toBe('audio/ogg');
+      expect(result.mediaPart?.inlineData?.data).toBe(buffer.toString('base64'));
+      expect(result.effectivePrompt).toContain('استمع إلى هذا التسجيل الصوتي');
+      expect(result.historyRecordText).toBe('[تسجيل صوتي من المستخدم]');
+    });
+
     test('converts PDF buffer into Gemini inlineData part', async () => {
       const buffer = Buffer.from('%PDF-1.4-fake-pdf');
       const result = await processMediaAttachment('', {
@@ -142,6 +156,22 @@ describe('Multimodal Vision & File Processing', () => {
       expect(output.status).toBe('completed');
       expect(output.replyText).toBeDefined();
     });
+
+    test('successfully processes audio/voice note attachment run', async () => {
+      const output = await orchestrator.run({
+        userId: 'test_audio_user',
+        channel: 'whatsapp',
+        text: '',
+        media: {
+          buffer: Buffer.from('test-audio-data'),
+          mimeType: 'audio/ogg',
+        },
+      });
+
+      expect(output.status).toBe('completed');
+      expect(output.replyText).toBeDefined();
+      expect(output.replyText).toContain('تسجيلك الصوتي');
+    });
   });
 
   describe('WhatsApp Webhook Media Handler', () => {
@@ -163,6 +193,12 @@ describe('Multimodal Vision & File Processing', () => {
             return {
               buffer: Buffer.from('void main() {}'),
               mimeType: 'text/plain',
+            };
+          }
+          if (mediaId === 'aud_789') {
+            return {
+              buffer: Buffer.from('voice-note-bytes'),
+              mimeType: 'audio/ogg',
             };
           }
           return null;
@@ -262,5 +298,48 @@ describe('Multimodal Vision & File Processing', () => {
       expect(mockAdapter.downloadMedia).toHaveBeenCalledWith('doc_456');
       expect(mockAdapter.sendTextMessage).toHaveBeenCalled();
     });
+
+    test('handles audio/voice note message webhook, downloads audio, and sends reply', async () => {
+      const payload = {
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  messages: [
+                    {
+                      from: '201028067432',
+                      id: `wamid_aud_${Date.now()}`,
+                      type: 'audio',
+                      audio: {
+                        id: 'aud_789',
+                        mime_type: 'audio/ogg; codecs=opus',
+                        voice: true,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      const req: any = {
+        headers: {},
+        body: payload,
+      };
+      const res: any = {
+        status: jest.fn().mockReturnThis(),
+        send: jest.fn(),
+      };
+
+      await handler.handleIncoming(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(mockAdapter.downloadMedia).toHaveBeenCalledWith('aud_789');
+      expect(mockAdapter.sendTextMessage).toHaveBeenCalled();
+    });
   });
 });
+
