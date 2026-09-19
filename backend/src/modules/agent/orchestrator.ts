@@ -5,6 +5,7 @@ import { ToolRegistry } from '../tools/registry';
 import { ConfirmationService } from '../confirmation/confirmation.service';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { MessageEntity } from '../../database/repositories/types';
+import { parseDueAt } from '../../database/repositories/reminder.repo';
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 
@@ -163,7 +164,18 @@ export class AgentOrchestrator {
 
           let promptDetails = JSON.stringify(fc.args);
           if (tool.name === 'create_reminder') {
-            promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${fc.args.time || 'قريباً'}`;
+            const parsedTime = parseDueAt(fc.args.time);
+            let formattedTime = fc.args.time || 'قريباً';
+            if (parsedTime) {
+              formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
+                timeZone: 'Africa/Cairo',
+                hour: 'numeric',
+                minute: 'numeric',
+                day: 'numeric',
+                month: 'long',
+              }).format(parsedTime);
+            }
+            promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}`;
           }
 
           const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:

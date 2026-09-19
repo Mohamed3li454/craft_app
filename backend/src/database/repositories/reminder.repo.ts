@@ -210,14 +210,27 @@ export class ReminderRepository {
     if (pool) {
       try {
         const res = await pool.query(
-          `SELECT r.id, r.user_id as "userId", r.title, r.due_at as "dueAt", u.name as "userName", u.phone_number as "phoneNumber"
-           FROM reminders r
-           JOIN users u ON r.user_id = u.id
-           WHERE r.is_completed = false
-             AND r.due_at IS NOT NULL
-             AND r.due_at <= NOW()
-           ORDER BY r.due_at ASC
-           LIMIT 50`
+          `WITH claimed AS (
+             SELECT r.id, r.user_id, r.title, r.due_at, u.name as "userName", u.phone_number as "phoneNumber"
+             FROM reminders r
+             LEFT JOIN users u ON r.user_id = u.id
+             WHERE r.is_completed = false
+               AND r.due_at IS NOT NULL
+               AND r.due_at <= NOW()
+             ORDER BY r.due_at ASC
+             LIMIT 50
+             FOR UPDATE OF r SKIP LOCKED
+           )
+           UPDATE reminders
+           SET is_completed = true, updated_at = NOW()
+           FROM claimed
+           WHERE reminders.id = claimed.id
+           RETURNING reminders.id,
+                     reminders.user_id as "userId",
+                     reminders.title,
+                     reminders.due_at as "dueAt",
+                     claimed."userName",
+                     claimed."phoneNumber"`
         );
         return res.rows;
       } catch (err: any) {
@@ -225,12 +238,14 @@ export class ReminderRepository {
       }
     }
 
-    // In-memory fallback
+    // In-memory fallback: atomically claim rows
     const dueList: any[] = [];
     const now = new Date();
     for (const [userId, items] of this.inMemoryReminders.entries()) {
       for (const item of items) {
         if (!item.isCompleted && item.dueAt && item.dueAt <= now) {
+          item.isCompleted = true;
+          item.updatedAt = new Date();
           dueList.push({
             id: item.id,
             userId,

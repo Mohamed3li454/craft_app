@@ -2,7 +2,6 @@ import { ReminderRepository } from '../../database/repositories/reminder.repo';
 import { WhatsAppAdapter } from '../whatsapp/adapter';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { logger } from '../../core/logger';
-import { ReminderEntity } from '../../database/repositories/types';
 
 export class ReminderScheduler {
   private static instance: ReminderScheduler;
@@ -66,25 +65,5 @@ export class ReminderScheduler {
 
     return { dispatchedCount: dispatchedTitles.length, remindersDispatched: dispatchedTitles };
   }
-
-  /**
-   * If a reminder is set for the very near future (<= 3 minutes),
-   * schedules an in-memory timer so it can trigger right on the exact second
-   * if the serverless runtime remains warm.
-   */
-  public scheduleImmediateTimer(reminder: ReminderEntity, rawUserId: string): void {
-    if (!reminder.dueAt) return;
-
-    const delayMs = new Date(reminder.dueAt).getTime() - Date.now();
-    if (delayMs > 0 && delayMs <= 3 * 60 * 1000) {
-      logger.info(`Scheduling in-memory timer for near-term reminder [${reminder.title}] in ${Math.round(delayMs / 1000)}s`);
-      setTimeout(async () => {
-        try {
-          await this.checkAndDispatchDueReminders();
-        } catch (err: any) {
-          logger.error('Error in near-term reminder timer dispatch', { error: err.message });
-        }
-      }, delayMs);
-    }
-  }
 }
+

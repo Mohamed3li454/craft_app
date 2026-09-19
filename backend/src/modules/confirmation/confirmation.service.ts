@@ -85,15 +85,6 @@ export class ConfirmationService {
             time
           );
           logger.info(`Action [create_reminder] executed successfully for user [${confirmation.userId}]`);
-
-          if (executionResult) {
-            try {
-              const { ReminderScheduler } = require('../reminder/reminder.scheduler');
-              ReminderScheduler.getInstance().scheduleImmediateTimer(executionResult, confirmation.userId);
-            } catch (schedErr: any) {
-              logger.warn('Failed to schedule immediate reminder timer', { error: schedErr.message });
-            }
-          }
         } catch (err: any) {
           logger.error('Failed to execute approved action [create_reminder]', {
             error: err.message,
