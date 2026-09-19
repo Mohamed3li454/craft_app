@@ -15,7 +15,8 @@ export class ConfirmationService {
     userId: string,
     actionName: string,
     description: string,
-    payload: Record<string, any>
+    payload: Record<string, any>,
+    conversationId?: string
   ): Promise<ConfirmationEntity> {
     const expiresAt = new Date(
       Date.now() + config.security.confirmationExpiresMinutes * 60 * 1000
@@ -27,7 +28,8 @@ export class ConfirmationService {
       actionName,
       description,
       payload,
-      expiresAt
+      expiresAt,
+      conversationId
     );
 
     logger.info(`Created confirmation request for action [${actionName}]`, {

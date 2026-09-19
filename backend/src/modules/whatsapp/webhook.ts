@@ -7,6 +7,7 @@ import { WebhookRepository } from '../../database/repositories/webhook.repo';
 import { AgentOrchestrator } from '../agent/orchestrator';
 import { ConfirmationService } from '../confirmation/confirmation.service';
 import { ChatRepository } from '../../database/repositories/chat.repo';
+import { parseDueAt } from '../../database/repositories/reminder.repo';
 
 export class WhatsAppWebhookHandler {
   constructor(
@@ -103,8 +104,18 @@ export class WhatsAppWebhookHandler {
               const actionName = resolveResult.confirmation?.actionName;
               if (actionName === 'create_reminder') {
                 const title = resolveResult.confirmation?.payload?.title || 'التذكير';
-                const time = resolveResult.confirmation?.payload?.time || 'المحدد';
-                replyText = `✅ تم التأكيد بنجاح!\nتم حفظ وجدولة التذكير:\n• الموضوع: "${title}"\n• الموعد: ${time}\nسأقوم بتنبيهك في الوقت المحدد بإذن الله.`;
+                const parsedTime = parseDueAt(resolveResult.confirmation?.payload?.time);
+                let formattedTime = resolveResult.confirmation?.payload?.time || 'المحدد';
+                if (parsedTime) {
+                  formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
+                    timeZone: 'Africa/Cairo',
+                    hour: 'numeric',
+                    minute: 'numeric',
+                    day: 'numeric',
+                    month: 'long',
+                  }).format(parsedTime);
+                }
+                replyText = `✅ تم التأكيد بنجاح!\nتم حفظ وجدولة التذكير:\n• الموضوع: "${title}"\n• الموعد: ${formattedTime}\nسأقوم بتنبيهك في الوقت المحدد بإذن الله.`;
               } else {
                 replyText = `✅ تم تأكيد وتنفيذ العملية [${actionName || 'المطلوبة'}] بنجاح!`;
               }

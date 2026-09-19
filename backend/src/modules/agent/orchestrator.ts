@@ -6,6 +6,7 @@ import { ConfirmationService } from '../confirmation/confirmation.service';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { MessageEntity } from '../../database/repositories/types';
 import { parseDueAt } from '../../database/repositories/reminder.repo';
+import { MemoryRepository } from '../../database/repositories/memory.repo';
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 
@@ -94,7 +95,8 @@ export class AgentOrchestrator {
     private geminiProvider: GeminiProvider = new GeminiProvider(),
     private toolRegistry: ToolRegistry = ToolRegistry.getInstance(),
     private confirmationService: ConfirmationService = new ConfirmationService(),
-    private chatRepo: ChatRepository = new ChatRepository()
+    private chatRepo: ChatRepository = new ChatRepository(),
+    private memoryRepo: MemoryRepository = new MemoryRepository()
   ) {}
 
   public async run(input: AgentRunInput): Promise<AgentRunOutput> {
@@ -103,14 +105,23 @@ export class AgentOrchestrator {
       userId: input.userId,
     });
 
-    // 1. Get or create conversation
+    // 1. If WhatsApp channel, consolidate any fragmented conversations into the primary one
+    if (input.channel === 'whatsapp') {
+      await this.chatRepo.consolidateWhatsAppConversations(input.userId);
+    }
+
+    // 2. Extract and persist any facts mentioned by user in long-term memory
+    await this.memoryRepo.extractAndSaveFacts(input.userId, input.text);
+    const memories = await this.memoryRepo.getMemories(input.userId);
+
+    // 3. Get or create conversation
     const conversation = await this.chatRepo.getOrCreateConversation(
       input.userId,
       input.channel
     );
     const conversationId = conversation.id;
 
-    // 2. Persist user message
+    // 4. Persist user message
     await this.chatRepo.saveMessage(
       conversationId,
       'user',
@@ -119,7 +130,7 @@ export class AgentOrchestrator {
       input.mediaUrl
     );
 
-    // 3. Load recent history for context (up to 20 past turns for strong multi-turn memory)
+    // 5. Load recent history for context (up to 20 past turns for strong multi-turn memory)
     const recentMessages = await this.chatRepo.getRecentMessages(conversationId, 20);
     const contents: Content[] = formatConversationHistory(recentMessages, input.text);
 
@@ -127,12 +138,12 @@ export class AgentOrchestrator {
     const toolCallsExecuted: AgentRunOutput['toolCallsExecuted'] = [];
     let finalReply = '';
 
-    // 4. ReAct Agent Loop
+    // 6. ReAct Agent Loop
     while (iterations < config.security.maxIterations) {
       iterations++;
       logger.debug(`Agent ReAct iteration [${iterations}/${config.security.maxIterations}]`);
 
-      const geminiResponse = await this.geminiProvider.generateReply(contents);
+      const geminiResponse = await this.geminiProvider.generateReply(contents, true, memories);
 
       // Check if Gemini invoked function calls
       if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
@@ -159,7 +170,8 @@ export class AgentOrchestrator {
             input.userId,
             tool.name,
             `طلب تأكيد لتنفيذ عملية: ${tool.name}`,
-            fc.args
+            fc.args,
+            conversationId
           );
 
           let promptDetails = JSON.stringify(fc.args);
@@ -252,5 +264,73 @@ export class AgentOrchestrator {
       replyText: finalReply,
       toolCallsExecuted,
     };
+  }
+
+  /**
+   * Intelligently dispatches a due reminder by letting the LLM inspect the reminder intent,
+   * call appropriate live tools (e.g. get_weather, web_search), and formulate a complete, rich notification.
+   */
+  public async generateSmartReminder(userId: string, reminderTitle: string): Promise<string> {
+    try {
+      const memories = await this.memoryRepo.getMemories(userId);
+      const prompt = `[نظام التذكيرات الذكية]
+حان الآن موعد تذكير للمستخدم. عنوان التذكير: "${reminderTitle}".
+المطلوب منك كوكيل ذكي:
+1. تحقق بدقة: هل يتطلب هذا التذكير جلب معلومات حية أو حالية للمستخدم؟
+   - إذا كان عن الطقس (مثل: طقس القاهرة، أحوال الجو): استدعِ أداة get_weather فوراً لجلب حالة الطقس الفعلية الحالية!
+   - إذا كان عن أخبار (مثل: أهم أخبار نيويورك، أخبار تقنية): استدعِ أداة web_search فوراً لجلب الأخبار الحية الحالية!
+   - إذا كان عن أي معلومة أخرى: استدعِ الأداة المناسبة.
+2. بعد جلب المعلومات (أو إذا كان التذكير تنبيهاً شخصياً عادياً مثل موعد دواء أو صلاة أو اجتماع):
+   صِغ رسالة التذكير بأسلوب ودود وجميل ومباشر باللهجة المصرية، تبدأ بـ:
+   ⏰ *تذكير من كرافت*:
+   ثم تفاصيل التذكير والمعلومات المطلوبة بدقة وتنسيق مرتب، واختم بعبارة تشجيعية دافئة.`;
+
+      const contents: Content[] = [
+        { role: 'user', parts: [{ text: prompt }] },
+      ];
+
+      const conv = await this.chatRepo.getOrCreateConversation(userId, 'whatsapp');
+
+      let iterations = 0;
+      while (iterations < config.security.maxIterations) {
+        iterations++;
+        const reply = await this.geminiProvider.generateReply(contents, true, memories);
+
+        if (reply.functionCalls && reply.functionCalls.length > 0) {
+          const fc = reply.functionCalls[0];
+          const tool = this.toolRegistry.getTool(fc.name);
+          if (tool) {
+            const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
+              userId,
+              conversationId: conv.id,
+              channel: 'whatsapp',
+            });
+            contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
+            contents.push({
+              role: 'user',
+              parts: [
+                {
+                  text: `Tool [${tool.name}] result: ${JSON.stringify(
+                    toolResult.output || toolResult.error
+                  )}`,
+                },
+              ],
+            });
+            continue;
+          }
+        }
+
+        if (reply.text && reply.text.trim()) {
+          return reply.text.trim();
+        }
+        break;
+      }
+    } catch (err: any) {
+      logger.warn('Failed to generate smart reminder content, falling back to default', {
+        error: err.message,
+      });
+    }
+
+    return `⏰ *تذكير من كرافت*:\n\n📌 *الموضوع*: "${reminderTitle}"\n\nحان الآن موعد هذا التذكير المحدد! أرجو أن تكون في أتم صحة وعافية.`;
   }
 }

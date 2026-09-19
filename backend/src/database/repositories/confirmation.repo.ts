@@ -23,7 +23,8 @@ export class ConfirmationRepository {
     actionName: string,
     description: string,
     payload: Record<string, any>,
-    expiresAt: Date
+    expiresAt: Date,
+    conversationId?: string
   ): Promise<ConfirmationEntity> {
     const pool = this.db.getPool();
     const token = uuidv4().replace(/-/g, '').substring(0, 16);
@@ -37,14 +38,24 @@ export class ConfirmationRepository {
           `INSERT INTO users (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
           [userUuid, userId]
         );
-        await pool.query(
-          `INSERT INTO conversations (id, user_id, channel, title) VALUES ($1, $2, 'whatsapp', 'Default') ON CONFLICT (id) DO NOTHING`,
-          [agentRunUuid, userUuid]
-        );
-        await pool.query(
-          `INSERT INTO agent_runs (id, conversation_id, user_prompt) VALUES ($1, $1, $2) ON CONFLICT (id) DO NOTHING`,
-          [agentRunUuid, description]
-        );
+
+        let targetConvId = conversationId;
+        if (!targetConvId) {
+          const findConv = await pool.query(
+            `SELECT id FROM conversations WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1`,
+            [userUuid]
+          );
+          if (findConv.rows.length > 0) {
+            targetConvId = findConv.rows[0].id;
+          }
+        }
+
+        if (targetConvId) {
+          await pool.query(
+            `INSERT INTO agent_runs (id, conversation_id, user_prompt) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
+            [agentRunUuid, targetConvId, description]
+          );
+        }
 
         const res = await pool.query(
           `INSERT INTO confirmation_requests (id, agent_run_id, user_id, action_name, description, payload, token, status, expires_at)

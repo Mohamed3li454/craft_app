@@ -37,7 +37,7 @@ export class ChatRepository {
           `SELECT id, user_id as "userId", channel, title, is_archived as "isArchived", created_at as "createdAt", updated_at as "updatedAt"
            FROM conversations 
            WHERE user_id = $1 AND channel = $2 AND is_archived = false 
-           ORDER BY updated_at DESC LIMIT 1`,
+           ORDER BY ${channel === 'whatsapp' ? 'created_at ASC' : 'updated_at DESC'} LIMIT 1`,
           [userUuid, channel]
         );
 
@@ -96,6 +96,10 @@ export class ChatRepository {
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", created_at as "createdAt"`,
           [messageId, conversationId, senderRole, senderName, text, mediaUrl || null]
+        );
+        await pool.query(
+          `UPDATE conversations SET updated_at = NOW() WHERE id = $1`,
+          [conversationId]
         );
         return res.rows[0];
       } catch (err: any) {
@@ -172,5 +176,46 @@ export class ChatRepository {
     return Array.from(this.inMemoryConversations.values()).filter(
       (c) => c.userId === userId
     );
+  }
+
+  /**
+   * Consolidates all fragmented WhatsApp conversations for a user into a single primary conversation.
+   */
+  public async consolidateWhatsAppConversations(userId: string): Promise<string | null> {
+    const pool = this.db.getPool();
+    if (!pool) return null;
+
+    try {
+      const userUuid = toDeterministicUuid(userId);
+      const convs = await pool.query(
+        `SELECT id FROM conversations WHERE user_id = $1 AND channel = 'whatsapp' ORDER BY created_at ASC`,
+        [userUuid]
+      );
+
+      if (convs.rows.length <= 1) {
+        return convs.rows[0]?.id || null;
+      }
+
+      const primaryId = convs.rows[0].id;
+      const secondaryIds = convs.rows.slice(1).map((r: any) => r.id);
+
+      // Move all messages to primary conversation
+      await pool.query(
+        `UPDATE messages SET conversation_id = $1 WHERE conversation_id = ANY($2::uuid[])`,
+        [primaryId, secondaryIds]
+      );
+
+      // Archive secondary conversations
+      await pool.query(
+        `UPDATE conversations SET is_archived = true WHERE id = ANY($1::uuid[])`,
+        [secondaryIds]
+      );
+
+      logger.info(`Consolidated [${secondaryIds.length}] WhatsApp conversations into primary [${primaryId}] for user [${userId}]`);
+      return primaryId;
+    } catch (err: any) {
+      logger.warn('Failed to consolidate WhatsApp conversations', { error: err.message });
+      return null;
+    }
   }
 }

@@ -60,3 +60,12 @@ export interface ReminderEntity {
   updatedAt: Date;
 }
 
+export interface MemoryItemEntity {
+  id: string;
+  userId: string;
+  factText: string;
+  category: string;
+  createdAt: Date;
+}
+
+

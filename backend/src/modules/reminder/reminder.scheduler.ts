@@ -1,6 +1,7 @@
 import { ReminderRepository } from '../../database/repositories/reminder.repo';
 import { WhatsAppAdapter } from '../whatsapp/adapter';
 import { ChatRepository } from '../../database/repositories/chat.repo';
+import { AgentOrchestrator } from '../agent/orchestrator';
 import { logger } from '../../core/logger';
 
 export class ReminderScheduler {
@@ -9,7 +10,8 @@ export class ReminderScheduler {
   constructor(
     private reminderRepo: ReminderRepository = new ReminderRepository(),
     private whatsappAdapter: WhatsAppAdapter = new WhatsAppAdapter(),
-    private chatRepo: ChatRepository = new ChatRepository()
+    private chatRepo: ChatRepository = new ChatRepository(),
+    private orchestrator: AgentOrchestrator = new AgentOrchestrator()
   ) {}
 
   public static getInstance(): ReminderScheduler {
@@ -39,7 +41,7 @@ export class ReminderScheduler {
 
       if (targetPhone) {
         const cleanPhone = targetPhone.replace(/[^\d]/g, '');
-        const messageText = `⏰ *تذكير من كرافت*:\n\n📌 *الموضوع*: "${item.title}"\n\nحان الآن موعد هذا التذكير المحدد! أرجو أن تكون في أتم صحة وعافية. إذا احتجت لأي مساعدة، أنا في خدمتك دائماً.`;
+        const messageText = await this.orchestrator.generateSmartReminder(item.userId, item.title);
 
         try {
           const sent = await this.whatsappAdapter.sendTextMessage(cleanPhone, messageText);

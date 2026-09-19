@@ -61,4 +61,26 @@ describe('ReminderScheduler & Timezone Intelligence', () => {
     expect(sentMessage).toContain('تذكير من كرافت');
     expect(sentMessage).toContain('تذكير بموعد الدواء');
   });
+
+  test('dispatches smart dynamic reminder with weather report when topic is weather', async () => {
+    // 1. Create a reminder due in past about weather in Cairo
+    const pastDue = new Date(Date.now() - 60 * 1000);
+    const reminder = await repo.create(
+      'wa_201028067432',
+      'تذكير بحالة الطقس في القاهرة',
+      pastDue
+    );
+
+    expect(reminder.isCompleted).toBe(false);
+
+    // 2. Dispatch
+    const result = await scheduler.checkAndDispatchDueReminders();
+    expect(result.dispatchedCount).toBeGreaterThanOrEqual(1);
+
+    // 3. Sent message should contain weather information
+    const lastCall = (mockAdapter.sendTextMessage as jest.Mock).mock.calls.pop();
+    const sentMessage = lastCall[1];
+    expect(sentMessage).toContain('تذكير من كرافت');
+    expect(sentMessage).toContain('الطقس');
+  });
 });

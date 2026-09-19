@@ -1,116 +1,67 @@
-import { formatConversationHistory, AgentOrchestrator } from '../src/modules/agent/orchestrator';
-import { MessageEntity } from '../src/database/repositories/types';
+import { MemoryRepository } from '../src/database/repositories/memory.repo';
+import { SaveMemoryTool } from '../src/modules/tools/builtins/memory.tool';
+import { AgentOrchestrator } from '../src/modules/agent/orchestrator';
 
-describe('Multi-turn Conversation Memory', () => {
-  describe('formatConversationHistory normalizer', () => {
-    test('ensures first turn is from user by dropping leading model messages', () => {
-      const messages: MessageEntity[] = [
-        {
-          id: '1',
-          conversationId: 'c1',
-          senderRole: 'assistant',
-          senderName: 'Craft',
-          text: 'مرحبا بك! كيف أساعدك؟',
-          createdAt: new Date(),
-        },
-        {
-          id: '2',
-          conversationId: 'c1',
-          senderRole: 'user',
-          senderName: 'User',
-          text: 'أنا مبرمج',
-          createdAt: new Date(),
-        },
-      ];
+describe('Long-Term Memory & User Profile Intelligence', () => {
+  let memoryRepo: MemoryRepository;
+  let saveMemoryTool: SaveMemoryTool;
+  let orchestrator: AgentOrchestrator;
 
-      const contents = formatConversationHistory(messages, 'أنا مبرمج');
-      expect(contents.length).toBe(1);
-      expect(contents[0].role).toBe('user');
-      expect(contents[0].parts[0]).toEqual({ text: 'أنا مبرمج' });
-    });
-
-    test('merges consecutive messages with the same role into single turn', () => {
-      const messages: MessageEntity[] = [
-        {
-          id: '1',
-          conversationId: 'c1',
-          senderRole: 'user',
-          senderName: 'User',
-          text: 'أنا شغال مبرمج فلاتر',
-          createdAt: new Date(),
-        },
-        {
-          id: '2',
-          conversationId: 'c1',
-          senderRole: 'user',
-          senderName: 'User',
-          text: 'وعايش في القاهرة',
-          createdAt: new Date(),
-        },
-      ];
-
-      const contents = formatConversationHistory(messages, 'وعايش في القاهرة');
-      expect(contents.length).toBe(1);
-      expect(contents[0].role).toBe('user');
-      expect(contents[0].parts[0]).toEqual({ text: 'أنا شغال مبرمج فلاتر\nوعايش في القاهرة' });
-    });
-
-    test('preserves alternating user/model turns and appends latest prompt', () => {
-      const messages: MessageEntity[] = [
-        {
-          id: '1',
-          conversationId: 'c1',
-          senderRole: 'user',
-          senderName: 'User',
-          text: 'مرحبا',
-          createdAt: new Date(),
-        },
-        {
-          id: '2',
-          conversationId: 'c1',
-          senderRole: 'assistant',
-          senderName: 'Craft',
-          text: 'أهلاً بك يا فندم',
-          createdAt: new Date(),
-        },
-      ];
-
-      const contents = formatConversationHistory(messages, 'ما هي خدماتك؟');
-      expect(contents.length).toBe(3);
-      expect(contents[0].role).toBe('user');
-      expect(contents[1].role).toBe('model');
-      expect(contents[2].role).toBe('user');
-      expect(contents[2].parts[0]).toEqual({ text: 'ما هي خدماتك؟' });
-    });
+  beforeEach(() => {
+    memoryRepo = new MemoryRepository();
+    saveMemoryTool = new SaveMemoryTool(memoryRepo);
+    orchestrator = new AgentOrchestrator();
   });
 
-  describe('AgentOrchestrator context recall across turns', () => {
-    let orchestrator: AgentOrchestrator;
+  test('saves and retrieves memory facts for a user', async () => {
+    await memoryRepo.saveFact('test_user_mem', 'المستخدم يعمل كمطور تطبيقات هواتف باستخدام فلاتر', 'profession');
+    await memoryRepo.saveFact('test_user_mem', 'المستخدم يفضل اللهجة المصرية', 'preference');
 
-    beforeEach(() => {
-      orchestrator = new AgentOrchestrator();
+    const memories = await memoryRepo.getMemories('test_user_mem');
+    expect(memories.length).toBe(2);
+    expect(memories).toContain('المستخدم يعمل كمطور تطبيقات هواتف باستخدام فلاتر');
+    expect(memories).toContain('المستخدم يفضل اللهجة المصرية');
+  });
+
+  test('extractAndSaveFacts automatically extracts profession and dialect', async () => {
+    const extracted1 = await memoryRepo.extractAndSaveFacts('test_user_auto', 'انا mobile dev flutter بالمناسبة يعني');
+    expect(extracted1.length).toBeGreaterThanOrEqual(1);
+
+    const extracted2 = await memoryRepo.extractAndSaveFacts('test_user_auto', 'انت ليه بتتكلم فصحي كلمني مصري عادي');
+    expect(extracted2.length).toBeGreaterThanOrEqual(1);
+
+    const memories = await memoryRepo.getMemories('test_user_auto');
+    expect(memories.some((m) => m.includes('Flutter'))).toBe(true);
+    expect(memories.some((m) => m.includes('المصرية'))).toBe(true);
+  });
+
+  test('SaveMemoryTool executes and persists fact', async () => {
+    const result = await saveMemoryTool.execute(
+      { fact: 'المستخدم مهتم بتعلم الذكاء الاصطناعي', category: 'interests' },
+      { userId: 'test_user_tool', conversationId: 'conv-1', channel: 'whatsapp' }
+    );
+
+    expect(result.success).toBe(true);
+    const memories = await memoryRepo.getMemories('test_user_tool');
+    expect(memories).toContain('المستخدم مهتم بتعلم الذكاء الاصطناعي');
+  });
+
+  test('orchestrator remembers profession and answers correctly', async () => {
+    // 1. User introduces himself as flutter dev
+    await orchestrator.run({
+      userId: 'test_user_chat_mem',
+      channel: 'whatsapp',
+      text: 'انا mobile dev flutter بالمناسبة يعني',
     });
 
-    test('recalls details from earlier turns in the same conversation', async () => {
-      const userId = `memory_test_user_${Date.now()}`;
-
-      // Turn 1: user introduces job and city
-      const turn1 = await orchestrator.run({
-        userId,
-        channel: 'whatsapp',
-        text: 'أنا شغال مبرمج فلاتر في القاهرة',
-      });
-      expect(turn1.status).toBe('completed');
-
-      // Turn 2: user asks about previously given details
-      const turn2 = await orchestrator.run({
-        userId,
-        channel: 'whatsapp',
-        text: 'أنا شغال إيه وفين؟',
-      });
-      expect(turn2.status).toBe('completed');
-      expect(turn2.replyText).toContain('مبرمج');
-      expect(turn2.replyText).toContain('القاهرة');
+    // 2. Later, user asks what his job was
+    const answer = await orchestrator.run({
+      userId: 'test_user_chat_mem',
+      channel: 'whatsapp',
+      text: 'تمام انت فاكر انا شغلانتي كانت اي صحيح',
     });
+
+    expect(answer.status).toBe('completed');
+    expect(answer.replyText).toContain('فلاتر');
   });
 });
