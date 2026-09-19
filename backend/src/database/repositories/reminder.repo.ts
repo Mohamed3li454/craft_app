@@ -12,6 +12,55 @@ function toDeterministicUuid(id: string): string {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
+/**
+ * Parses a date or timestamp with Cairo / Egypt timezone intelligence (UTC+3).
+ */
+export function parseDueAt(dueAt?: Date | string | null): Date | null {
+  if (!dueAt) return null;
+  if (dueAt instanceof Date) return dueAt;
+
+  const str = String(dueAt).trim();
+  if (!str) return null;
+
+  // 1. Relative minutes: e.g. "بعد دقيقة", "بعد 5 دقائق", "in 2 mins"
+  if (str.includes('بعد دقيقة') || str.includes('بعد دقيقه') || str === '+1m') {
+    return new Date(Date.now() + 60 * 1000);
+  }
+  const minMatch = str.match(/(\d+)\s*(min|دقيقة|دقائق)/i);
+  if (minMatch) {
+    const mins = parseInt(minMatch[1], 10);
+    return new Date(Date.now() + mins * 60 * 1000);
+  }
+
+  // 2. Relative hours: e.g. "بعد ساعة", "بعد ساعتين", "بعد 3 ساعات"
+  if (str.includes('بعد ساعة') || str.includes('بعد ساعه')) {
+    return new Date(Date.now() + 60 * 60 * 1000);
+  }
+  if (str.includes('بعد ساعتين')) {
+    return new Date(Date.now() + 2 * 60 * 60 * 1000);
+  }
+  const hourMatch = str.match(/(\d+)\s*(hour|ساعة|ساعات)/i);
+  if (hourMatch) {
+    const hours = parseInt(hourMatch[1], 10);
+    return new Date(Date.now() + hours * 60 * 60 * 1000);
+  }
+
+  // 3. Absolute datetime without offset (e.g. "2026-09-19 18:25" or "2026-09-19T18:25:00")
+  let normalized = str;
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(str)) {
+    // Treat as Cairo local time (+03:00) so it does NOT shift to UTC!
+    normalized = str.replace(' ', 'T') + (str.length === 16 ? ':00+03:00' : '+03:00');
+  } else if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(str)) {
+    // Time-only string: e.g. "18:25"
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
+    const padded = str.length <= 5 ? str.padStart(5, '0') : str;
+    normalized = `${today}T${padded}${padded.length === 5 ? ':00+03:00' : '+03:00'}`;
+  }
+
+  const parsed = new Date(normalized);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export class ReminderRepository {
   private inMemoryReminders: Map<string, ReminderEntity[]> = new Map();
 
@@ -24,18 +73,7 @@ export class ReminderRepository {
   ): Promise<ReminderEntity> {
     const pool = this.db.getPool();
     const userUuid = toDeterministicUuid(userId);
-    let parsedDueAt: Date | null = null;
-
-    if (dueAt) {
-      if (dueAt instanceof Date) {
-        parsedDueAt = dueAt;
-      } else {
-        const parsed = new Date(dueAt);
-        if (!isNaN(parsed.getTime())) {
-          parsedDueAt = parsed;
-        }
-      }
-    }
+    const parsedDueAt = parseDueAt(dueAt);
 
     if (pool) {
       try {
@@ -54,6 +92,7 @@ export class ReminderRepository {
         logger.info(`Saved reminder in database for user [${userId}]`, {
           reminderId: res.rows[0].id,
           title,
+          dueAt: parsedDueAt?.toISOString(),
         });
         return res.rows[0];
       } catch (err: any) {
@@ -156,5 +195,78 @@ export class ReminderRepository {
     }
 
     return null;
+  }
+
+  public async getDueReminders(): Promise<Array<{
+    id: string;
+    userId: string;
+    title: string;
+    dueAt: Date;
+    userName?: string;
+    phoneNumber?: string;
+  }>> {
+    const pool = this.db.getPool();
+
+    if (pool) {
+      try {
+        const res = await pool.query(
+          `SELECT r.id, r.user_id as "userId", r.title, r.due_at as "dueAt", u.name as "userName", u.phone_number as "phoneNumber"
+           FROM reminders r
+           JOIN users u ON r.user_id = u.id
+           WHERE r.is_completed = false
+             AND r.due_at IS NOT NULL
+             AND r.due_at <= NOW()
+           ORDER BY r.due_at ASC
+           LIMIT 50`
+        );
+        return res.rows;
+      } catch (err: any) {
+        logger.warn('Failed to query due reminders from database', { error: err.message });
+      }
+    }
+
+    // In-memory fallback
+    const dueList: any[] = [];
+    const now = new Date();
+    for (const [userId, items] of this.inMemoryReminders.entries()) {
+      for (const item of items) {
+        if (!item.isCompleted && item.dueAt && item.dueAt <= now) {
+          dueList.push({
+            id: item.id,
+            userId,
+            title: item.title,
+            dueAt: item.dueAt,
+            userName: userId,
+          });
+        }
+      }
+    }
+    return dueList;
+  }
+
+  public async completeById(id: string): Promise<boolean> {
+    const pool = this.db.getPool();
+
+    if (pool) {
+      try {
+        const res = await pool.query(
+          `UPDATE reminders SET is_completed = true, updated_at = NOW() WHERE id = $1`,
+          [id]
+        );
+        return (res.rowCount ?? 0) > 0;
+      } catch (err: any) {
+        logger.warn('Failed to complete reminder by id in database', { error: err.message });
+      }
+    }
+
+    for (const items of this.inMemoryReminders.values()) {
+      const item = items.find((r) => r.id === id);
+      if (item) {
+        item.isCompleted = true;
+        item.updatedAt = new Date();
+        return true;
+      }
+    }
+    return false;
   }
 }

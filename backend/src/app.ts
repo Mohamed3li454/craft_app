@@ -5,6 +5,7 @@ import { errorHandler } from './core/errors';
 import { logger } from './core/logger';
 import { ChatController } from './modules/chat/chat.controller';
 import { WhatsAppWebhookHandler } from './modules/whatsapp/webhook';
+import { ReminderScheduler } from './modules/reminder/reminder.scheduler';
 
 export function createApp(): Application {
   const app: Application = express();
@@ -94,6 +95,25 @@ export function createApp(): Application {
   // 7. WhatsApp Webhook Routes (/webhooks/whatsapp)
   app.get('/webhooks/whatsapp', whatsappHandler.verifyWebhook);
   app.post('/webhooks/whatsapp', whatsappHandler.handleIncoming);
+
+  // 8. Cron Dispatcher Endpoint for Scheduled Reminders
+  const reminderScheduler = ReminderScheduler.getInstance();
+  const handleCronReminders = async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const result = await reminderScheduler.checkAndDispatchDueReminders();
+      res.status(200).json({
+        success: true,
+        ...result,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      logger.error('Error running reminder cron job', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+  app.all('/api/v1/cron/reminders', handleCronReminders);
+  app.all('/api/cron/reminders', handleCronReminders);
+
 
   // 4.1 Root Endpoint
   app.get('/', (_req: Request, res: Response) => {

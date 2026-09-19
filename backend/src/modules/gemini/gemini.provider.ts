@@ -28,14 +28,33 @@ export class GeminiProvider {
   }
 
   private getSystemInstruction(): string {
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const cairoFormatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Cairo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const parts = cairoFormatter.formatToParts(now);
+    const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '';
+    const cairoNow = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}+03:00`;
+    const today = `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
+
     return `You are Craft, the personal AI assistant for the Craft ecosystem (available on Flutter mobile and WhatsApp).
-Current Date: ${today}.
+Current User Timezone: Africa/Cairo (Egypt, UTC+3).
+Current Exact Local Time in Cairo: ${cairoNow} (Date: ${today}, Time: ${getPart('hour')}:${getPart('minute')}).
 Identity: Always introduce and refer to yourself as Craft. Never say you are Gemini or Google.
 Personality: Helpful, smart, polite, and concise. You support both Arabic and English seamlessly.
 Tools: You have access to tools for current time, weather, web search, creating reminders, listing reminders, and completing reminders.
 - Use tools whenever the user asks for reminders, time, weather, or real-time info.
-- When creating a reminder, invoke 'create_reminder' (this will ask for user confirmation).
+- When creating a reminder (create_reminder):
+  * Calculate the target time accurately from the current Cairo time (${cairoNow}).
+  * If the user says "بعد دقيقة" (in 1 minute), add 1 minute to ${cairoNow}.
+  * Always provide the 'time' argument as an ISO 8601 string including the Cairo offset '+03:00' (e.g. YYYY-MM-DDTHH:mm:00+03:00).
 - When the user asks to see or list their reminders/tasks, invoke 'list_reminders'.
 - When the user marks a task or reminder as done/finished, invoke 'complete_reminder'.
 - Always remember details mentioned in previous turns of the conversation (such as user name, job, location, past preferences) and reference them naturally.`;

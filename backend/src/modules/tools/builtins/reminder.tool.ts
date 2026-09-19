@@ -81,7 +81,12 @@ export class ListRemindersTool implements AgentTool {
       .map(
         (r, i) =>
           `${i + 1}. ${r.title}${
-            r.dueAt ? ` (الموعد: ${new Date(r.dueAt).toLocaleString('ar-EG')})` : ''
+            r.dueAt
+              ? ` (الموعد: ${new Date(r.dueAt).toLocaleString('ar-EG', {
+                  timeZone: 'Africa/Cairo',
+                  hour12: true,
+                })})`
+              : ''
           } - ${r.isCompleted ? 'مكتمل ✅' : 'قيد الانتظار ⏳'}`
       )
       .join('\n');
