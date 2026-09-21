@@ -11,7 +11,7 @@ export interface SearchResultItem {
 export class WebSearchTool implements AgentTool {
   public readonly name = 'web_search';
   public readonly description =
-    'Searches the live web for the latest news, actual product releases, device specs, leaks, rumors, and real-time events.';
+    'Searches the live web for the latest news, actual product releases, device specs, leaks, rumors, gold/currency prices, and real-time events.';
   public readonly isSensitive = false;
   public readonly parameters = {
     type: 'object' as const,
@@ -69,25 +69,41 @@ export class WebSearchTool implements AgentTool {
             };
           }
         } catch (tavilyErr: any) {
-          logger.warn('Tavily search failed, falling back to DuckDuckGo', { error: tavilyErr.message });
+          logger.warn('Tavily search failed, continuing to multi-engine fallback', { error: tavilyErr.message });
         }
       }
 
-      // 2. High-Speed DuckDuckGo Lite search (Free, zero rate limits)
-      const ddgResults = await this.searchDuckDuckGoLite(query);
-      if (ddgResults.length > 0) {
-        logger.info(`DuckDuckGo Lite returned [${ddgResults.length}] live results for "${query}"`);
+      // 2. Hybrid Search: Run Google News RSS + DuckDuckGo Lite in parallel
+      // Google News RSS is 100% unblocked on Vercel/AWS and provides real-time prices & news
+      const [googleNewsResults, ddgResults] = await Promise.all([
+        this.searchGoogleNews(query, 5),
+        this.searchDuckDuckGoLite(query, 5),
+      ]);
+
+      const combined: SearchResultItem[] = [];
+      const seenTitles = new Set<string>();
+
+      for (const item of [...googleNewsResults, ...ddgResults]) {
+        const normalized = item.title.toLowerCase().trim();
+        if (!seenTitles.has(normalized)) {
+          seenTitles.add(normalized);
+          combined.push(item);
+        }
+      }
+
+      if (combined.length > 0) {
+        logger.info(`Live web search returned [${combined.length}] results (GoogleNews: ${googleNewsResults.length}, DDG: ${ddgResults.length}) for "${query}"`);
         return {
           success: true,
           output: {
             query,
-            source: 'duckduckgo',
-            results: ddgResults,
+            source: googleNewsResults.length > 0 ? 'google_news_and_web' : 'duckduckgo',
+            results: combined.slice(0, 6),
           },
         };
       }
 
-      // 3. Graceful fallback if search returns empty
+      // 3. Graceful fallback if search engines returned no data
       return {
         success: true,
         output: {
@@ -95,7 +111,7 @@ export class WebSearchTool implements AgentTool {
           results: [
             {
               title: `نتائج عامة حول ${query}`,
-              snippet: `تم البحث عبر محركات البحث عن ${query}. يرجى التحقق من أحدث المصادر والمقالات التقنية.`,
+              snippet: `تم البحث عن ${query} عبر محركات البحث، يرجى الاستعانة بأحدث الأخبار الموثوقة المنشورة في المواقع الرسمية.`,
             },
           ],
         },
@@ -111,6 +127,76 @@ export class WebSearchTool implements AgentTool {
         },
       };
     }
+  }
+
+  /**
+   * Official Google News RSS Search - 100% unblocked on Cloud/Vercel/AWS Lambda
+   */
+  public async searchGoogleNews(query: string, maxResults = 5): Promise<SearchResultItem[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
+
+    try {
+      const isArabic = /[\u0600-\u06FF]/.test(query);
+      const hl = isArabic ? 'ar' : 'en-US';
+      const gl = isArabic ? 'EG' : 'US';
+      const ceid = isArabic ? 'EG:ar' : 'US:en';
+
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${hl}&gl=${gl}&ceid=${ceid}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'application/rss+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const xml = await response.text();
+      return this.parseGoogleNewsRss(xml, maxResults);
+    } catch {
+      clearTimeout(timeout);
+      return [];
+    }
+  }
+
+  public parseGoogleNewsRss(xml: string, maxResults: number): SearchResultItem[] {
+    const itemRegex = /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<\/item>/g;
+    const results: SearchResultItem[] = [];
+
+    let match: RegExpExecArray | null;
+    while ((match = itemRegex.exec(xml)) !== null && results.length < maxResults) {
+      const rawTitle = match[1] || '';
+      const rawLink = match[2] || '';
+      const pubDate = match[3] || '';
+
+      const cleanTitle = rawTitle
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/<[^>]+>/g, '')
+        .trim();
+
+      if (cleanTitle) {
+        results.push({
+          title: cleanTitle,
+          snippet: `تاريخ الخبر: ${pubDate}. تفاصيل التقرير: ${cleanTitle}`,
+          url: rawLink.trim(),
+        });
+      }
+    }
+
+    return results;
   }
 
   public async searchDuckDuckGoLite(query: string, maxResults = 5): Promise<SearchResultItem[]> {

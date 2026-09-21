@@ -60,4 +60,29 @@ describe('WebSearchTool Suite', () => {
     expect(parsed[0].url).toBe('https://www.macrumors.com/roundup/iphone-duo/');
     expect(parsed[1].title).toBe('Apple Foldable Phone Leaks');
   });
+
+  test('parseGoogleNewsRss extracts clean titles, dates, and links', () => {
+    const sampleXml = `
+      <rss version="2.0">
+        <channel>
+          <item>
+            <title>أسعار الذهب اليوم الإثنين في مصر تتراجع 25 جنيهًا.. عيار 21 الآن - بوابة الأهرام</title>
+            <link>https://news.google.com/rss/articles/CBMi123</link>
+            <pubDate>Mon, 21 Sep 2026 16:35:00 GMT</pubDate>
+          </item>
+          <item>
+            <title>Apple unveils iPhone Duo - Apple</title>
+            <link>https://news.google.com/rss/articles/CBMi456</link>
+            <pubDate>Wed, 09 Sep 2026 07:00:00 GMT</pubDate>
+          </item>
+        </channel>
+      </rss>
+    `;
+
+    const parsed = tool.parseGoogleNewsRss(sampleXml, 5);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].title).toContain('أسعار الذهب اليوم');
+    expect(parsed[0].snippet).toContain('Mon, 21 Sep 2026');
+    expect(parsed[1].title).toBe('Apple unveils iPhone Duo - Apple');
+  });
 });
