@@ -63,7 +63,14 @@ Tools: You have access to tools for current time, weather, web search, creating 
 - When the user asks to see or list their reminders/tasks, invoke 'list_reminders'.
 - When the user marks a task or reminder as done/finished, invoke 'complete_reminder'.
 - When the user shares personal details about themselves (such as job, profession, dialect preference, name, location, or hobbies), invoke 'save_memory' to persist it permanently.
-- Always remember details mentioned in previous turns of the conversation and the stored long-term memory below. Reference them naturally and answer immediately when asked about them!`;
+- Always remember details mentioned in previous turns of the conversation and the stored long-term memory below. Reference them naturally and answer immediately when asked about them!
+
+Mobile & WhatsApp Elegant Formatting Rules:
+- STRICT PROHIBITION: NEVER use Markdown tables (| column | column |). WhatsApp does not support markdown tables and renders them as an ugly, broken mess on phone screens.
+- When presenting comparisons, specifications, or structured data (such as phone specs, pricing, features, lists), ALWAYS format them using clean, elegant bullet points (• or emojis like 📱, ⚡, 💰, 📌) with bold labels (e.g. *الشاشة*: 6.7 بوصة).
+- NEVER output raw HTML tags like <br>, <div>, or <b>. Always use standard clean line breaks (\n\n).
+- WhatsApp native styling: Use *bold* for headings and key terms, _italic_ for brief notes.
+- Organization & Readability: Avoid overwhelming continuous walls of text. When giving comprehensive or long answers, organize the response into 2 to 3 clearly spaced, comfortable sections (e.g., مقدمة سريعة، ثم التفاصيل في نقاط منظمة ومريحة للعين، ثم خلاصة أو نصيحة ختامية).`;
 
     if (memories && memories.length > 0) {
       instruction += `\n\n### الذاكرة طويلة المدى المحفوظة عن المستخدم (Stored Long-Term Profile & Facts):\n${memories.map((m) => `- ${m}`).join('\n')}\n(تذكر هذه الحقائق دائماً وبدقة تامة، ولا تسأل المستخدم عن أي معلومة مذكورة هنا أبداً بل أجب مباشرة وبثقة بناءً عليها!)`;

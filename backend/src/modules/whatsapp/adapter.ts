@@ -1,5 +1,6 @@
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
+import { cleanWhatsAppText, splitWhatsAppMessage } from './formatter';
 
 export interface WhatsAppButton {
   id: string;
@@ -15,7 +16,10 @@ export class WhatsAppAdapter {
     this.accessToken = config.whatsapp.accessToken;
   }
 
-  public async sendTextMessage(to: string, text: string): Promise<boolean> {
+  /**
+   * Dispatches a single raw message block directly via Meta Graph API
+   */
+  public async sendRawTextMessage(to: string, text: string): Promise<boolean> {
     if (!this.phoneNumberId || !this.accessToken) {
       logger.warn('[WhatsApp Mock Mode] Missing credentials, message logged instead of dispatched', {
         to,
@@ -56,6 +60,31 @@ export class WhatsAppAdapter {
       logger.error('Failed to send WhatsApp message', { error: err.message });
       return false;
     }
+  }
+
+  /**
+   * Cleans text (converting markdown tables and HTML tags) and splits long responses
+   * into 2 to 3 natural, readable messages sent sequentially.
+   */
+  public async sendTextMessage(to: string, text: string): Promise<boolean> {
+    const formatted = cleanWhatsAppText(text);
+    const chunks = splitWhatsAppMessage(formatted);
+
+    let allSuccess = true;
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const success = await this.sendRawTextMessage(to, chunk);
+      if (!success) {
+        allSuccess = false;
+      }
+
+      // Stagger sequential chunks slightly so Meta delivers them in proper visual order
+      if (i < chunks.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+    }
+
+    return allSuccess;
   }
 
   public async sendInteractiveButtons(

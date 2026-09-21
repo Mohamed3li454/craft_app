@@ -9,6 +9,7 @@ import { ChatRepository } from '../../database/repositories/chat.repo';
 import { MessageEntity } from '../../database/repositories/types';
 import { parseDueAt } from '../../database/repositories/reminder.repo';
 import { MemoryRepository } from '../../database/repositories/memory.repo';
+import { cleanWhatsAppText } from '../whatsapp/formatter';
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 
@@ -657,6 +658,9 @@ export class AgentOrchestrator {
     if (!finalReply) {
       finalReply = 'تم تنفيذ الأدوات المطلوبة بنجاح.';
     }
+
+    // Clean and harmonize formatting for WhatsApp and mobile viewing (remove tables, <br>, etc.)
+    finalReply = cleanWhatsAppText(finalReply);
 
     // Persist assistant reply
     await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', finalReply);
