@@ -72,6 +72,33 @@ export class ToolRegistry {
   }
 
   /**
+   * Transforms registered tools into OpenAI / Groq standard Tool format
+   */
+  public getOpenAITools(): any[] {
+    return this.getAllTools().map((tool) => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: {
+          type: 'object',
+          properties: Object.entries(tool.parameters.properties).reduce(
+            (acc, [key, prop]) => {
+              acc[key] = {
+                type: (prop.type || 'string').toLowerCase(),
+                description: prop.description,
+              };
+              return acc;
+            },
+            {} as Record<string, any>
+          ),
+          required: tool.parameters.required || [],
+        },
+      },
+    }));
+  }
+
+  /**
    * Executes a tool by name with timeout safety
    */
   public async executeTool(

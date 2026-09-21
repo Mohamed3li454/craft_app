@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Content, Part } from '@google/generative-ai';
 import mammoth from 'mammoth';
 import { GeminiProvider } from '../gemini/gemini.provider';
+import { GroqProvider, GroqMessage } from '../groq/groq.provider';
 import { ToolRegistry } from '../tools/registry';
 import { ConfirmationService } from '../confirmation/confirmation.service';
 import { ChatRepository } from '../../database/repositories/chat.repo';
@@ -292,8 +293,51 @@ export function formatConversationHistory(
   });
 }
 
+export function formatGroqConversationHistory(
+  messages: MessageEntity[],
+  currentInput: string
+): GroqMessage[] {
+  const turns: GroqMessage[] = [];
+
+  for (const m of messages) {
+    const text = m.text?.trim();
+    if (!text) continue;
+    const role: 'user' | 'assistant' = m.senderRole === 'user' ? 'user' : 'assistant';
+    turns.push({ role, content: text });
+  }
+
+  // Ensure current input is the latest user turn
+  if (turns.length > 0 && turns[turns.length - 1].role === 'user') {
+    turns[turns.length - 1].content = currentInput.trim();
+  } else {
+    turns.push({ role: 'user', content: currentInput.trim() });
+  }
+
+  // Merge consecutive turns of identical roles
+  const mergedTurns: GroqMessage[] = [];
+  for (const turn of turns) {
+    if (mergedTurns.length > 0 && mergedTurns[mergedTurns.length - 1].role === turn.role) {
+      mergedTurns[mergedTurns.length - 1].content += `\n${turn.content}`;
+    } else {
+      mergedTurns.push({ ...turn });
+    }
+  }
+
+  // Ensure conversation starts with user turn
+  while (mergedTurns.length > 0 && mergedTurns[0].role !== 'user') {
+    mergedTurns.shift();
+  }
+
+  if (mergedTurns.length === 0) {
+    mergedTurns.push({ role: 'user', content: currentInput.trim() });
+  }
+
+  return mergedTurns;
+}
+
 export class AgentOrchestrator {
   constructor(
+    private groqProvider: GroqProvider = new GroqProvider(),
     private geminiProvider: GeminiProvider = new GeminiProvider(),
     private toolRegistry: ToolRegistry = ToolRegistry.getInstance(),
     private confirmationService: ConfirmationService = new ConfirmationService(),
@@ -313,26 +357,46 @@ export class AgentOrchestrator {
       await this.chatRepo.consolidateWhatsAppConversations(input.userId);
     }
 
-    // 2. Process any media attachments (images, PDFs, docx, code files)
+    // 2. If voice note (audio) attached, transcribe it via Groq Whisper first!
+    let textToProcess = input.text || '';
+    const cleanMime = (input.media?.mimeType || '').split(';')[0].trim().toLowerCase();
+    const isAudio =
+      cleanMime.startsWith('audio/') ||
+      ['.ogg', '.opus', '.mp3', '.m4a', '.aac', '.wav', '.flac', '.amr'].some((ext) =>
+        (input.media?.filename || '').toLowerCase().endsWith(ext)
+      );
+
+    if (input.media && isAudio) {
+      const transcribed = await this.groqProvider.transcribeAudio(
+        input.media.buffer,
+        cleanMime || 'audio/ogg',
+        input.media.filename || 'voice_note.ogg'
+      );
+      if (transcribed) {
+        textToProcess = textToProcess ? `${textToProcess}\n${transcribed}` : transcribed;
+      }
+    }
+
+    // 3. Process any media attachments (images, PDFs, docx, code files)
     const { effectivePrompt, mediaPart, historyRecordText } = await processMediaAttachment(
-      input.text,
+      textToProcess,
       input.media
     );
 
-    // 3. Extract and persist any facts mentioned by user in long-term memory
-    if (input.text) {
-      await this.memoryRepo.extractAndSaveFacts(input.userId, input.text);
+    // 4. Extract and persist any facts mentioned by user in long-term memory
+    if (textToProcess) {
+      await this.memoryRepo.extractAndSaveFacts(input.userId, textToProcess);
     }
     const memories = await this.memoryRepo.getMemories(input.userId);
 
-    // 4. Get or create conversation
+    // 5. Get or create conversation
     const conversation = await this.chatRepo.getOrCreateConversation(
       input.userId,
       input.channel
     );
     const conversationId = conversation.id;
 
-    // 5. Persist user message in chat history
+    // 6. Persist user message in chat history
     await this.chatRepo.saveMessage(
       conversationId,
       'user',
@@ -341,134 +405,260 @@ export class AgentOrchestrator {
       input.mediaUrl
     );
 
-    // 6. Load recent history for context (up to 20 past turns for strong multi-turn memory)
+    // 7. Load recent history for context (up to 20 past turns for strong multi-turn memory)
     const recentMessages = await this.chatRepo.getRecentMessages(conversationId, 20);
-    const contents: Content[] = formatConversationHistory(
-      recentMessages,
-      effectivePrompt,
-      mediaPart
-    );
+
+    const isImage =
+      input.media &&
+      (cleanMime.startsWith('image/') ||
+        ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'].some((ext) =>
+          (input.media?.filename || '').toLowerCase().endsWith(ext)
+        ));
+
+    const imageAttachment = isImage
+      ? {
+          data: input.media!.buffer.toString('base64'),
+          mimeType: input.media!.mimeType || 'image/jpeg',
+        }
+      : undefined;
 
     let iterations = 0;
     const toolCallsExecuted: AgentRunOutput['toolCallsExecuted'] = [];
     let finalReply = '';
 
-    // 6. ReAct Agent Loop
-    while (iterations < config.security.maxIterations) {
-      iterations++;
-      logger.debug(`Agent ReAct iteration [${iterations}/${config.security.maxIterations}]`);
+    // Primary Execution: Groq LPU Engine (GPT-OSS 120B / Qwen 3.8 27B)
+    try {
+      const groqMessages = formatGroqConversationHistory(recentMessages, effectivePrompt);
 
-      const geminiResponse = await this.geminiProvider.generateReply(contents, true, memories);
+      while (iterations < config.security.maxIterations) {
+        iterations++;
+        logger.debug(`Agent Groq ReAct iteration [${iterations}/${config.security.maxIterations}]`);
 
-      // Check if Gemini invoked function calls
-      if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
-        const fc = geminiResponse.functionCalls[0];
-        const tool = this.toolRegistry.getTool(fc.name);
+        const groqResponse = await this.groqProvider.generateReply(
+          groqMessages,
+          true,
+          memories,
+          iterations === 1 ? imageAttachment : undefined
+        );
 
-        if (!tool) {
-          logger.warn(`Unknown tool requested: [${fc.name}]`);
-          contents.push({
-            role: 'model',
-            parts: [{ text: `Called tool: ${fc.name}` }],
-          });
-          contents.push({
-            role: 'user',
-            parts: [{ text: `Tool [${fc.name}] error: Tool not found in registry.` }],
-          });
-          continue;
-        }
+        if (groqResponse.functionCalls && groqResponse.functionCalls.length > 0) {
+          const fc = groqResponse.functionCalls[0];
+          const tool = this.toolRegistry.getTool(fc.name);
 
-        // Check if tool requires confirmation
-        if (tool.isSensitive) {
-          const confirmation = await this.confirmationService.createConfirmationRequest(
-            agentRunId,
-            input.userId,
-            tool.name,
-            `طلب تأكيد لتنفيذ عملية: ${tool.name}`,
-            fc.args,
-            conversationId
-          );
-
-          let promptDetails = JSON.stringify(fc.args);
-          if (tool.name === 'create_reminder') {
-            const parsedTime = parseDueAt(fc.args.time);
-            let formattedTime = fc.args.time || 'قريباً';
-            if (parsedTime) {
-              formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
-                timeZone: 'Africa/Cairo',
-                hour: 'numeric',
-                minute: 'numeric',
-                day: 'numeric',
-                month: 'long',
-              }).format(parsedTime);
-            }
-            promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}`;
+          if (!tool) {
+            logger.warn(`Unknown tool requested: [${fc.name}]`);
+            groqMessages.push({
+              role: 'assistant',
+              content: `Called tool: ${fc.name}`,
+            });
+            groqMessages.push({
+              role: 'user',
+              content: `Tool [${fc.name}] error: Tool not found in registry.`,
+            });
+            continue;
           }
 
-          const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
+          if (tool.isSensitive) {
+            const confirmation = await this.confirmationService.createConfirmationRequest(
+              agentRunId,
+              input.userId,
+              tool.name,
+              `طلب تأكيد لتنفيذ عملية: ${tool.name}`,
+              fc.args,
+              conversationId
+            );
+
+            let promptDetails = JSON.stringify(fc.args);
+            if (tool.name === 'create_reminder') {
+              const parsedTime = parseDueAt(fc.args.time);
+              let formattedTime = fc.args.time || 'قريباً';
+              if (parsedTime) {
+                formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
+                  timeZone: 'Africa/Cairo',
+                  hour: 'numeric',
+                  minute: 'numeric',
+                  day: 'numeric',
+                  month: 'long',
+                }).format(parsedTime);
+              }
+              promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}`;
+            }
+
+            const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
 - العملية: ${tool.name === 'create_reminder' ? 'إنشاء تذكير جديد' : tool.name}
 - التفاصيل: ${promptDetails}
 يرجى التأكيد باستخدام الرمز: ${confirmation.token}`;
 
-          await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', promptNotice);
+            await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', promptNotice);
 
-          return {
+            return {
+              conversationId,
+              agentRunId,
+              status: 'waiting_for_confirmation',
+              replyText: promptNotice,
+              toolCallsExecuted,
+              confirmationRequest: {
+                token: confirmation.token,
+                actionName: confirmation.actionName,
+                description: confirmation.description,
+                expiresAt: confirmation.expiresAt.toISOString(),
+              },
+            };
+          }
+
+          logger.info(`Executing tool [${tool.name}] via Groq`, { args: fc.args });
+          const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
+            userId: input.userId,
             conversationId,
-            agentRunId,
-            status: 'waiting_for_confirmation',
-            replyText: promptNotice,
-            toolCallsExecuted,
-            confirmationRequest: {
-              token: confirmation.token,
-              actionName: confirmation.actionName,
-              description: confirmation.description,
-              expiresAt: confirmation.expiresAt.toISOString(),
-            },
-          };
+            channel: input.channel,
+          });
+
+          toolCallsExecuted.push({
+            toolName: tool.name,
+            arguments: fc.args,
+            result: toolResult.output || toolResult.error,
+          });
+
+          groqMessages.push({
+            role: 'assistant',
+            content: null as any,
+            tool_calls: [
+              {
+                id: fc.id || `fc_${Date.now()}`,
+                type: 'function',
+                function: {
+                  name: tool.name,
+                  arguments: JSON.stringify(fc.args),
+                },
+              },
+            ],
+          });
+          groqMessages.push({
+            role: 'tool',
+            tool_call_id: fc.id || `fc_${Date.now()}`,
+            name: tool.name,
+            content: JSON.stringify(toolResult.output || toolResult.error),
+          });
+          continue;
         }
 
-        // Execute safe tool
-        logger.info(`Executing tool [${tool.name}]`, { args: fc.args });
-        const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
-          userId: input.userId,
-          conversationId,
-          channel: input.channel,
-        });
-
-        toolCallsExecuted.push({
-          toolName: tool.name,
-          arguments: fc.args,
-          result: toolResult.output || toolResult.error,
-        });
-
-        // Feed tool result back into model context
-        contents.push({
-          role: 'model',
-          parts: [{ text: `Called tool: ${tool.name}` }],
-        });
-        contents.push({
-          role: 'user',
-          parts: [
-            {
-              text: `Tool [${tool.name}] result: ${JSON.stringify(
-                toolResult.output || toolResult.error
-              )}`,
-            },
-          ],
-        });
-        continue;
+        finalReply = groqResponse.text || 'تم معالجة طلبك بنجاح.';
+        break;
       }
+    } catch (groqErr: any) {
+      logger.warn('Groq provider error or unconfigured, falling back to Gemini provider', {
+        error: groqErr.message,
+      });
 
-      // Model returned text response
-      finalReply = geminiResponse.text || 'تم معالجة طلبك بنجاح.';
-      break;
+      // Secondary Fallback: Gemini Provider
+      const contents: Content[] = formatConversationHistory(
+        recentMessages,
+        effectivePrompt,
+        mediaPart
+      );
+
+      iterations = 0;
+      while (iterations < config.security.maxIterations) {
+        iterations++;
+        const geminiResponse = await this.geminiProvider.generateReply(contents, true, memories);
+
+        if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
+          const fc = geminiResponse.functionCalls[0];
+          const tool = this.toolRegistry.getTool(fc.name);
+
+          if (!tool) {
+            contents.push({ role: 'model', parts: [{ text: `Called tool: ${fc.name}` }] });
+            contents.push({
+              role: 'user',
+              parts: [{ text: `Tool [${fc.name}] error: Tool not found in registry.` }],
+            });
+            continue;
+          }
+
+          if (tool.isSensitive) {
+            const confirmation = await this.confirmationService.createConfirmationRequest(
+              agentRunId,
+              input.userId,
+              tool.name,
+              `طلب تأكيد لتنفيذ عملية: ${tool.name}`,
+              fc.args,
+              conversationId
+            );
+
+            let promptDetails = JSON.stringify(fc.args);
+            if (tool.name === 'create_reminder') {
+              const parsedTime = parseDueAt(fc.args.time);
+              let formattedTime = fc.args.time || 'قريباً';
+              if (parsedTime) {
+                formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
+                  timeZone: 'Africa/Cairo',
+                  hour: 'numeric',
+                  minute: 'numeric',
+                  day: 'numeric',
+                  month: 'long',
+                }).format(parsedTime);
+              }
+              promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}`;
+            }
+
+            const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
+- العملية: ${tool.name === 'create_reminder' ? 'إنشاء تذكير جديد' : tool.name}
+- التفاصيل: ${promptDetails}
+يرجى التأكيد باستخدام الرمز: ${confirmation.token}`;
+
+            await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', promptNotice);
+
+            return {
+              conversationId,
+              agentRunId,
+              status: 'waiting_for_confirmation',
+              replyText: promptNotice,
+              toolCallsExecuted,
+              confirmationRequest: {
+                token: confirmation.token,
+                actionName: confirmation.actionName,
+                description: confirmation.description,
+                expiresAt: confirmation.expiresAt.toISOString(),
+              },
+            };
+          }
+
+          const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
+            userId: input.userId,
+            conversationId,
+            channel: input.channel,
+          });
+
+          toolCallsExecuted.push({
+            toolName: tool.name,
+            arguments: fc.args,
+            result: toolResult.output || toolResult.error,
+          });
+
+          contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
+          contents.push({
+            role: 'user',
+            parts: [
+              {
+                text: `Tool [${tool.name}] result: ${JSON.stringify(
+                  toolResult.output || toolResult.error
+                )}`,
+              },
+            ],
+          });
+          continue;
+        }
+
+        finalReply = geminiResponse.text || 'تم معالجة طلبك بنجاح.';
+        break;
+      }
     }
 
     if (!finalReply) {
       finalReply = 'تم تنفيذ الأدوات المطلوبة بنجاح.';
     }
 
-    // 5. Persist assistant reply
+    // Persist assistant reply
     await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', finalReply);
 
     logger.info(`Agent run [${agentRunId}] completed successfully`);
@@ -500,45 +690,95 @@ export class AgentOrchestrator {
    ⏰ *تذكير من كرافت*:
    ثم تفاصيل التذكير والمعلومات المطلوبة بدقة وتنسيق مرتب، واختم بعبارة تشجيعية دافئة.`;
 
-      const contents: Content[] = [
-        { role: 'user', parts: [{ text: prompt }] },
-      ];
-
       const conv = await this.chatRepo.getOrCreateConversation(userId, 'whatsapp');
 
-      let iterations = 0;
-      while (iterations < config.security.maxIterations) {
-        iterations++;
-        const reply = await this.geminiProvider.generateReply(contents, true, memories);
+      // Try GroqProvider first
+      try {
+        const groqMessages: GroqMessage[] = [{ role: 'user', content: prompt }];
+        let iterations = 0;
+        while (iterations < config.security.maxIterations) {
+          iterations++;
+          const reply = await this.groqProvider.generateReply(groqMessages, true, memories);
 
-        if (reply.functionCalls && reply.functionCalls.length > 0) {
-          const fc = reply.functionCalls[0];
-          const tool = this.toolRegistry.getTool(fc.name);
-          if (tool) {
-            const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
-              userId,
-              conversationId: conv.id,
-              channel: 'whatsapp',
-            });
-            contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
-            contents.push({
-              role: 'user',
-              parts: [
-                {
-                  text: `Tool [${tool.name}] result: ${JSON.stringify(
-                    toolResult.output || toolResult.error
-                  )}`,
-                },
-              ],
-            });
-            continue;
+          if (reply.functionCalls && reply.functionCalls.length > 0) {
+            const fc = reply.functionCalls[0];
+            const tool = this.toolRegistry.getTool(fc.name);
+            if (tool) {
+              const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
+                userId,
+                conversationId: conv.id,
+                channel: 'whatsapp',
+              });
+              groqMessages.push({
+                role: 'assistant',
+                content: null as any,
+                tool_calls: [
+                  {
+                    id: fc.id || `fc_${Date.now()}`,
+                    type: 'function',
+                    function: {
+                      name: tool.name,
+                      arguments: JSON.stringify(fc.args),
+                    },
+                  },
+                ],
+              });
+              groqMessages.push({
+                role: 'tool',
+                tool_call_id: fc.id || `fc_${Date.now()}`,
+                name: tool.name,
+                content: JSON.stringify(toolResult.output || toolResult.error),
+              });
+              continue;
+            }
           }
-        }
 
-        if (reply.text && reply.text.trim()) {
-          return reply.text.trim();
+          if (reply.text && reply.text.trim()) {
+            return reply.text.trim();
+          }
+          break;
         }
-        break;
+      } catch (groqErr: any) {
+        logger.warn('Groq failed for smart reminder, attempting Gemini fallback', {
+          error: groqErr.message,
+        });
+
+        // Gemini Fallback
+        const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
+        let iterations = 0;
+        while (iterations < config.security.maxIterations) {
+          iterations++;
+          const reply = await this.geminiProvider.generateReply(contents, true, memories);
+
+          if (reply.functionCalls && reply.functionCalls.length > 0) {
+            const fc = reply.functionCalls[0];
+            const tool = this.toolRegistry.getTool(fc.name);
+            if (tool) {
+              const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
+                userId,
+                conversationId: conv.id,
+                channel: 'whatsapp',
+              });
+              contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
+              contents.push({
+                role: 'user',
+                parts: [
+                  {
+                    text: `Tool [${tool.name}] result: ${JSON.stringify(
+                      toolResult.output || toolResult.error
+                    )}`,
+                  },
+                ],
+              });
+              continue;
+            }
+          }
+
+          if (reply.text && reply.text.trim()) {
+            return reply.text.trim();
+          }
+          break;
+        }
       }
     } catch (err: any) {
       logger.warn('Failed to generate smart reminder content, falling back to default', {

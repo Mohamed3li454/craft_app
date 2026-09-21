@@ -14,6 +14,13 @@ export interface AppConfig {
     fallbackModel: string;
     isMockMode: boolean;
   };
+  groq: {
+    apiKey: string;
+    primaryModel: string;
+    fallbackModel: string;
+    whisperModel: string;
+    isMockMode: boolean;
+  };
   database: {
     url?: string;
     supabaseUrl?: string;
@@ -44,6 +51,17 @@ export const config: AppConfig = {
       process.env.GEMINI_MOCK_MODE === 'true' ||
       !process.env.GEMINI_API_KEY ||
       process.env.GEMINI_API_KEY.startsWith('your_'),
+  },
+  groq: {
+    apiKey: process.env.GROQ_API_KEY || '',
+    primaryModel: process.env.GROQ_PRIMARY_MODEL || 'openai/gpt-oss-120b',
+    fallbackModel: process.env.GROQ_FALLBACK_MODEL || 'qwen/qwen3.8-27b',
+    whisperModel: process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo',
+    isMockMode:
+      process.env.GEMINI_MOCK_MODE === 'true' ||
+      process.env.GROQ_MOCK_MODE === 'true' ||
+      !process.env.GROQ_API_KEY ||
+      process.env.GROQ_API_KEY.startsWith('your_'),
   },
   database: {
     url: process.env.DATABASE_URL,
