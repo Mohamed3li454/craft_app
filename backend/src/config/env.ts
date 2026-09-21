@@ -37,6 +37,9 @@ export interface AppConfig {
     toolTimeoutMs: number;
     confirmationExpiresMinutes: number;
   };
+  search: {
+    tavilyApiKey?: string;
+  };
 }
 
 export const config: AppConfig = {
@@ -78,5 +81,8 @@ export const config: AppConfig = {
     maxIterations: parseInt(process.env.MAX_AGENT_ITERATIONS || '5', 10),
     toolTimeoutMs: parseInt(process.env.TOOL_TIMEOUT_MS || '8000', 10),
     confirmationExpiresMinutes: parseInt(process.env.CONFIRMATION_EXPIRES_MINUTES || '5', 10),
+  },
+  search: {
+    tavilyApiKey: process.env.TAVILY_API_KEY,
   },
 };

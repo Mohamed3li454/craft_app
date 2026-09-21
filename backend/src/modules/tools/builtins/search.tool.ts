@@ -1,15 +1,24 @@
 import { AgentTool, ToolContext, ToolExecutionResult } from '../tool.interface';
+import { config } from '../../../config/env';
+import { logger } from '../../../core/logger';
+
+export interface SearchResultItem {
+  title: string;
+  snippet: string;
+  url?: string;
+}
 
 export class WebSearchTool implements AgentTool {
   public readonly name = 'web_search';
-  public readonly description = 'Searches the web for latest news, facts, current events, and device leaks.';
+  public readonly description =
+    'Searches the live web for the latest news, actual product releases, device specs, leaks, rumors, and real-time events.';
   public readonly isSensitive = false;
   public readonly parameters = {
     type: 'object' as const,
     properties: {
       query: {
         type: 'string',
-        description: 'The search query to look up on the web',
+        description: 'The search query to look up on the live web',
       },
     },
     required: ['query'],
@@ -24,17 +33,189 @@ export class WebSearchTool implements AgentTool {
       return { success: false, error: 'Empty search query' };
     }
 
-    return {
-      success: true,
-      output: {
-        query,
-        results: [
-          {
-            title: `Latest verified updates regarding: ${query}`,
-            snippet: `Live search result providing factual updates, device specifications, and current developments for ${query}.`,
+    // Deterministic mock return for CI / unit test runs
+    if (config.groq.isMockMode || process.env.GEMINI_MOCK_MODE === 'true') {
+      return {
+        success: true,
+        output: {
+          query,
+          results: [
+            {
+              title: `أحدث التفاصيل والأخبار المؤكدة بخصوص: ${query}`,
+              snippet: `نتائج بحث حية توضح المواصفات والتسريبات الحالية لـ ${query}.`,
+              url: 'https://news.google.com',
+            },
+          ],
+        },
+      };
+    }
+
+    try {
+      logger.info(`Executing live web search for: "${query}"`);
+
+      // 1. If Tavily API Key is configured, try Tavily first
+      if (config.search?.tavilyApiKey) {
+        try {
+          const tavilyResults = await this.searchTavily(query, config.search.tavilyApiKey);
+          if (tavilyResults.length > 0) {
+            logger.info(`Tavily live search returned [${tavilyResults.length}] results for "${query}"`);
+            return {
+              success: true,
+              output: {
+                query,
+                source: 'tavily',
+                results: tavilyResults,
+              },
+            };
+          }
+        } catch (tavilyErr: any) {
+          logger.warn('Tavily search failed, falling back to DuckDuckGo', { error: tavilyErr.message });
+        }
+      }
+
+      // 2. High-Speed DuckDuckGo Lite search (Free, zero rate limits)
+      const ddgResults = await this.searchDuckDuckGoLite(query);
+      if (ddgResults.length > 0) {
+        logger.info(`DuckDuckGo Lite returned [${ddgResults.length}] live results for "${query}"`);
+        return {
+          success: true,
+          output: {
+            query,
+            source: 'duckduckgo',
+            results: ddgResults,
           },
-        ],
-      },
-    };
+        };
+      }
+
+      // 3. Graceful fallback if search returns empty
+      return {
+        success: true,
+        output: {
+          query,
+          results: [
+            {
+              title: `نتائج عامة حول ${query}`,
+              snippet: `تم البحث عبر محركات البحث عن ${query}. يرجى التحقق من أحدث المصادر والمقالات التقنية.`,
+            },
+          ],
+        },
+      };
+    } catch (err: any) {
+      logger.error('Live web search encountered an error', { error: err.message, query });
+      return {
+        success: true,
+        output: {
+          query,
+          error: 'تعذر الاتصال بمحرك البحث مؤقتاً، يرجى الاستعانة بالمعلومات العامة المتاحة.',
+          results: [],
+        },
+      };
+    }
+  }
+
+  public async searchDuckDuckGoLite(query: string, maxResults = 5): Promise<SearchResultItem[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
+
+    try {
+      const response = await fetch('https://lite.duckduckgo.com/lite/', {
+        method: 'POST',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'ar,en;q=0.9',
+        },
+        body: new URLSearchParams({ q: query }).toString(),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const html = await response.text();
+      return this.parseDuckDuckGoLiteHtml(html, maxResults);
+    } catch {
+      clearTimeout(timeout);
+      return [];
+    }
+  }
+
+  public parseDuckDuckGoLiteHtml(html: string, maxResults: number): SearchResultItem[] {
+    const linkRegex = /<a rel="nofollow" href="([^"]+)" class=['"]result-link['"]>([\s\S]*?)<\/a>/g;
+    const snippetRegex = /<td class=['"]result-snippet['"]>([\s\S]*?)<\/td>/g;
+
+    const titles: Array<{ url: string; title: string }> = [];
+    let m: RegExpExecArray | null;
+    while ((m = linkRegex.exec(html)) !== null) {
+      const cleanTitle = m[2].replace(/<[^>]+>/g, '').trim();
+      if (cleanTitle) {
+        titles.push({ url: m[1], title: cleanTitle });
+      }
+    }
+
+    const snippets: string[] = [];
+    while ((m = snippetRegex.exec(html)) !== null) {
+      const cleanSnippet = m[1].replace(/<[^>]+>/g, '').trim();
+      if (cleanSnippet) {
+        snippets.push(cleanSnippet);
+      }
+    }
+
+    const results: SearchResultItem[] = [];
+    const count = Math.min(titles.length, snippets.length, maxResults);
+
+    for (let i = 0; i < count; i++) {
+      results.push({
+        title: titles[i].title,
+        snippet: snippets[i],
+        url: titles[i].url,
+      });
+    }
+
+    return results;
+  }
+
+  public async searchTavily(query: string, apiKey: string, maxResults = 5): Promise<SearchResultItem[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
+
+    try {
+      const response = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          api_key: apiKey,
+          query,
+          search_depth: 'basic',
+          max_results: maxResults,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const data: any = await response.json();
+      const rawResults = data.results || [];
+
+      return rawResults.map((item: any) => ({
+        title: item.title || '',
+        snippet: item.content || '',
+        url: item.url || '',
+      }));
+    } catch {
+      clearTimeout(timeout);
+      return [];
+    }
   }
 }
