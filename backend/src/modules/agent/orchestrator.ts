@@ -417,8 +417,8 @@ export class AgentOrchestrator {
       input.mediaUrl
     );
 
-    // 7. Load recent history for context (up to 20 past turns for strong multi-turn memory)
-    const recentMessages = await this.chatRepo.getRecentMessages(conversationId, 20);
+    // 7. Load recent history for context (optimized sliding window: 8 turns for high token economy)
+    const recentMessages = await this.chatRepo.getRecentMessages(conversationId, 8);
 
     const isImage =
       input.media &&
@@ -438,13 +438,138 @@ export class AgentOrchestrator {
     const toolCallsExecuted: AgentRunOutput['toolCallsExecuted'] = [];
     let finalReply = '';
 
-    // Primary Execution: Groq LPU Engine (GPT-OSS 120B / Qwen 3.8 27B)
+    // Primary Execution: Gemini 3.6 Flash Engine (with auto-fallback to 3.1 Flash-Lite)
     try {
-      const groqMessages = formatGroqConversationHistory(recentMessages, effectivePrompt);
+      const contents: Content[] = formatConversationHistory(
+        recentMessages,
+        effectivePrompt,
+        mediaPart
+      );
 
       while (iterations < config.security.maxIterations) {
         iterations++;
-        logger.debug(`Agent Groq ReAct iteration [${iterations}/${config.security.maxIterations}]`);
+        logger.debug(`Agent Gemini ReAct iteration [${iterations}/${config.security.maxIterations}]`);
+
+        const geminiResponse = await this.geminiProvider.generateReply(contents, true, memories);
+
+        if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
+          const fc = geminiResponse.functionCalls[0];
+          const tool = this.toolRegistry.getTool(fc.name);
+
+          if (!tool) {
+            contents.push({ role: 'model', parts: [{ text: `Called tool: ${fc.name}` }] });
+            contents.push({
+              role: 'user',
+              parts: [{ text: `Tool [${fc.name}] error: Tool not found in registry.` }],
+            });
+            continue;
+          }
+
+          if (tool.isSensitive) {
+            const confirmation = await this.confirmationService.createConfirmationRequest(
+              agentRunId,
+              input.userId,
+              tool.name,
+              `طلب تأكيد لتنفيذ عملية: ${tool.name}`,
+              fc.args,
+              conversationId
+            );
+
+            let promptDetails = JSON.stringify(fc.args);
+            if (tool.name === 'create_reminder') {
+              const parsedTime = parseDueAt(fc.args.time);
+              let formattedTime = fc.args.time || 'قريباً';
+              if (parsedTime) {
+                formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
+                  timeZone: 'Africa/Cairo',
+                  hour: 'numeric',
+                  minute: 'numeric',
+                  day: 'numeric',
+                  month: 'long',
+                }).format(parsedTime);
+              }
+              promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}`;
+            }
+
+            const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
+- العملية: ${tool.name === 'create_reminder' ? 'إنشاء تذكير جديد' : tool.name}
+- التفاصيل: ${promptDetails}
+يرجى التأكيد باستخدام الرمز: ${confirmation.token}`;
+
+            await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', promptNotice);
+
+            return {
+              conversationId,
+              agentRunId,
+              status: 'waiting_for_confirmation',
+              replyText: promptNotice,
+              toolCallsExecuted,
+              confirmationRequest: {
+                token: confirmation.token,
+                actionName: confirmation.actionName,
+                description: confirmation.description,
+                expiresAt: confirmation.expiresAt.toISOString(),
+              },
+            };
+          }
+
+          // Guard against repeated search queries in the same conversation turn
+          if (tool.name === 'web_search' && toolCallsExecuted.some((t) => t.toolName === 'web_search')) {
+            logger.info('Repeated web_search prevented in Gemini loop, prompting model to finalize answer');
+            contents.push({ role: 'model', parts: [{ text: `Called tool: ${fc.name}` }] });
+            contents.push({
+              role: 'user',
+              parts: [
+                {
+                  text: 'The search results were already retrieved in the previous step. Do NOT invoke web_search again. Formulate your final response to the user immediately.',
+                },
+              ],
+            });
+            continue;
+          }
+
+          logger.info(`Executing tool [${tool.name}] via Gemini`, { args: fc.args });
+          const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
+            userId: input.userId,
+            conversationId,
+            channel: input.channel,
+          });
+
+          toolCallsExecuted.push({
+            toolName: tool.name,
+            arguments: fc.args,
+            result: toolResult.output || toolResult.error,
+          });
+
+          contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
+          contents.push({
+            role: 'user',
+            parts: [
+              {
+                text: `Tool [${tool.name}] result: ${serializeToolResultForGroq(
+                  tool.name,
+                  toolResult.output || toolResult.error
+                )}`,
+              },
+            ],
+          });
+          continue;
+        }
+
+        finalReply = geminiResponse.text || 'تم معالجة طلبك بنجاح.';
+        break;
+      }
+    } catch (geminiErr: any) {
+      logger.warn('Gemini provider failed or encountered rate limit, falling back to Groq LPU engine', {
+        error: geminiErr.message,
+      });
+
+      // Fallback Execution: Groq LPU Engine (GPT-OSS 120B / Qwen 3.8 27B)
+      const groqMessages = formatGroqConversationHistory(recentMessages, effectivePrompt);
+      iterations = 0;
+      while (iterations < config.security.maxIterations) {
+        iterations++;
+        logger.debug(`Agent Groq Fallback ReAct iteration [${iterations}/${config.security.maxIterations}]`);
 
         const groqResponse = await this.groqProvider.generateReply(
           groqMessages,
@@ -519,8 +644,8 @@ export class AgentOrchestrator {
           }
 
           // Guard against repeated search queries in the same conversation turn
-          if (tool.name === 'web_search' && toolCallsExecuted.some(t => t.toolName === 'web_search')) {
-            logger.info('Repeated web_search prevented, prompting model to finalize answer');
+          if (tool.name === 'web_search' && toolCallsExecuted.some((t) => t.toolName === 'web_search')) {
+            logger.info('Repeated web_search prevented in Groq fallback, prompting model to finalize answer');
             groqMessages.push({
               role: 'assistant',
               content: null as any,
@@ -547,7 +672,7 @@ export class AgentOrchestrator {
             continue;
           }
 
-          logger.info(`Executing tool [${tool.name}] via Groq`, { args: fc.args });
+          logger.info(`Executing tool [${tool.name}] via Groq fallback`, { args: fc.args });
           const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
             userId: input.userId,
             conversationId,
@@ -584,113 +709,6 @@ export class AgentOrchestrator {
         }
 
         finalReply = groqResponse.text || 'تم معالجة طلبك بنجاح.';
-        break;
-      }
-    } catch (groqErr: any) {
-      logger.warn('Groq provider error or unconfigured, falling back to Gemini provider', {
-        error: groqErr.message,
-      });
-
-      // Secondary Fallback: Gemini Provider
-      const contents: Content[] = formatConversationHistory(
-        recentMessages,
-        effectivePrompt,
-        mediaPart
-      );
-
-      iterations = 0;
-      while (iterations < config.security.maxIterations) {
-        iterations++;
-        const geminiResponse = await this.geminiProvider.generateReply(contents, true, memories);
-
-        if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
-          const fc = geminiResponse.functionCalls[0];
-          const tool = this.toolRegistry.getTool(fc.name);
-
-          if (!tool) {
-            contents.push({ role: 'model', parts: [{ text: `Called tool: ${fc.name}` }] });
-            contents.push({
-              role: 'user',
-              parts: [{ text: `Tool [${fc.name}] error: Tool not found in registry.` }],
-            });
-            continue;
-          }
-
-          if (tool.isSensitive) {
-            const confirmation = await this.confirmationService.createConfirmationRequest(
-              agentRunId,
-              input.userId,
-              tool.name,
-              `طلب تأكيد لتنفيذ عملية: ${tool.name}`,
-              fc.args,
-              conversationId
-            );
-
-            let promptDetails = JSON.stringify(fc.args);
-            if (tool.name === 'create_reminder') {
-              const parsedTime = parseDueAt(fc.args.time);
-              let formattedTime = fc.args.time || 'قريباً';
-              if (parsedTime) {
-                formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
-                  timeZone: 'Africa/Cairo',
-                  hour: 'numeric',
-                  minute: 'numeric',
-                  day: 'numeric',
-                  month: 'long',
-                }).format(parsedTime);
-              }
-              promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}`;
-            }
-
-            const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
-- العملية: ${tool.name === 'create_reminder' ? 'إنشاء تذكير جديد' : tool.name}
-- التفاصيل: ${promptDetails}
-يرجى التأكيد باستخدام الرمز: ${confirmation.token}`;
-
-            await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', promptNotice);
-
-            return {
-              conversationId,
-              agentRunId,
-              status: 'waiting_for_confirmation',
-              replyText: promptNotice,
-              toolCallsExecuted,
-              confirmationRequest: {
-                token: confirmation.token,
-                actionName: confirmation.actionName,
-                description: confirmation.description,
-                expiresAt: confirmation.expiresAt.toISOString(),
-              },
-            };
-          }
-
-          const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
-            userId: input.userId,
-            conversationId,
-            channel: input.channel,
-          });
-
-          toolCallsExecuted.push({
-            toolName: tool.name,
-            arguments: fc.args,
-            result: toolResult.output || toolResult.error,
-          });
-
-          contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
-          contents.push({
-            role: 'user',
-            parts: [
-              {
-                text: `Tool [${tool.name}] result: ${JSON.stringify(
-                  toolResult.output || toolResult.error
-                )}`,
-              },
-            ],
-          });
-          continue;
-        }
-
-        finalReply = geminiResponse.text || 'تم معالجة طلبك بنجاح.';
         break;
       }
     }
@@ -736,8 +754,50 @@ export class AgentOrchestrator {
 
       const conv = await this.chatRepo.getOrCreateConversation(userId, 'whatsapp');
 
-      // Try GroqProvider first
+      // Try GeminiProvider first (Gemini 3.6 Flash)
       try {
+        const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
+        let iterations = 0;
+        while (iterations < config.security.maxIterations) {
+          iterations++;
+          const reply = await this.geminiProvider.generateReply(contents, true, memories);
+
+          if (reply.functionCalls && reply.functionCalls.length > 0) {
+            const fc = reply.functionCalls[0];
+            const tool = this.toolRegistry.getTool(fc.name);
+            if (tool) {
+              const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
+                userId,
+                conversationId: conv.id,
+                channel: 'whatsapp',
+              });
+              contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
+              contents.push({
+                role: 'user',
+                parts: [
+                  {
+                    text: `Tool [${tool.name}] result: ${serializeToolResultForGroq(
+                      tool.name,
+                      toolResult.output || toolResult.error
+                    )}`,
+                  },
+                ],
+              });
+              continue;
+            }
+          }
+
+          if (reply.text && reply.text.trim()) {
+            return reply.text.trim();
+          }
+          break;
+        }
+      } catch (geminiErr: any) {
+        logger.warn('Gemini failed for smart reminder, attempting Groq fallback', {
+          error: geminiErr.message,
+        });
+
+        // Groq Fallback
         const groqMessages: GroqMessage[] = [{ role: 'user', content: prompt }];
         let iterations = 0;
         while (iterations < config.security.maxIterations) {
@@ -772,47 +832,6 @@ export class AgentOrchestrator {
                 tool_call_id: fc.id || `fc_${Date.now()}`,
                 name: tool.name,
                 content: serializeToolResultForGroq(tool.name, toolResult.output || toolResult.error),
-              });
-              continue;
-            }
-          }
-
-          if (reply.text && reply.text.trim()) {
-            return reply.text.trim();
-          }
-          break;
-        }
-      } catch (groqErr: any) {
-        logger.warn('Groq failed for smart reminder, attempting Gemini fallback', {
-          error: groqErr.message,
-        });
-
-        // Gemini Fallback
-        const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-        let iterations = 0;
-        while (iterations < config.security.maxIterations) {
-          iterations++;
-          const reply = await this.geminiProvider.generateReply(contents, true, memories);
-
-          if (reply.functionCalls && reply.functionCalls.length > 0) {
-            const fc = reply.functionCalls[0];
-            const tool = this.toolRegistry.getTool(fc.name);
-            if (tool) {
-              const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
-                userId,
-                conversationId: conv.id,
-                channel: 'whatsapp',
-              });
-              contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
-              contents.push({
-                role: 'user',
-                parts: [
-                  {
-                    text: `Tool [${tool.name}] result: ${JSON.stringify(
-                      toolResult.output || toolResult.error
-                    )}`,
-                  },
-                ],
               });
               continue;
             }

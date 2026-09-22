@@ -12,7 +12,7 @@ class GeminiService implements AiRemoteService {
       : _webSearchService = webSearchService ?? WebSearchService();
 
   String get _apiKey => dotenv.env['API_KEY'] ?? '';
-  String get _modelName => dotenv.env['GEMINI_MODEL'] ?? 'gemini-3.8-flash';
+  String get _modelName => dotenv.env['GEMINI_MODEL'] ?? 'gemini-3.6-flash';
   String get _fallbackModelName =>
       dotenv.env['GEMINI_FALLBACK_MODEL'] ?? 'gemini-3.1-flash-lite';
 

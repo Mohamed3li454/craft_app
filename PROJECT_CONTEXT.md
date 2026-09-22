@@ -190,7 +190,7 @@ Interactions with Google Gemini are managed directly through the official `googl
 
 ```dart
 class GeminiService {
-  String get _modelName => dotenv.env['GEMINI_MODEL'] ?? 'gemini-3.8-flash';
+  String get _modelName => dotenv.env['GEMINI_MODEL'] ?? 'gemini-3.6-flash';
   String get _fallbackModelName =>
       dotenv.env['GEMINI_FALLBACK_MODEL'] ?? 'gemini-3.1-flash-lite';
 
@@ -207,7 +207,7 @@ class GeminiService {
 }
 ```
 
-- **Model**: Defaults to `gemini-3.8-flash` with Craft system instructions. Falls back to `gemini-3.1-flash-lite` on quota, rate-limit, or retired-model errors. Configurable via `GEMINI_MODEL` and `GEMINI_FALLBACK_MODEL` in `.env`.
+- **Model**: Defaults to `gemini-3.6-flash` with Craft system instructions. Falls back to `gemini-3.1-flash-lite` on quota, rate-limit, or retired-model errors. Configurable via `GEMINI_MODEL` and `GEMINI_FALLBACK_MODEL` in `.env`.
 - **Craft Persona**: `systemInstruction` from `CraftPersona.systemInstruction` identifies the assistant as Craft and never as Gemini.
 - **Multimodal Payload**: Images read as raw bytes are dynamically identified with their MIME type (JPEG, PNG, WEBP, GIF, HEIC) alongside user text within a `Content.multi([...])` payload.
 
@@ -299,7 +299,7 @@ User Input (Text or Gallery Photo)
                                                │
                                                ▼
                                  Gemini Generative Model
-                                 (gemini-3.8-flash)
+                                 (gemini-3.6-flash)
                                                │
                                                ▼
                                  Receive AI String Output

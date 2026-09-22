@@ -157,7 +157,13 @@ Mobile & WhatsApp Elegant Formatting Rules:
       tools: toolsConfig as any,
     });
 
-    const result = await model.generateContent({ contents });
+    const result = await model.generateContent({
+      contents,
+      generationConfig: {
+        maxOutputTokens: 1024,
+        temperature: 0.7,
+      },
+    });
     const response = result.response;
 
     const functionCalls = response.functionCalls();
