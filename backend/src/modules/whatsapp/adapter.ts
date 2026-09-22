@@ -214,4 +214,69 @@ export class WhatsAppAdapter {
       return null;
     }
   }
+
+  /**
+   * Dispatches a typing indicator to Meta WhatsApp Cloud API.
+   * This marks the incoming message as read (blue ticks) and displays the animated
+   * "typing..." status bubble in the WhatsApp chat while the agent is processing.
+   * The typing status automatically dismisses when the reply is sent or after 25s.
+   */
+  public async sendTypingIndicator(messageId: string): Promise<boolean> {
+    if (!messageId) return false;
+
+    if (!this.phoneNumberId || !this.accessToken) {
+      logger.debug('[WhatsApp Mock Mode] Missing credentials, typing indicator skipped', { messageId });
+      return true;
+    }
+
+    const url = `https://graph.facebook.com/v22.0/${this.phoneNumberId}/messages`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          status: 'read',
+          message_id: messageId,
+          typing_indicator: {
+            type: 'text',
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        logger.debug('Meta typing indicator API returned non-200, attempting read status fallback', {
+          status: response.status,
+          error: errorData,
+        });
+
+        // Fallback: If typing_indicator is rejected by the Graph version/tier, mark as read only
+        await fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            status: 'read',
+            message_id: messageId,
+          }),
+        }).catch(() => {});
+
+        return false;
+      }
+
+      logger.debug(`Typing indicator & read receipt dispatched for message [${messageId}]`);
+      return true;
+    } catch (err: any) {
+      logger.warn('Failed to dispatch typing indicator', { error: err.message, messageId });
+      return false;
+    }
+  }
 }

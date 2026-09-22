@@ -85,6 +85,9 @@ export class WhatsAppWebhookHandler {
 
       // 3. Handle Interactive Button Replies (Quick-Reply Confirmations)
       if (messageType === 'interactive' && message.interactive?.type === 'button_reply') {
+        if (typeof this.whatsappAdapter.sendTypingIndicator === 'function') {
+          this.whatsappAdapter.sendTypingIndicator(eventId).catch(() => {});
+        }
         const buttonReply = message.interactive.button_reply;
         const buttonId: string = buttonReply?.id || '';
         const buttonTitle: string = buttonReply?.title || '';
@@ -135,6 +138,13 @@ export class WhatsAppWebhookHandler {
           res.status(200).send('EVENT_RECEIVED');
           return;
         }
+      }
+
+      // Trigger typing indicator and read status immediately for responsiveness
+      if (typeof this.whatsappAdapter.sendTypingIndicator === 'function') {
+        this.whatsappAdapter.sendTypingIndicator(eventId).catch((err) => {
+          logger.debug('Failed to dispatch typing indicator', { error: err.message, eventId });
+        });
       }
 
       // 4. Extract message content and media attachments (image, document, text)

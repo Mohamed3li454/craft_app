@@ -70,3 +70,46 @@ describe('WhatsApp Integration & Webhook', () => {
     expect(await repo.isEventProcessed(eventId)).toBe(true);
   });
 });
+
+describe('WhatsAppAdapter typing indicator', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('sends typing indicator with status read and message_id', async () => {
+    const { WhatsAppAdapter } = require('../src/modules/whatsapp/adapter');
+    const adapter = new WhatsAppAdapter();
+
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true }),
+    });
+    global.fetch = mockFetch as any;
+
+    const result = await adapter.sendTypingIndicator('wamid.test.123');
+    expect(result).toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/messages'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          status: 'read',
+          message_id: 'wamid.test.123',
+          typing_indicator: {
+            type: 'text',
+          },
+        }),
+      })
+    );
+  });
+
+  test('returns false when messageId is empty', async () => {
+    const { WhatsAppAdapter } = require('../src/modules/whatsapp/adapter');
+    const adapter = new WhatsAppAdapter();
+    const result = await adapter.sendTypingIndicator('');
+    expect(result).toBe(false);
+  });
+});
