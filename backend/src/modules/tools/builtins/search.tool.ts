@@ -11,7 +11,7 @@ export interface SearchResultItem {
 export class WebSearchTool implements AgentTool {
   public readonly name = 'web_search';
   public readonly description =
-    'Searches the live web for the latest news, actual product releases, device specs, leaks, rumors, gold/currency prices, and real-time events.';
+    'Searches the live web for the latest news, actual product releases, device specs, leaks, rumors, gold/currency prices, movies, TV series, actors, cultural trivia, and real-time events across all Arab countries and worldwide.';
   public readonly isSensitive = false;
   public readonly parameters = {
     type: 'object' as const,
@@ -139,8 +139,32 @@ export class WebSearchTool implements AgentTool {
     try {
       const isArabic = /[\u0600-\u06FF]/.test(query);
       const hl = isArabic ? 'ar' : 'en-US';
-      const gl = isArabic ? 'EG' : 'US';
-      const ceid = isArabic ? 'EG:ar' : 'US:en';
+      let gl = 'US';
+      let ceid = 'US:en';
+
+      if (isArabic) {
+        const lowerQuery = query.toLowerCase();
+        if (/سعودي|سعودية|الرياض|جدة|الدمام|المملكة/.test(lowerQuery)) {
+          gl = 'SA';
+          ceid = 'SA:ar';
+        } else if (/إمارات|امارات|دبي|أبوظبي|ابوظبي|الشارقة/.test(lowerQuery)) {
+          gl = 'AE';
+          ceid = 'AE:ar';
+        } else if (/كويت/.test(lowerQuery)) {
+          gl = 'KW';
+          ceid = 'KW:ar';
+        } else if (/أردن|اردن|عمان|نشامى/.test(lowerQuery)) {
+          gl = 'JO';
+          ceid = 'JO:ar';
+        } else if (/مغرب|رباط|كازا|دار البيضاء/.test(lowerQuery)) {
+          gl = 'MA';
+          ceid = 'MA:ar';
+        } else {
+          // General Arabic region / Pan-Arab
+          gl = 'EG';
+          ceid = 'EG:ar';
+        }
+      }
 
       const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${hl}&gl=${gl}&ceid=${ceid}`;
 
@@ -161,9 +185,55 @@ export class WebSearchTool implements AgentTool {
       }
 
       const xml = await response.text();
-      return this.parseGoogleNewsRss(xml, maxResults);
+      const results = this.parseGoogleNewsRss(xml, maxResults);
+      if (results.length === 0) {
+        const cleaned = this.cleanKeywords(query);
+        if (cleaned && cleaned !== query) {
+          return await this.searchGoogleNewsDirect(cleaned, hl, gl, ceid, maxResults);
+        }
+      }
+      return results;
     } catch {
       clearTimeout(timeout);
+      return [];
+    }
+  }
+
+  public cleanKeywords(query: string): string {
+    const stopWords = new Set([
+      'في', 'من', 'إلى', 'على', 'عن', 'مع', 'هذا', 'هذه', 'تم', 'كان', 'كانت', 'يكون',
+      'اللي', 'اللى', 'ده', 'دي', 'دا', 'عشان', 'علشان', 'بتاع', 'بتاعة', 'مش', 'أنه',
+      'إنه', 'ان', 'أن', 'او', 'أو', 'ثم', 'حيث', 'لما', 'كل', 'بعد', 'قبل', 'هو', 'هي',
+      'the', 'is', 'a', 'an', 'and', 'or', 'in', 'on', 'at', 'about', 'to', 'for'
+    ]);
+    const words = query
+      .replace(/[^\w\s\u0600-\u06FF]/gi, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 1 && !stopWords.has(w.toLowerCase()));
+    return words.slice(0, 5).join(' ');
+  }
+
+  public async searchGoogleNewsDirect(
+    keywordQuery: string,
+    hl: string,
+    gl: string,
+    ceid: string,
+    maxResults: number
+  ): Promise<SearchResultItem[]> {
+    try {
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(keywordQuery)}&hl=${hl}&gl=${gl}&ceid=${ceid}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'application/rss+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      });
+      if (!response.ok) return [];
+      const xml = await response.text();
+      return this.parseGoogleNewsRss(xml, maxResults);
+    } catch {
       return [];
     }
   }

@@ -336,6 +336,17 @@ export function formatGroqConversationHistory(
   return mergedTurns;
 }
 
+export function serializeToolResultForGroq(toolName: string, outputOrError: any): string {
+  if (toolName === 'web_search' && outputOrError?.results && Array.isArray(outputOrError.results)) {
+    const compactResults = outputOrError.results.slice(0, 4).map((r: any) => ({
+      title: r.title,
+      snippet: (r.snippet || '').substring(0, 250),
+    }));
+    return JSON.stringify({ query: outputOrError.query, results: compactResults });
+  }
+  return JSON.stringify(outputOrError);
+}
+
 export class AgentOrchestrator {
   constructor(
     private groqProvider: GroqProvider = new GroqProvider(),
@@ -507,6 +518,35 @@ export class AgentOrchestrator {
             };
           }
 
+          // Guard against repeated search queries in the same conversation turn
+          if (tool.name === 'web_search' && toolCallsExecuted.some(t => t.toolName === 'web_search')) {
+            logger.info('Repeated web_search prevented, prompting model to finalize answer');
+            groqMessages.push({
+              role: 'assistant',
+              content: null as any,
+              tool_calls: [
+                {
+                  id: fc.id || `fc_${Date.now()}`,
+                  type: 'function',
+                  function: {
+                    name: tool.name,
+                    arguments: JSON.stringify(fc.args),
+                  },
+                },
+              ],
+            });
+            groqMessages.push({
+              role: 'tool',
+              tool_call_id: fc.id || `fc_${Date.now()}`,
+              name: tool.name,
+              content: JSON.stringify({
+                status: 'search_already_completed',
+                instruction: 'The search results were already retrieved in the previous step. Do NOT invoke web_search again. Formulate your final response to the user immediately.',
+              }),
+            });
+            continue;
+          }
+
           logger.info(`Executing tool [${tool.name}] via Groq`, { args: fc.args });
           const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
             userId: input.userId,
@@ -538,7 +578,7 @@ export class AgentOrchestrator {
             role: 'tool',
             tool_call_id: fc.id || `fc_${Date.now()}`,
             name: tool.name,
-            content: JSON.stringify(toolResult.output || toolResult.error),
+            content: serializeToolResultForGroq(tool.name, toolResult.output || toolResult.error),
           });
           continue;
         }
@@ -731,7 +771,7 @@ export class AgentOrchestrator {
                 role: 'tool',
                 tool_call_id: fc.id || `fc_${Date.now()}`,
                 name: tool.name,
-                content: JSON.stringify(toolResult.output || toolResult.error),
+                content: serializeToolResultForGroq(tool.name, toolResult.output || toolResult.error),
               });
               continue;
             }
