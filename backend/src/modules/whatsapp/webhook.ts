@@ -62,6 +62,19 @@ export class WhatsAppWebhookHandler {
       const value = changes?.value;
       const message = value?.messages?.[0];
 
+      logger.info('WhatsApp webhook diagnostic', {
+        hasEntry: !!entry,
+        hasChanges: !!changes,
+        hasValue: !!value,
+        field: changes?.field ?? null,
+        hasMessages: Array.isArray(value?.messages),
+        messagesCount: value?.messages?.length ?? 0,
+        hasStatuses: Array.isArray(value?.statuses),
+        statusesCount: value?.statuses?.length ?? 0,
+        messageType: message?.type ?? null,
+        messageId: message?.id ?? null,
+      });
+
       if (!message) {
         // Status updates, acknowledgements, etc.
         res.status(200).send('EVENT_RECEIVED');
