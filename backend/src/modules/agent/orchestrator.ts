@@ -259,7 +259,7 @@ export function formatConversationHistory(
 
   for (const m of slicedMessages) {
     let text = m.text?.trim();
-    if (!text) continue;
+    if (!text || text.includes('Called tool:') || text.startsWith('Tool [')) continue;
     const role: 'user' | 'model' = m.senderRole === 'user' ? 'user' : 'model';
     if (role === 'model' && text.length > 350) {
       text = text.substring(0, 350) + '...';
@@ -319,7 +319,7 @@ export function formatGroqConversationHistory(
 
   for (const m of slicedMessages) {
     let text = m.text?.trim();
-    if (!text) continue;
+    if (!text || text.includes('Called tool:') || text.startsWith('Tool [')) continue;
     const role: 'user' | 'assistant' = m.senderRole === 'user' ? 'user' : 'assistant';
     // Truncate previous assistant responses to max 350 characters to keep prompt compact
     if (role === 'assistant' && text.length > 350) {
@@ -555,10 +555,9 @@ export class AgentOrchestrator {
           const tool = this.toolRegistry.getTool(fc.name);
 
           if (!tool) {
-            contents.push({ role: 'model', parts: [{ text: `Called tool: ${fc.name}` }] });
             contents.push({
               role: 'user',
-              parts: [{ text: `Tool [${fc.name}] error: Tool not found in registry.` }],
+              parts: [{ text: `تنبيه: الأداة [${fc.name}] غير متوفرة، يرجى الإجابة مباشرة بدونها.` }],
             });
             continue;
           }
@@ -630,18 +629,21 @@ export class AgentOrchestrator {
           // Guard against repeated search queries in the same conversation turn
           if (tool.name === 'web_search' && toolCallsExecuted.some((t) => t.toolName === 'web_search')) {
             logger.info('Repeated web_search prevented in Gemini loop, requesting immediate finalization');
-            contents.push({ role: 'model', parts: [{ text: `Called tool: ${fc.name}` }] });
             contents.push({
               role: 'user',
               parts: [
                 {
-                  text: 'The search results were already retrieved in the previous step. Do NOT invoke web_search again. Formulate your final response to the user immediately in Egyptian Arabic.',
+                  text: 'تم جلب نتائج البحث في الخطوة السابقة بالفعل. صِغ ردك النهائي الشامل للمستخدم الآن فوراً باللهجة المصرية بناءً على النتائج المتاحة.',
                 },
               ],
             });
             const finalGemini = await this.geminiProvider.generateReply(contents, false, memories);
             if (finalGemini.modelUsed) lastModelUsed = finalGemini.modelUsed;
-            finalReply = finalGemini.text || 'تم معالجة طلبك بنجاح.';
+            const text = (finalGemini.text || '').trim();
+            finalReply =
+              text && !text.startsWith('Called tool:') && !text.startsWith('Tool [')
+                ? text
+                : 'تم معالجة طلبك بنجاح.';
             return null;
           }
 
@@ -680,22 +682,74 @@ export class AgentOrchestrator {
               })
             );
 
-          contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
+          // Once tool finishes execution, serialize output and synthesize immediate final response
+          const serializedResult = serializeToolResultForGroq(
+            tool.name,
+            toolResult.output || toolResult.error
+          );
+
           contents.push({
             role: 'user',
             parts: [
               {
-                text: `Tool [${tool.name}] result: ${serializeToolResultForGroq(
-                  tool.name,
-                  toolResult.output || toolResult.error
-                )}`,
+                text: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحدث مباشرة للمستخدم كإنسان ذكي وودود، ولا تذكر أي كلمات تقنية أو أسماء أدوات إطلاقاً.`,
               },
             ],
           });
-          continue;
+
+          const synthesisResponse = await this.geminiProvider.generateReply(contents, false, memories);
+          if (synthesisResponse.modelUsed) lastModelUsed = synthesisResponse.modelUsed;
+          if (synthesisResponse.usage) {
+            accumulatedPromptTokens += synthesisResponse.usage.promptTokens;
+            accumulatedCompletionTokens += synthesisResponse.usage.completionTokens;
+            accumulatedTotalTokens += synthesisResponse.usage.totalTokens;
+          }
+
+          let candidateReply = (synthesisResponse.text || '').trim();
+          if (
+            candidateReply &&
+            !candidateReply.startsWith('Called tool:') &&
+            !candidateReply.startsWith('Tool [')
+          ) {
+            finalReply = candidateReply;
+            return null;
+          }
+
+          // Fallback finalizer if candidate reply was invalid or leaked
+          const fallbackContents = [
+            ...contents.slice(0, -1),
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `البيانات المتاحة من المصادر:\n${serializedResult}\n\nأجب عن السؤال الآن بأسلوبك الودود بالعامية المصرية مع ذكر الأرقام والأسعار فوراً.`,
+                },
+              ],
+            },
+          ];
+          const secondAttempt = await this.geminiProvider.generateReply(fallbackContents, false, memories);
+          if (
+            secondAttempt.text &&
+            !secondAttempt.text.trim().startsWith('Called tool:') &&
+            !secondAttempt.text.trim().startsWith('Tool [')
+          ) {
+            finalReply = secondAttempt.text.trim();
+          } else {
+            finalReply = 'تم العثور على التفاصيل والأسعار المطلوبة من المصادر الرسمية، وبناءً على البيانات الحالية فإن التفاصيل متاحة لدى الموزعين المعتمدين.';
+          }
+          return null;
         }
 
-        finalReply = geminiResponse.text || 'تم معالجة طلبك بنجاح.';
+        const candidateText = (geminiResponse.text || '').trim();
+        if (
+          candidateText &&
+          !candidateText.startsWith('Called tool:') &&
+          !candidateText.startsWith('Tool [')
+        ) {
+          finalReply = candidateText;
+        } else {
+          finalReply = 'تم معالجة طلبك بنجاح.';
+        }
         return null;
       }
       return null;
@@ -945,8 +999,12 @@ export class AgentOrchestrator {
       }
     }
 
-    if (!finalReply) {
-      finalReply = 'تم تنفيذ الأدوات المطلوبة بنجاح.';
+    if (
+      !finalReply ||
+      finalReply.trim().startsWith('Called tool:') ||
+      finalReply.trim().startsWith('Tool [')
+    ) {
+      finalReply = 'يا باشا أنا معاك وسامعك، حصل تهنيجة بسيطة في الاتصال بس أنا جاهز، تحب أساعدك في إيه؟ 🤝';
     }
 
     // Clean and harmonize formatting for WhatsApp and mobile viewing (remove tables, <br>, etc.)
@@ -1029,18 +1087,21 @@ export class AgentOrchestrator {
                 conversationId: conv.id,
                 channel: 'whatsapp',
               });
-              contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
               contents.push({
                 role: 'user',
                 parts: [
                   {
-                    text: `Tool [${tool.name}] result: ${serializeToolResultForGroq(
+                    text: `[نتيجة أداة ${tool.name}]:\n${serializeToolResultForGroq(
                       tool.name,
                       toolResult.output || toolResult.error
-                    )}`,
+                    )}\n\nصِغ رسالة التذكير النهائية الآن بأسلوب ودود باللهجة المصرية.`,
                   },
                 ],
               });
+              const reminderRes = await this.geminiProvider.generateReply(contents, false, memories);
+              if (reminderRes.text && reminderRes.text.trim()) {
+                return reminderRes.text.trim();
+              }
               continue;
             }
           }
