@@ -512,4 +512,100 @@ Mobile & WhatsApp Elegant Formatting Rules:
       text: 'أهلاً بك! أنا Craft، وكيلك الذكي الشخصي المدعوم بمحرك Groq الفائق. كيف يمكنني مساعدتك اليوم؟',
     };
   }
+
+  /**
+   * Ultra-fast intent classifier & contextual interim acknowledgment generator (~150ms).
+   * Determines if the user's prompt requires web research, live facts, or checking external info.
+   * If yes: returns a natural, short 1-sentence acknowledgement in the user's dialect (e.g. "هتأكدلك من كذا دلوقتي يا باشا").
+   * If no: returns null.
+   */
+  public async generateInterimAcknowledgement(userPrompt: string): Promise<string | null> {
+    if (!userPrompt || userPrompt.trim().length === 0) {
+      return null;
+    }
+
+    const cleanPrompt = userPrompt.trim();
+
+    // Mock Mode support for deterministic unit tests
+    if (process.env.GEMINI_MOCK_MODE === 'true') {
+      const lower = cleanPrompt.toLowerCase();
+      const needsSearch =
+        lower.includes('بحث') ||
+        lower.includes('ابحث') ||
+        lower.includes('دور') ||
+        lower.includes('سعر') ||
+        lower.includes('موقع') ||
+        lower.includes('أخبار') ||
+        lower.includes('اخبار') ||
+        lower.includes('search');
+
+      if (needsSearch) {
+        if (lower.includes('سعر')) {
+          return 'ثواني هشوفلك الأسعار في السوق دلوقتي وأرجعلك.';
+        }
+        if (lower.includes('موقع')) {
+          return 'هتأكدلك من المواقع المتاحة دلوقتي يا باشا.';
+        }
+        return 'ثواني هبحثلك في المصادر وأرجعلك في ثواني يا باشا.';
+      }
+      return null;
+    }
+
+    if (!this.apiKey) {
+      return null;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5s hard ceiling
+
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.fallbackModel || 'qwen/qwen3.8-27b', // Qwen 27B gives ~140ms latency
+          messages: [
+            {
+              role: 'system',
+              content: `You are Craft, a smart, lightning-fast personal AI assistant.
+Analyze the user's message to determine if it requires web research, external lookup, live data, or checking facts/links.
+- If YES: generate an ultra-fast, natural 1-sentence acknowledgement in the SAME language and dialect as the user (e.g. Egyptian: "هتأكدلك من أقرب مكان مجاني دلوقتي يا باشا", Saudi/Gulf: "أبشر، بشوفلك أفضل لابتوب الحين وأرجعلك", Levantine: "ثواني بشوفلك الأسعار وبرجعلك", English: "Let me check that for you right away!").
+Rules: Maximum 8-10 words. Do NOT answer the question. Only acknowledge what you are about to check.
+- If NO (chit-chat, greeting, general reasoning, math, simple questions): return exactly "NONE".`,
+            },
+            {
+              role: 'user',
+              content: cleanPrompt,
+            },
+          ],
+          max_tokens: 35,
+          temperature: 0.3,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data: any = await response.json();
+      const reply = data.choices?.[0]?.message?.content?.trim();
+
+      if (!reply || reply === 'NONE' || reply.toUpperCase().startsWith('NONE') || reply.length < 3) {
+        return null;
+      }
+
+      // Remove any surrounding quotes
+      const cleaned = reply.replace(/^["'«“]+|["'»”]+$/g, '').trim();
+      return cleaned;
+    } catch (err: any) {
+      logger.debug('Groq interim acknowledgement generation skipped/timed out', { error: err.message });
+      return null;
+    }
+  }
 }
