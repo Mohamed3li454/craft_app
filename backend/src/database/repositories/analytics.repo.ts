@@ -88,6 +88,7 @@ export interface RecentInteractionItem {
   completionTokens?: number;
   mediaType?: string;
   mediaUrl?: string;
+  toolsUsed?: string;
 }
 
 export interface UserDetailsResponse {
@@ -553,7 +554,8 @@ export class AnalyticsRepository {
             m.prompt_tokens as "promptTokens",
             m.completion_tokens as "completionTokens",
             m.media_type as "mediaType",
-            m.media_url as "mediaUrl"
+            m.media_url as "mediaUrl",
+            m.tools_used as "toolsUsed"
           FROM messages m
           WHERE m.conversation_id = $1
           ORDER BY m.created_at ASC
@@ -573,6 +575,7 @@ export class AnalyticsRepository {
           completionTokens: r.completionTokens,
           mediaType: r.mediaType,
           mediaUrl: r.mediaUrl,
+          toolsUsed: r.toolsUsed,
         }));
       } catch (err: any) {
         logger.warn('Database query failed in getConversationTranscript', { error: err.message });
@@ -827,7 +830,8 @@ export class AnalyticsRepository {
             m.model_name as model,
             m.latency_ms as "latencyMs",
             m.tokens_used as tokens,
-            m.media_type as "mediaType"
+            m.media_type as "mediaType",
+            m.tools_used as "toolsUsed"
           FROM messages m
           ORDER BY m.created_at DESC
           LIMIT $1
@@ -844,6 +848,7 @@ export class AnalyticsRepository {
           latencyMs: r.latencyMs,
           tokens: r.tokens,
           mediaType: r.mediaType,
+          toolsUsed: r.toolsUsed,
         }));
       } catch (err: any) {
         logger.warn('Database query failed in getRecentInteractions, calculating in-memory', {

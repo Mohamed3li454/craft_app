@@ -107,6 +107,7 @@ export class ChatRepository {
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS model_name VARCHAR(100);
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS latency_ms INT DEFAULT 0;
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(50);
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS tools_used VARCHAR(255);
       `);
       this.schemaChecked = true;
     } catch (err: any) {
@@ -135,6 +136,7 @@ export class ChatRepository {
       modelName?: string;
       latencyMs?: number;
       mediaType?: string;
+      toolsUsed?: string;
     }
   ): Promise<MessageEntity> {
     const pool = this.db.getPool();
@@ -144,9 +146,9 @@ export class ChatRepository {
       try {
         await this.ensureSchema();
         const res = await pool.query(
-          `INSERT INTO messages (id, conversation_id, sender_role, sender_name, text, media_url, tokens_used, prompt_tokens, completion_tokens, model_name, latency_ms, media_type)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-           RETURNING id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", tokens_used as "tokensUsed", prompt_tokens as "promptTokens", completion_tokens as "completionTokens", model_name as "modelName", latency_ms as "latencyMs", media_type as "mediaType", created_at as "createdAt"`,
+          `INSERT INTO messages (id, conversation_id, sender_role, sender_name, text, media_url, tokens_used, prompt_tokens, completion_tokens, model_name, latency_ms, media_type, tools_used)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           RETURNING id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", tokens_used as "tokensUsed", prompt_tokens as "promptTokens", completion_tokens as "completionTokens", model_name as "modelName", latency_ms as "latencyMs", media_type as "mediaType", tools_used as "toolsUsed", created_at as "createdAt"`,
           [
             messageId,
             conversationId,
@@ -160,6 +162,7 @@ export class ChatRepository {
             metadata?.modelName || null,
             metadata?.latencyMs || 0,
             metadata?.mediaType || null,
+            metadata?.toolsUsed || null,
           ]
         );
         await pool.query(
@@ -187,6 +190,7 @@ export class ChatRepository {
       completionTokens: metadata?.completionTokens || 0,
       modelName: metadata?.modelName,
       latencyMs: metadata?.latencyMs || 0,
+      toolsUsed: metadata?.toolsUsed,
       createdAt: new Date(),
     };
 
@@ -194,6 +198,43 @@ export class ChatRepository {
     existing.push(newMsg);
     this.inMemoryMessages.set(conversationId, existing);
     return newMsg;
+  }
+
+  public async saveToolCall(
+    agentRunId: string,
+    conversationId: string,
+    toolName: string,
+    args: Record<string, any>,
+    result: any,
+    status: 'success' | 'failed' = 'success',
+    errorMessage?: string
+  ): Promise<void> {
+    const pool = this.db.getPool();
+    if (!pool) return;
+    try {
+      await pool.query(
+        `INSERT INTO agent_runs (id, conversation_id, user_prompt)
+         VALUES ($1, $2, 'agent_run')
+         ON CONFLICT (id) DO NOTHING`,
+        [agentRunId, conversationId]
+      );
+
+      await pool.query(
+        `INSERT INTO tool_calls (id, agent_run_id, tool_name, arguments, status, result, error_message, created_at, completed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+        [
+          uuidv4(),
+          agentRunId,
+          toolName,
+          JSON.stringify(args || {}),
+          status,
+          result ? JSON.stringify(result) : null,
+          errorMessage || null,
+        ]
+      );
+    } catch (err: any) {
+      logger.warn('Database insert failed in saveToolCall', { error: err.message, toolName });
+    }
   }
 
   public async getRecentMessages(
@@ -204,8 +245,9 @@ export class ChatRepository {
 
     if (pool) {
       try {
+        await this.ensureSchema();
         const res = await pool.query(
-          `SELECT id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", tokens_used as "tokensUsed", prompt_tokens as "promptTokens", completion_tokens as "completionTokens", model_name as "modelName", latency_ms as "latencyMs", media_type as "mediaType", created_at as "createdAt"
+          `SELECT id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", tokens_used as "tokensUsed", prompt_tokens as "promptTokens", completion_tokens as "completionTokens", model_name as "modelName", latency_ms as "latencyMs", media_type as "mediaType", tools_used as "toolsUsed", created_at as "createdAt"
            FROM messages 
            WHERE conversation_id = $1 
            ORDER BY created_at DESC 

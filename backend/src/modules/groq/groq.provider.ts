@@ -146,7 +146,8 @@ Tools & Web Search:
     - New or upcoming devices, foldable phones, leaks, rumors, or specs (e.g. iPhone Duo, iPhone Fold, iPhone 18, new chips).
     - Current market prices, local costs, or currency exchange rates in any country (e.g. أسعار الذهب، العملات، أسعار الموبايلات).
     - Recent news, breaking events, matches, or when the user asks you to search.
-  * SINGLE SEARCH EFFICIENCY RULE: Invoke 'web_search' once with the most relevant keywords. Once search results are returned, immediately synthesize your answer and reply to the user without calling web_search again!
+  * Arabic Search Query Rule: When asked in Arabic, ALWAYS formulate the 'web_search' query in Arabic with concise keywords (e.g. query: "سعر ايفون duo في مصر" or "اسعار الذهب في مصر اليوم").
+  * SINGLE SEARCH EFFICIENCY & SYNTHESIS RULE: Invoke 'web_search' once with the most relevant keywords. Once search results are returned, you MUST immediately synthesize and formulate your final comprehensive, grounded response in natural, friendly Egyptian Arabic without calling web_search or any tool again!
   * Always ground your answer in the retrieved real-time web results to provide an up-to-date, accurate, and factual answer!
 - When creating a reminder (create_reminder):
   * Calculate the target time accurately from the current Cairo time (${cairoNow}).
@@ -242,63 +243,51 @@ Mobile & WhatsApp Elegant Formatting Rules:
 
     // If an image is attached, route directly to Qwen 3.8 27B which has native vision support
     if (imageAttachment) {
+      const visionModel = 'qwen/qwen3.8-27b';
       try {
-        logger.info(`Image detected, routing directly to Groq Vision model [${this.fallbackModel}]`);
+        logger.info(`Image detected, routing directly to Groq Vision model [${visionModel}]`);
         return await this.withTimeout(
-          this.callChat(this.fallbackModel, messages, useTools, memories, imageAttachment),
+          this.callChat(visionModel, messages, useTools, memories, imageAttachment),
           7000,
-          `Groq Vision model [${this.fallbackModel}] timed out after 7s`
+          `Groq Vision model [${visionModel}] timed out after 7s`
         );
       } catch (err: any) {
-        logger.error(`Groq Vision call with [${this.fallbackModel}] failed`, { error: err.message });
+        logger.error(`Groq Vision call with [${visionModel}] failed`, { error: err.message });
         throw err;
       }
     }
 
-    // Text & tools: Primary model (openai/gpt-oss-120b) with automatic fallback (qwen/qwen3.8-27b)
-    if (!GroqProvider.isModelInCooldown(this.primaryModel)) {
+    // Text & tools: Primary model (openai/gpt-oss-120b) with automatic fallback (openai/gpt-oss-20b) then (qwen/qwen3.8-27b)
+    const textModels = [
+      this.primaryModel,
+      this.fallbackModel,
+      'qwen/qwen3.8-27b',
+    ].filter((m, idx, arr) => arr.indexOf(m) === idx);
+
+    for (let i = 0; i < textModels.length; i++) {
+      const model = textModels[i];
+      if (GroqProvider.isModelInCooldown(model)) {
+        logger.debug(`Skipping Groq model [${model}] — currently in cooldown`);
+        continue;
+      }
+
       try {
         return await this.withTimeout(
-          this.callChat(this.primaryModel, messages, useTools, memories),
+          this.callChat(model, messages, useTools, memories),
           5000,
-          `Primary Groq model [${this.primaryModel}] timed out after 5s`
+          `Groq model [${model}] timed out after 5s`
         );
-      } catch (primaryErr: any) {
+      } catch (err: any) {
         const isQuotaOrRateLimit =
-          primaryErr.message?.includes('429') ||
-          primaryErr.message?.includes('rate_limit_exceeded') ||
-          primaryErr.message?.includes('timed out');
+          err.message?.includes('429') ||
+          err.message?.includes('rate_limit_exceeded') ||
+          err.message?.includes('timed out');
         if (isQuotaOrRateLimit) {
-          GroqProvider.setModelCooldown(this.primaryModel);
+          GroqProvider.setModelCooldown(model);
         }
         logger.warn(
-          `Primary Groq model [${this.primaryModel}] failed, falling back to [${this.fallbackModel}]`,
-          { error: primaryErr.message }
+          `Groq model [${model}] failed (${err.message}), trying next fallback model...`
         );
-      }
-    } else {
-      logger.debug(`Skipping primary Groq model [${this.primaryModel}] — currently in cooldown`);
-    }
-
-    if (!GroqProvider.isModelInCooldown(this.fallbackModel)) {
-      try {
-        return await this.withTimeout(
-          this.callChat(this.fallbackModel, messages, useTools, memories),
-          5000,
-          `Fallback Groq model [${this.fallbackModel}] timed out after 5s`
-        );
-      } catch (fallbackErr: any) {
-        const isQuotaOrRateLimit =
-          fallbackErr.message?.includes('429') ||
-          fallbackErr.message?.includes('rate_limit_exceeded') ||
-          fallbackErr.message?.includes('timed out');
-        if (isQuotaOrRateLimit) {
-          GroqProvider.setModelCooldown(this.fallbackModel);
-        }
-        logger.error(`Fallback Groq model [${this.fallbackModel}] also failed`, {
-          error: fallbackErr.message,
-        });
-        throw fallbackErr;
       }
     }
 
@@ -349,7 +338,7 @@ Mobile & WhatsApp Elegant Formatting Rules:
     const payload: Record<string, any> = {
       model: modelName,
       messages: formattedMessages,
-      max_tokens: 800,
+      max_tokens: 2048,
       temperature: 0.7,
     };
 

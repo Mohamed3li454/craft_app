@@ -20,8 +20,20 @@ export class WebSearchTool implements AgentTool {
         type: 'string',
         description: 'The search query to look up on the live web',
       },
+      cursor: {
+        type: 'number',
+        description: 'Optional pagination cursor',
+      },
+      id: {
+        type: 'number',
+        description: 'Optional search identifier',
+      },
+      topn: {
+        type: 'number',
+        description: 'Optional max results count',
+      },
     },
-    required: ['query'],
+    required: [] as string[],
   };
 
   public async execute(
