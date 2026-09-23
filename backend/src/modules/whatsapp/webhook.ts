@@ -300,7 +300,7 @@ export class WhatsAppWebhookHandler {
       try {
         if (fromNumber) {
           const emergencyFallback =
-            'معلش يا باشا، حصل ضغط لحظي عالي جداً على السيرفرات حالياً ومقدرتش أجهز الرد في ثواني. جرب تبعتلي تاني بعد لحظات وهكون جاهز معاك فوراً! 🚀';
+            'يا باشا أنا معاك وسامعك، حصل تهنيجة بسيطة في الاتصال، ابعتلي تاني وأنا تحت أمرك فوراً! 🤝';
           await this.whatsappAdapter.sendTextMessage(fromNumber, emergencyFallback);
         }
       } catch (dispatchErr: any) {
