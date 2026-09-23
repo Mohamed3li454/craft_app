@@ -4,6 +4,8 @@ import { DatabaseManager } from '../connection';
 import { ConversationEntity, MessageEntity } from './types';
 import { logger } from '../../core/logger';
 
+import { UserRepository, normalizePhoneNumber } from './user.repo';
+
 function toDeterministicUuid(id: string): string {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     return id;
@@ -16,7 +18,10 @@ export class ChatRepository {
   private inMemoryConversations: Map<string, ConversationEntity> = new Map();
   private inMemoryMessages: Map<string, MessageEntity[]> = new Map();
 
-  constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
+  constructor(
+    private db: DatabaseManager = DatabaseManager.getInstance(),
+    private userRepo: UserRepository = new UserRepository(db)
+  ) {}
 
   public async getOrCreateConversation(
     userId: string,
@@ -25,9 +30,18 @@ export class ChatRepository {
   ): Promise<ConversationEntity> {
     const pool = this.db.getPool();
 
+    // Check if userId is or contains a phone number
+    let userUuid: string;
+    const cleanPhone = normalizePhoneNumber(userId.replace(/^wa_/, ''));
+    if (cleanPhone && cleanPhone.length >= 8) {
+      const user = await this.userRepo.findOrCreateUserByPhone(cleanPhone);
+      userUuid = user.id;
+    } else {
+      userUuid = toDeterministicUuid(userId);
+    }
+
     if (pool) {
       try {
-        const userUuid = toDeterministicUuid(userId);
         await pool.query(
           `INSERT INTO users (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
           [userUuid, userId]
@@ -274,5 +288,112 @@ export class ChatRepository {
       logger.warn('Failed to consolidate WhatsApp conversations', { error: err.message });
       return null;
     }
+  }
+
+  public async getConversationById(id: string): Promise<ConversationEntity | null> {
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        const res = await pool.query(
+          `SELECT id, user_id as "userId", channel, title, is_archived as "isArchived", created_at as "createdAt", updated_at as "updatedAt"
+           FROM conversations WHERE id = $1 LIMIT 1`,
+          [id]
+        );
+        if (res.rows.length > 0) return res.rows[0];
+      } catch (err: any) {
+        logger.warn('Database query failed in getConversationById', { error: err.message });
+      }
+    }
+    return this.inMemoryConversations.get(id) || null;
+  }
+
+  public async getAllMessages(conversationId: string): Promise<MessageEntity[]> {
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        const res = await pool.query(
+          `SELECT id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", tokens_used as "tokensUsed", prompt_tokens as "promptTokens", completion_tokens as "completionTokens", model_name as "modelName", latency_ms as "latencyMs", media_type as "mediaType", created_at as "createdAt"
+           FROM messages 
+           WHERE conversation_id = $1 
+           ORDER BY created_at ASC`,
+          [conversationId]
+        );
+        return res.rows;
+      } catch (err: any) {
+        logger.warn('Database query failed in getAllMessages', { error: err.message });
+      }
+    }
+    return this.inMemoryMessages.get(conversationId) || [];
+  }
+
+  public async getUserConversationsDetailed(userIdOrPhone: string): Promise<any[]> {
+    let userUuid: string;
+    const cleanPhone = normalizePhoneNumber(userIdOrPhone.replace(/^wa_/, ''));
+    if (cleanPhone && cleanPhone.length >= 8) {
+      const user = await this.userRepo.findOrCreateUserByPhone(cleanPhone);
+      userUuid = user.id;
+    } else {
+      userUuid = toDeterministicUuid(userIdOrPhone);
+    }
+
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        const res = await pool.query(
+          `SELECT 
+             c.id,
+             c.user_id as "userId",
+             c.channel,
+             c.title,
+             c.is_archived as "isArchived",
+             c.created_at as "createdAt",
+             c.updated_at as "updatedAt",
+             COUNT(m.id) as "messagesCount",
+             COALESCE(SUM(m.tokens_used), 0) as "totalTokens",
+             (
+               SELECT m2.text 
+               FROM messages m2 
+               WHERE m2.conversation_id = c.id 
+               ORDER BY m2.created_at DESC 
+               LIMIT 1
+             ) as "lastMessage",
+             (
+               SELECT m2.created_at 
+               FROM messages m2 
+               WHERE m2.conversation_id = c.id 
+               ORDER BY m2.created_at DESC 
+               LIMIT 1
+             ) as "lastMessageAt"
+           FROM conversations c
+           LEFT JOIN messages m ON m.conversation_id = c.id
+           WHERE c.user_id = $1 AND c.is_archived = false
+           GROUP BY c.id
+           ORDER BY c.updated_at DESC`,
+          [userUuid]
+        );
+        return res.rows.map((r: any) => ({
+          ...r,
+          messagesCount: parseInt(r.messagesCount || '0', 10),
+          totalTokens: parseInt(r.totalTokens || '0', 10),
+        }));
+      } catch (err: any) {
+        logger.warn('Database query failed in getUserConversationsDetailed', { error: err.message });
+      }
+    }
+
+    const convs = Array.from(this.inMemoryConversations.values()).filter(
+      (c) => (c.userId === userUuid || c.userId === userIdOrPhone) && !c.isArchived
+    );
+    return convs.map((c) => {
+      const msgs = this.inMemoryMessages.get(c.id) || [];
+      const lastMsg = msgs[msgs.length - 1];
+      return {
+        ...c,
+        messagesCount: msgs.length,
+        totalTokens: msgs.reduce((acc, m) => acc + (m.tokensUsed || 0), 0),
+        lastMessage: lastMsg?.text || '',
+        lastMessageAt: lastMsg?.createdAt || c.updatedAt,
+      };
+    });
   }
 }

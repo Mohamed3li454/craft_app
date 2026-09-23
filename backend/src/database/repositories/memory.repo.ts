@@ -4,6 +4,8 @@ import { DatabaseManager } from '../connection';
 import { MemoryItemEntity } from './types';
 import { logger } from '../../core/logger';
 
+import { UserRepository, normalizePhoneNumber } from './user.repo';
+
 function toDeterministicUuid(id: string): string {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     return id;
@@ -15,7 +17,19 @@ function toDeterministicUuid(id: string): string {
 export class MemoryRepository {
   private inMemoryItems: Map<string, MemoryItemEntity[]> = new Map();
 
-  constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
+  constructor(
+    private db: DatabaseManager = DatabaseManager.getInstance(),
+    private userRepo: UserRepository = new UserRepository(db)
+  ) {}
+
+  private async resolveUserId(userId: string): Promise<string> {
+    const cleanPhone = normalizePhoneNumber(userId.replace(/^wa_/, ''));
+    if (cleanPhone && cleanPhone.length >= 8) {
+      const user = await this.userRepo.findOrCreateUserByPhone(cleanPhone);
+      return user.id;
+    }
+    return toDeterministicUuid(userId);
+  }
 
   /**
    * Saves a permanent fact about the user into memory_items.
@@ -28,7 +42,7 @@ export class MemoryRepository {
   ): Promise<MemoryItemEntity> {
     const cleanText = factText.trim();
     const pool = this.db.getPool();
-    const userUuid = toDeterministicUuid(userId);
+    const userUuid = await this.resolveUserId(userId);
 
     if (pool) {
       try {
@@ -92,7 +106,7 @@ export class MemoryRepository {
    */
   public async getMemories(userId: string, limit = 20): Promise<string[]> {
     const pool = this.db.getPool();
-    const userUuid = toDeterministicUuid(userId);
+    const userUuid = await this.resolveUserId(userId);
 
     if (pool) {
       try {
@@ -113,7 +127,7 @@ export class MemoryRepository {
       }
     }
 
-    const userItems = this.inMemoryItems.get(userId) || [];
+    const userItems = this.inMemoryItems.get(userUuid) || this.inMemoryItems.get(userId) || [];
     return userItems.slice(-limit).map((m) => m.factText);
   }
 
