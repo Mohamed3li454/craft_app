@@ -49,7 +49,12 @@ export class WhatsAppWebhookHandler {
     const signature = req.headers['x-hub-signature-256'] as string;
     const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
-    if (!verifyMetaSignature(rawBody, signature)) {
+    const isSignatureValid = verifyMetaSignature(rawBody, signature);
+    logger.info('WA TRACE 1 - signature verification', {
+      valid: isSignatureValid,
+    });
+
+    if (!isSignatureValid) {
       res.status(401).send('Invalid signature');
       return;
     }
@@ -62,17 +67,11 @@ export class WhatsAppWebhookHandler {
       const value = changes?.value;
       const message = value?.messages?.[0];
 
-      logger.info('WhatsApp webhook diagnostic', {
-        hasEntry: !!entry,
-        hasChanges: !!changes,
-        hasValue: !!value,
-        field: changes?.field ?? null,
-        hasMessages: Array.isArray(value?.messages),
-        messagesCount: value?.messages?.length ?? 0,
-        hasStatuses: Array.isArray(value?.statuses),
-        statusesCount: value?.statuses?.length ?? 0,
-        messageType: message?.type ?? null,
-        messageId: message?.id ?? null,
+      logger.info('WA TRACE 2 - message extracted', {
+        exists: !!message,
+        type: message?.type ?? null,
+        hasFrom: !!message?.from,
+        hasId: !!message?.id,
       });
 
       if (!message) {
@@ -95,10 +94,17 @@ export class WhatsAppWebhookHandler {
       const profileName = contact?.profile?.name;
 
       // 1. Parallelize user resolution and deduplication check
+      logger.info('WA TRACE 3 - before user and dedup lookup');
       const [user, alreadyProcessed] = await Promise.all([
         this.userRepo.findOrCreateUserByPhone(from, profileName),
         this.webhookRepo.isEventProcessed(eventId),
       ]);
+
+      logger.info('WA TRACE 4 - user and dedup lookup complete', {
+        userCreatedOrFound: !!user,
+        userIdExists: !!user?.id,
+        alreadyProcessed,
+      });
 
       if (alreadyProcessed) {
         logger.debug(`Duplicate webhook event [${eventId}] ignored`);
@@ -186,6 +192,10 @@ export class WhatsAppWebhookHandler {
       let text = '';
       let mediaAttachment: AgentMediaAttachment | undefined;
 
+      logger.info('WA TRACE 5 - processing message type', {
+        messageType,
+      });
+
       if (messageType === 'text') {
         text = message.text?.body || '';
       } else if (messageType === 'image') {
@@ -238,6 +248,12 @@ export class WhatsAppWebhookHandler {
         return;
       }
 
+      logger.info('WA TRACE 6 - message content parsed', {
+        hasText: !!text,
+        textLength: text?.length ?? 0,
+        hasMedia: !!mediaAttachment,
+      });
+
       // If user sent a media file but download failed completely and there is no text
       if (
         !text &&
@@ -264,6 +280,7 @@ export class WhatsAppWebhookHandler {
       );
 
       // 5. Run through unified Agent Orchestrator
+      logger.info('WA TRACE 7 - calling orchestrator');
       const agentResult = await this.orchestrator.run({
         userId: user.id,
         channel: 'whatsapp',
@@ -275,6 +292,12 @@ export class WhatsAppWebhookHandler {
         },
       });
 
+      logger.info('WA TRACE 8 - orchestrator completed', {
+        hasResult: !!agentResult,
+        hasReplyText: !!agentResult?.replyText,
+        replyLength: agentResult?.replyText?.length ?? 0,
+      });
+
       // 6. Send reply back to WhatsApp user (Interactive Buttons if confirmation needed, else text)
       if (
         agentResult.status === 'waiting_for_confirmation' &&
@@ -283,16 +306,25 @@ export class WhatsAppWebhookHandler {
         const token = agentResult.confirmationRequest.token;
         const prompt = `${agentResult.replyText}\n\nاضغط على أحد الأزرار أدناه لتأكيد أو إلغاء التنفيذ:`;
 
-        await this.whatsappAdapter.sendInteractiveButtons(from, prompt, [
+        logger.info('WA TRACE 9 - sending WhatsApp response');
+        const sendResult = await this.whatsappAdapter.sendInteractiveButtons(from, prompt, [
           { id: `conf_approve_${token}`, title: 'تأكيد ✅' },
           { id: `conf_reject_${token}`, title: 'إلغاء ❌' },
         ]);
+        logger.info('WA TRACE 10 - WhatsApp response send completed', { success: sendResult });
       } else {
-        await this.whatsappAdapter.sendTextMessage(from, agentResult.replyText);
+        logger.info('WA TRACE 9 - sending WhatsApp response');
+        const sendResult = await this.whatsappAdapter.sendTextMessage(from, agentResult.replyText);
+        logger.info('WA TRACE 10 - WhatsApp response send completed', { success: sendResult });
       }
 
+      logger.info('WA TRACE 11 - webhook completed successfully');
       res.status(200).send('EVENT_RECEIVED');
     } catch (err: any) {
+      logger.error('WA TRACE ERROR - handleIncoming failed', {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
       logger.error('Error processing WhatsApp webhook payload', { error: err.message });
       try {
         if (fromNumber) {
