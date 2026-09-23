@@ -254,10 +254,16 @@ export function formatConversationHistory(
 ): Content[] {
   const turns: Array<{ role: 'user' | 'model'; text: string }> = [];
 
-  for (const m of messages) {
-    const text = m.text?.trim();
+  // Limit to most recent 4 messages to optimize latency and TTFT
+  const slicedMessages = messages.slice(-4);
+
+  for (const m of slicedMessages) {
+    let text = m.text?.trim();
     if (!text) continue;
     const role: 'user' | 'model' = m.senderRole === 'user' ? 'user' : 'model';
+    if (role === 'model' && text.length > 350) {
+      text = text.substring(0, 350) + '...';
+    }
     turns.push({ role, text });
   }
 
@@ -535,7 +541,8 @@ export class AgentOrchestrator {
         geminiIterations++;
         logger.debug(`Agent Gemini ReAct iteration [${geminiIterations}/${config.security.maxIterations}]`);
 
-        const geminiResponse = await this.geminiProvider.generateReply(contents, true, memories);
+        const isFirstIteration = geminiIterations === 1;
+        const geminiResponse = await this.geminiProvider.generateReply(contents, isFirstIteration, memories);
         if (geminiResponse.modelUsed) lastModelUsed = geminiResponse.modelUsed;
         if (geminiResponse.usage) {
           accumulatedPromptTokens += geminiResponse.usage.promptTokens;
@@ -893,12 +900,10 @@ export class AgentOrchestrator {
       return null;
     };
 
-    // Intelligent Route:
-    // If media attachment (image, pdf, docx, code) is present or user explicitly set PRIMARY_LLM_PROVIDER=gemini,
-    // route to Gemini first with fallback to Groq Vision.
-    // For pure text/audio chats, route to Groq LPU engine first for sub-second (~800ms) ultra-fast responses!
-    const hasMediaAttachment = !!imageAttachment || !!mediaPart;
-    const preferGemini = process.env.PRIMARY_LLM_PROVIDER === 'gemini' || hasMediaAttachment;
+    // Routing Strategy:
+    // Gemini (gemini-3.6-flash + gemini-3.1-flash-lite) is the PRIMARY engine,
+    // with Groq (openai/gpt-oss-120b, openai/gpt-oss-20b, qwen/qwen3.8-27b) serving as robust fallback.
+    const preferGemini = process.env.PRIMARY_LLM_PROVIDER !== 'groq';
 
     if (preferGemini) {
       try {

@@ -52,7 +52,7 @@ export const config: AppConfig = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
     model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-    fallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash-lite',
+    fallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.1-flash-lite',
     isMockMode:
       process.env.GEMINI_MOCK_MODE === 'true' ||
       !process.env.GEMINI_API_KEY ||

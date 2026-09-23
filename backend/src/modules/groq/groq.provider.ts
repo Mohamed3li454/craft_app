@@ -258,12 +258,11 @@ Mobile & WhatsApp Elegant Formatting Rules:
     }
 
     // Text & tools cascade: Primary model (openai/gpt-oss-120b) with automatic fallbacks:
-    // openai/gpt-oss-20b -> qwen/qwen3.8-27b -> allam-2-7b (ultra-fast Arabic fallback for text)
+    // openai/gpt-oss-20b -> qwen/qwen3.8-27b
     const textModels = [
       this.primaryModel,
       this.fallbackModel,
       'qwen/qwen3.8-27b',
-      ...(!useTools ? ['allam-2-7b'] : []),
     ].filter((m, idx, arr) => arr.indexOf(m) === idx);
 
     for (let i = 0; i < textModels.length; i++) {
@@ -308,20 +307,6 @@ Mobile & WhatsApp Elegant Formatting Rules:
         logger.warn(
           `Groq model [${model}] failed (${err.message}), trying next fallback model...`
         );
-      }
-    }
-
-    // If all tool-enabled models failed or were in cooldown, try allam-2-7b without tools as a pure conversational fallback
-    if (useTools && !GroqProvider.isModelInCooldown('allam-2-7b')) {
-      try {
-        logger.info('Tool-enabled Groq models unavailable, falling back to allam-2-7b for direct conversational response');
-        return await this.withTimeout(
-          this.callChat('allam-2-7b', messages, false, memories),
-          5000,
-          'Groq fallback model [allam-2-7b] timed out after 5s'
-        );
-      } catch (allamErr: any) {
-        logger.warn('allam-2-7b conversational fallback also failed', { error: allamErr.message });
       }
     }
 

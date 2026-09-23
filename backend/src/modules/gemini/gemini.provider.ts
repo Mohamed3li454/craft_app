@@ -181,9 +181,10 @@ Mobile & WhatsApp Elegant Formatting Rules:
     const timeoutMs = hasMedia ? 12000 : 5000;
 
     const candidateModels = [
-      this.primaryModel,
-      this.fallbackModel,
+      this.primaryModel || 'gemini-3.6-flash',
+      this.fallbackModel || 'gemini-3.1-flash-lite',
       'gemini-3.6-flash',
+      'gemini-3.1-flash-lite',
       'gemini-2.5-flash-lite',
       'gemini-3.5-flash',
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
