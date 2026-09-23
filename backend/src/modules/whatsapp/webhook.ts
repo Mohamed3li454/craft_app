@@ -69,21 +69,37 @@ export class WhatsAppWebhookHandler {
       }
 
       const eventId = message.id; // wamid
-      const from = message.from; // User phone number
-      fromNumber = from;
       const messageType = message.type;
 
-      if (!from) {
+      // Priority: message.from -> message.from_user_id -> value.contacts[0].user_id -> value.contacts[0].wa_id
+      const senderId: string =
+        message.from ||
+        message.from_user_id ||
+        value?.contacts?.[0]?.user_id ||
+        value?.contacts?.[0]?.wa_id ||
+        '';
+
+      fromNumber = senderId;
+
+      if (!senderId) {
         res.status(200).send('EVENT_RECEIVED');
         return;
       }
+
+      const isPhone = !!message.from && /^\+?\d+$/.test(message.from);
+      const phone = isPhone ? message.from : undefined;
+      const bsuid = !isPhone ? senderId : (message.from_user_id || value?.contacts?.[0]?.user_id);
 
       const contact = value?.contacts?.[0];
       const profileName = contact?.profile?.name;
 
       // 1. Parallelize user resolution and deduplication check
       const [user, alreadyProcessed] = await Promise.all([
-        this.userRepo.findOrCreateUserByPhone(from, profileName),
+        this.userRepo.findOrCreateWhatsAppUser({
+          phone,
+          bsuid,
+          displayName: profileName,
+        }),
         this.webhookRepo.isEventProcessed(eventId),
       ]);
 
@@ -93,7 +109,7 @@ export class WhatsAppWebhookHandler {
         return;
       }
 
-      this.webhookRepo.markEventProcessed(eventId, 'whatsapp', { from, type: messageType }).catch((err) => {
+      this.webhookRepo.markEventProcessed(eventId, 'whatsapp', { type: messageType }).catch((err) => {
         logger.debug('Failed to mark event processed in background', { error: err.message });
       });
 
@@ -106,7 +122,7 @@ export class WhatsAppWebhookHandler {
         const buttonId: string = buttonReply?.id || '';
         const buttonTitle: string = buttonReply?.title || '';
 
-        logger.info(`Received WhatsApp button click from [${from}]: id="${buttonId}", title="${buttonTitle}"`);
+        logger.info(`Received WhatsApp button click: id="${buttonId}", title="${buttonTitle}"`);
 
         if (buttonId.startsWith('conf_approve_') || buttonId.startsWith('conf_reject_')) {
           const isApprove = buttonId.startsWith('conf_approve_');
@@ -156,7 +172,7 @@ export class WhatsAppWebhookHandler {
           await this.chatRepo.saveMessage(conv.id, 'user', user.name || 'WhatsApp User', buttonTitle);
           await this.chatRepo.saveMessage(conv.id, 'assistant', 'Craft', replyText);
 
-          await this.whatsappAdapter.sendTextMessage(from, replyText);
+          await this.whatsappAdapter.sendTextMessage(senderId, replyText);
           res.status(200).send('EVENT_RECEIVED');
           return;
         }
@@ -233,7 +249,7 @@ export class WhatsAppWebhookHandler {
       ) {
         logger.warn('Failed to retrieve media binary from Meta Graph API', { messageType });
         await this.whatsappAdapter.sendTextMessage(
-          from,
+          senderId,
           'عذراً، تعذر تحميل التسجيل الصوتي/الملف المرفق من واتساب حالياً. يرجى إعادة إرساله مرة أخرى.'
         );
         res.status(200).send('EVENT_RECEIVED');
@@ -247,7 +263,7 @@ export class WhatsAppWebhookHandler {
       }
 
       logger.info(
-        `Received WhatsApp message from [${from}]: type="${messageType}", text="${text}", hasMedia=${!!mediaAttachment}`
+        `Received WhatsApp message: type="${messageType}", textLength=${text.length}, hasMedia=${!!mediaAttachment}, isBsuid=${!isPhone}`
       );
 
       // 5. Run through unified Agent Orchestrator
@@ -257,8 +273,8 @@ export class WhatsAppWebhookHandler {
         text,
         media: mediaAttachment,
         onInterimProgress: async (interimText: string) => {
-          logger.info(`Dispatching interim acknowledgment to WhatsApp user [${from}]: "${interimText}"`);
-          await this.whatsappAdapter.sendTextMessage(from, interimText);
+          logger.info(`Dispatching interim acknowledgment to WhatsApp user: "${interimText}"`);
+          await this.whatsappAdapter.sendTextMessage(senderId, interimText);
         },
       });
 
@@ -270,12 +286,12 @@ export class WhatsAppWebhookHandler {
         const token = agentResult.confirmationRequest.token;
         const prompt = `${agentResult.replyText}\n\nاضغط على أحد الأزرار أدناه لتأكيد أو إلغاء التنفيذ:`;
 
-        await this.whatsappAdapter.sendInteractiveButtons(from, prompt, [
+        await this.whatsappAdapter.sendInteractiveButtons(senderId, prompt, [
           { id: `conf_approve_${token}`, title: 'تأكيد ✅' },
           { id: `conf_reject_${token}`, title: 'إلغاء ❌' },
         ]);
       } else {
-        await this.whatsappAdapter.sendTextMessage(from, agentResult.replyText);
+        await this.whatsappAdapter.sendTextMessage(senderId, agentResult.replyText);
       }
 
       res.status(200).send('EVENT_RECEIVED');

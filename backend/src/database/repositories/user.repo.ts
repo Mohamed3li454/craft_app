@@ -34,6 +34,12 @@ export function toDeterministicUuid(id: string): string {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
+export interface FindOrCreateWhatsAppUserParams {
+  phone?: string;
+  bsuid?: string;
+  displayName?: string;
+}
+
 export class UserRepository {
   private inMemoryUsers: Map<string, UserEntity> = new Map();
   private schemaChecked = false;
@@ -46,24 +52,30 @@ export class UserRepository {
     if (!pool) return;
 
     try {
-      // 1. Ensure phone_number column exists on users
+      // 1. Ensure phone_number and bsuid columns exist on users
       await pool.query(`
         ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS bsuid VARCHAR(255);
         CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
+        CREATE INDEX IF NOT EXISTS idx_users_bsuid ON users(bsuid);
       `);
 
-      // 2. Ensure whatsapp_contacts table exists
+      // 2. Ensure whatsapp_contacts table exists and wa_id supports up to 255-char BSUIDs
       await pool.query(`
         CREATE TABLE IF NOT EXISTS whatsapp_contacts (
-          wa_id VARCHAR(50) PRIMARY KEY,
+          wa_id VARCHAR(255) PRIMARY KEY,
           user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           phone_number_id VARCHAR(50) DEFAULT '',
           profile_name VARCHAR(255),
           verified BOOLEAN DEFAULT false NOT NULL,
+          bsuid VARCHAR(255),
           created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
         );
+        ALTER TABLE whatsapp_contacts ALTER COLUMN wa_id TYPE VARCHAR(255);
+        ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS bsuid VARCHAR(255);
         CREATE INDEX IF NOT EXISTS idx_wa_contacts_user_id ON whatsapp_contacts(user_id);
+        CREATE INDEX IF NOT EXISTS idx_wa_contacts_bsuid ON whatsapp_contacts(bsuid);
       `);
 
       // 3. Migrate legacy records where name starts with 'wa_' and phone_number is null
@@ -77,6 +89,146 @@ export class UserRepository {
     } catch (err: any) {
       logger.debug('Schema check for users table skipped/failed', { error: err.message });
     }
+  }
+
+  /**
+   * Resolves or creates a unified UserEntity given either:
+   * 1. A traditional phone number (e.g. +2010...)
+   * 2. A modern Meta Business-Scoped User ID (BSUID)
+   * 3. Both (associating the BSUID with the existing phone user)
+   */
+  public async findOrCreateWhatsAppUser(
+    params: FindOrCreateWhatsAppUserParams
+  ): Promise<UserEntity> {
+    await this.ensureSchema();
+    const cleanPhone = params.phone ? normalizePhoneNumber(params.phone) : undefined;
+    const bsuid = params.bsuid ? params.bsuid.trim() : undefined;
+    const pool = this.db.getPool();
+
+    if (pool) {
+      try {
+        // 1. If BSUID provided, check whatsapp_contacts by wa_id or bsuid, or users by bsuid
+        if (bsuid) {
+          const bsuidRes = await pool.query(
+            `SELECT u.id, u.name, u.email, u.phone_number as "phoneNumber", u.bsuid, u.created_at as "createdAt"
+             FROM users u
+             LEFT JOIN whatsapp_contacts wc ON wc.user_id = u.id
+             WHERE wc.wa_id = $1 OR wc.bsuid = $1 OR u.bsuid = $1
+             LIMIT 1`,
+            [bsuid]
+          );
+
+          if (bsuidRes.rows.length > 0) {
+            const user: UserEntity = bsuidRes.rows[0];
+            // If phone also provided and user didn't have phone before, link phone
+            if (cleanPhone && !user.phoneNumber) {
+              await pool.query(
+                `UPDATE users SET phone_number = $1, updated_at = NOW() WHERE id = $2`,
+                [cleanPhone, user.id]
+              );
+              user.phoneNumber = cleanPhone;
+            }
+            // Optionally update name if new display name provided and previous was default
+            if (params.displayName && (user.name === 'User' || user.name === 'WhatsApp User' || user.name.startsWith('wa_') || user.name.startsWith('User '))) {
+              await pool.query(`UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2`, [params.displayName, user.id]);
+              user.name = params.displayName;
+            }
+            await this.linkWhatsAppContact(pool, bsuid, user.id, params.displayName, bsuid);
+            return user;
+          }
+        }
+
+        // 2. If phone provided, query user with phone number variants
+        if (cleanPhone) {
+          const variants = [
+            cleanPhone,
+            `+${cleanPhone}`,
+            cleanPhone.startsWith('20') ? `0${cleanPhone.slice(2)}` : cleanPhone,
+          ];
+
+          const phoneRes = await pool.query(
+            `SELECT id, name, email, phone_number as "phoneNumber", bsuid, created_at as "createdAt"
+             FROM users 
+             WHERE phone_number = ANY($1::varchar[])
+             LIMIT 1`,
+            [variants]
+          );
+
+          if (phoneRes.rows.length > 0) {
+            const user: UserEntity = phoneRes.rows[0];
+            // If BSUID also provided, attach to user
+            if (bsuid && !user.bsuid) {
+              await pool.query(
+                `UPDATE users SET bsuid = $1, updated_at = NOW() WHERE id = $2`,
+                [bsuid, user.id]
+              );
+              user.bsuid = bsuid;
+            }
+            if (params.displayName && (user.name === 'User' || user.name === 'WhatsApp User' || user.name.startsWith('wa_') || user.name.startsWith('User '))) {
+              await pool.query(`UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2`, [params.displayName, user.id]);
+              user.name = params.displayName;
+            }
+            await this.linkWhatsAppContact(pool, cleanPhone, user.id, params.displayName, bsuid);
+            return user;
+          }
+        }
+
+        // 3. Create new user (supports phone-only, BSUID-only, or both)
+        const newId = uuidv4();
+        const finalName =
+          params.displayName ||
+          (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'WhatsApp User');
+        const effectivePhoneNumber = cleanPhone || null;
+        const effectiveBsuid = bsuid || null;
+
+        const insertRes = await pool.query(
+          `INSERT INTO users (id, name, phone_number, bsuid, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, NOW(), NOW())
+           RETURNING id, name, email, phone_number as "phoneNumber", bsuid, created_at as "createdAt"`,
+          [newId, finalName, effectivePhoneNumber, effectiveBsuid]
+        );
+
+        const newUser: UserEntity = insertRes.rows[0];
+        await this.linkWhatsAppContact(pool, cleanPhone || bsuid || newId, newUser.id, params.displayName, bsuid);
+        return newUser;
+      } catch (err: any) {
+        logger.warn('Database error in findOrCreateWhatsAppUser, falling back to in-memory', {
+          error: err.message,
+        });
+      }
+    }
+
+    // In-memory fallback
+    if (bsuid) {
+      for (const u of this.inMemoryUsers.values()) {
+        if (u.bsuid === bsuid || u.id === toDeterministicUuid(`wa_${bsuid}`)) {
+          if (cleanPhone && !u.phoneNumber) u.phoneNumber = cleanPhone;
+          return u;
+        }
+      }
+    }
+
+    if (cleanPhone) {
+      for (const u of this.inMemoryUsers.values()) {
+        if (u.phoneNumber === cleanPhone || u.id === toDeterministicUuid(`wa_${cleanPhone}`)) {
+          if (bsuid && !u.bsuid) u.bsuid = bsuid;
+          return u;
+        }
+      }
+    }
+
+    const primaryKey = bsuid || cleanPhone || uuidv4();
+    const newUser: UserEntity = {
+      id: toDeterministicUuid(`wa_${primaryKey}`),
+      name:
+        params.displayName ||
+        (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'WhatsApp User'),
+      phoneNumber: cleanPhone,
+      bsuid: bsuid,
+      createdAt: new Date(),
+    };
+    this.inMemoryUsers.set(newUser.id, newUser);
+    return newUser;
   }
 
   /**
@@ -182,17 +334,19 @@ export class UserRepository {
     pool: any,
     waId: string,
     userId: string,
-    profileName?: string
+    profileName?: string,
+    bsuid?: string
   ): Promise<void> {
     try {
       await pool.query(
-        `INSERT INTO whatsapp_contacts (wa_id, user_id, phone_number_id, profile_name, updated_at)
-         VALUES ($1, $2, $3, $4, NOW())
+        `INSERT INTO whatsapp_contacts (wa_id, user_id, phone_number_id, profile_name, bsuid, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
          ON CONFLICT (wa_id) 
          DO UPDATE SET user_id = EXCLUDED.user_id, 
                        profile_name = COALESCE(EXCLUDED.profile_name, whatsapp_contacts.profile_name),
+                       bsuid = COALESCE(EXCLUDED.bsuid, whatsapp_contacts.bsuid),
                        updated_at = NOW()`,
-        [waId, userId, 'craft_default_wa', profileName || null]
+        [waId, userId, 'craft_default_wa', profileName || null, bsuid || null]
       );
     } catch (err: any) {
       logger.debug('Failed to link whatsapp contact', { error: err.message });
