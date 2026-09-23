@@ -78,16 +78,22 @@ export class WhatsAppWebhookHandler {
 
       const contact = value?.contacts?.[0];
       const profileName = contact?.profile?.name;
-      const user = await this.userRepo.findOrCreateUserByPhone(from, profileName);
 
-      // 2. Deduplication check
-      const alreadyProcessed = await this.webhookRepo.isEventProcessed(eventId);
+      // 1. Parallelize user resolution and deduplication check
+      const [user, alreadyProcessed] = await Promise.all([
+        this.userRepo.findOrCreateUserByPhone(from, profileName),
+        this.webhookRepo.isEventProcessed(eventId),
+      ]);
+
       if (alreadyProcessed) {
         logger.debug(`Duplicate webhook event [${eventId}] ignored`);
         res.status(200).send('EVENT_RECEIVED');
         return;
       }
-      await this.webhookRepo.markEventProcessed(eventId, 'whatsapp', { from, type: messageType });
+
+      this.webhookRepo.markEventProcessed(eventId, 'whatsapp', { from, type: messageType }).catch((err) => {
+        logger.debug('Failed to mark event processed in background', { error: err.message });
+      });
 
       // 3. Handle Interactive Button Replies (Quick-Reply Confirmations)
       if (messageType === 'interactive' && message.interactive?.type === 'button_reply') {
