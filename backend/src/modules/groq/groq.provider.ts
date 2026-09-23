@@ -285,20 +285,43 @@ Mobile & WhatsApp Elegant Formatting Rules:
           err.message?.includes('rate_limit_exceeded') ||
           err.message?.includes('timed out');
         if (isQuotaOrRateLimit) {
-          // Parse exact retry delay from Groq error (e.g. "Please try again in 4.92s")
+          // Parse exact retry delay from Groq error (supports e.g. "4.92s", "17m53.52s", "1h20m")
           let cooldownMs = GroqProvider.COOLDOWN_DURATION_MS;
-          const match = err.message?.match(/Please try again in (\d+(\.\d+)?)s/i);
-          if (match && match[1]) {
-            const parsedSeconds = parseFloat(match[1]);
-            if (!isNaN(parsedSeconds) && parsedSeconds > 0) {
-              cooldownMs = Math.min(25000, Math.ceil(parsedSeconds * 1000) + 1000);
-            }
+          let parsedMs = 0;
+          const retryMatch =
+            err.message?.match(/Please try again in ([^\.]+?\.\d+s|\d+[hms]+)/i) ||
+            err.message?.match(/Please try again in ([^\\n\\.]+)/i);
+          const timeStr = retryMatch ? retryMatch[1] : '';
+          const hourMatch = timeStr.match(/(\d+(\.\d+)?)h/i);
+          const minMatch = timeStr.match(/(\d+(\.\d+)?)m(?!s)/i);
+          const secMatch = timeStr.match(/(\d+(\.\d+)?)s/i);
+
+          if (hourMatch) parsedMs += parseFloat(hourMatch[1]) * 3600 * 1000;
+          if (minMatch) parsedMs += parseFloat(minMatch[1]) * 60 * 1000;
+          if (secMatch) parsedMs += parseFloat(secMatch[1]) * 1000;
+
+          if (parsedMs > 0) {
+            cooldownMs = Math.ceil(parsedMs) + 1000;
           }
           GroqProvider.setModelCooldown(model, cooldownMs);
         }
         logger.warn(
           `Groq model [${model}] failed (${err.message}), trying next fallback model...`
         );
+      }
+    }
+
+    // If all tool-enabled models failed or were in cooldown, try allam-2-7b without tools as a pure conversational fallback
+    if (useTools && !GroqProvider.isModelInCooldown('allam-2-7b')) {
+      try {
+        logger.info('Tool-enabled Groq models unavailable, falling back to allam-2-7b for direct conversational response');
+        return await this.withTimeout(
+          this.callChat('allam-2-7b', messages, false, memories),
+          5000,
+          'Groq fallback model [allam-2-7b] timed out after 5s'
+        );
+      } catch (allamErr: any) {
+        logger.warn('allam-2-7b conversational fallback also failed', { error: allamErr.message });
       }
     }
 

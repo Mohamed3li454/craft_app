@@ -180,13 +180,26 @@ Mobile & WhatsApp Elegant Formatting Rules:
     const hasMedia = contents.some((c) => c.parts?.some((p) => 'inlineData' in p));
     const timeoutMs = hasMedia ? 12000 : 5000;
 
-    // 1. Try primary model if not in cooldown
-    if (!GeminiProvider.isModelInCooldown(this.primaryModel)) {
+    const candidateModels = [
+      this.primaryModel,
+      this.fallbackModel,
+      'gemini-3.6-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-3.5-flash',
+    ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+    for (let i = 0; i < candidateModels.length; i++) {
+      const model = candidateModels[i];
+      if (GeminiProvider.isModelInCooldown(model)) {
+        logger.debug(`Skipping Gemini model [${model}] — currently in cooldown`);
+        continue;
+      }
+
       try {
         return await this.withTimeout(
-          this.callModel(this.primaryModel, contents, useTools, memories),
+          this.callModel(model, contents, useTools, memories),
           timeoutMs,
-          `Primary Gemini model [${this.primaryModel}] timed out after ${timeoutMs / 1000}s`
+          `Gemini model [${model}] timed out after ${timeoutMs / 1000}s`
         );
       } catch (err: any) {
         const isQuotaOrUnavailable =
@@ -196,43 +209,15 @@ Mobile & WhatsApp Elegant Formatting Rules:
           err.message?.includes('503') ||
           err.message?.includes('timed out');
         if (isQuotaOrUnavailable) {
-          GeminiProvider.setModelCooldown(this.primaryModel);
+          GeminiProvider.setModelCooldown(model);
         }
         logger.warn(
-          `Primary Gemini model [${this.primaryModel}] failed, attempting fallback to [${this.fallbackModel}]`,
-          { error: err.message }
+          `Gemini model [${model}] failed (${err.message}), trying next candidate...`
         );
-      }
-    } else {
-      logger.debug(`Skipping primary Gemini model [${this.primaryModel}] — currently in cooldown`);
-    }
-
-    // 2. Try fallback model if distinct and not in cooldown
-    if (this.fallbackModel !== this.primaryModel && !GeminiProvider.isModelInCooldown(this.fallbackModel)) {
-      try {
-        return await this.withTimeout(
-          this.callModel(this.fallbackModel, contents, useTools, memories),
-          timeoutMs,
-          `Fallback Gemini model [${this.fallbackModel}] timed out after ${timeoutMs / 1000}s`
-        );
-      } catch (fallbackErr: any) {
-        const isQuotaOrUnavailable =
-          fallbackErr.message?.includes('429') ||
-          fallbackErr.message?.includes('Quota') ||
-          fallbackErr.message?.includes('quota') ||
-          fallbackErr.message?.includes('503') ||
-          fallbackErr.message?.includes('timed out');
-        if (isQuotaOrUnavailable) {
-          GeminiProvider.setModelCooldown(this.fallbackModel);
-        }
-        logger.error(`Fallback Gemini model [${this.fallbackModel}] also failed`, {
-          error: fallbackErr.message,
-        });
-        throw fallbackErr;
       }
     }
 
-    throw new Error(`All configured Gemini models are currently unavailable or in cooldown`);
+    throw new Error('All candidate Gemini models are currently unavailable or in cooldown');
   }
 
   private async callModel(
