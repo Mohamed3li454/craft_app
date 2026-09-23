@@ -29,6 +29,7 @@ export interface MessageEntity {
   completionTokens?: number;
   modelName?: string;
   latencyMs?: number;
+  toolsUsed?: string;
   createdAt: Date;
 }
 

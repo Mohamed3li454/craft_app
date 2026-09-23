@@ -346,11 +346,18 @@ export function formatGroqConversationHistory(
 
 export function serializeToolResultForGroq(toolName: string, outputOrError: any): string {
   if (toolName === 'web_search' && outputOrError?.results && Array.isArray(outputOrError.results)) {
-    const compactResults = outputOrError.results.slice(0, 4).map((r: any) => ({
+    const compactResults = outputOrError.results.slice(0, 5).map((r: any) => ({
       title: r.title,
-      snippet: (r.snippet || '').substring(0, 250),
+      snippet: (r.snippet || '').substring(0, 300),
+      url: r.url,
     }));
-    return JSON.stringify({ query: outputOrError.query, results: compactResults });
+    return JSON.stringify({
+      status: 'search_complete',
+      query: outputOrError.query,
+      results: compactResults,
+      instruction:
+        'Live search completed. Synthesize your final comprehensive response in natural, friendly Egyptian Arabic now based on the search results above. Do not invoke web_search again.',
+    });
   }
   return JSON.stringify(outputOrError);
 }
@@ -608,17 +615,20 @@ export class AgentOrchestrator {
 
           // Guard against repeated search queries in the same conversation turn
           if (tool.name === 'web_search' && toolCallsExecuted.some((t) => t.toolName === 'web_search')) {
-            logger.info('Repeated web_search prevented in Gemini loop, prompting model to finalize answer');
+            logger.info('Repeated web_search prevented in Gemini loop, requesting immediate finalization');
             contents.push({ role: 'model', parts: [{ text: `Called tool: ${fc.name}` }] });
             contents.push({
               role: 'user',
               parts: [
                 {
-                  text: 'The search results were already retrieved in the previous step. Do NOT invoke web_search again. Formulate your final response to the user immediately.',
+                  text: 'The search results were already retrieved in the previous step. Do NOT invoke web_search again. Formulate your final response to the user immediately in Egyptian Arabic.',
                 },
               ],
             });
-            continue;
+            const finalGemini = await this.geminiProvider.generateReply(contents, false, memories);
+            if (finalGemini.modelUsed) lastModelUsed = finalGemini.modelUsed;
+            finalReply = finalGemini.text || 'تم معالجة طلبك بنجاح.';
+            return null;
           }
 
           if (tool.name === 'web_search' && !interimSent) {
@@ -637,6 +647,24 @@ export class AgentOrchestrator {
             arguments: fc.args,
             result: toolResult.output || toolResult.error,
           });
+
+          // Persist to tool_calls table in database for analytics & dashboard
+          this.chatRepo
+            .saveToolCall(
+              agentRunId,
+              conversationId,
+              tool.name,
+              fc.args,
+              toolResult.output || null,
+              toolResult.success ? 'success' : 'failed',
+              toolResult.error
+            )
+            .catch((err) =>
+              logger.warn('Failed to persist tool call to database', {
+                error: err.message,
+                toolName: tool.name,
+              })
+            );
 
           contents.push({ role: 'model', parts: [{ text: `Called tool: ${tool.name}` }] });
           contents.push({
@@ -762,13 +790,14 @@ export class AgentOrchestrator {
 
           // Guard against repeated search queries in the same conversation turn
           if (tool.name === 'web_search' && toolCallsExecuted.some((t) => t.toolName === 'web_search')) {
-            logger.info('Repeated web_search prevented in Groq loop, prompting model to finalize answer');
+            logger.info('Repeated web_search prevented in Groq loop, requesting immediate finalization');
+            const toolCallId = fc.id || `fc_${Date.now()}`;
             groqMessages.push({
               role: 'assistant',
               content: null as any,
               tool_calls: [
                 {
-                  id: fc.id || `fc_${Date.now()}`,
+                  id: toolCallId,
                   type: 'function',
                   function: {
                     name: tool.name,
@@ -779,14 +808,17 @@ export class AgentOrchestrator {
             });
             groqMessages.push({
               role: 'tool',
-              tool_call_id: fc.id || `fc_${Date.now()}`,
+              tool_call_id: toolCallId,
               name: tool.name,
               content: JSON.stringify({
                 status: 'search_already_completed',
-                instruction: 'The search results were already retrieved in the previous step. Do NOT invoke web_search again. Formulate your final response to the user immediately.',
+                instruction: 'The search results were already retrieved. Formulate your final detailed response to the user in warm Egyptian Arabic now based on the previous results.',
               }),
             });
-            continue;
+            const finalGroq = await this.groqProvider.generateReply(groqMessages, false, memories);
+            if (finalGroq.modelUsed) lastModelUsed = finalGroq.modelUsed;
+            finalReply = finalGroq.text || 'تم معالجة طلبك بنجاح.';
+            return null;
           }
 
           if (tool.name === 'web_search' && !interimSent) {
@@ -805,6 +837,24 @@ export class AgentOrchestrator {
             arguments: fc.args,
             result: toolResult.output || toolResult.error,
           });
+
+          // Persist to tool_calls table in database for analytics & dashboard
+          this.chatRepo
+            .saveToolCall(
+              agentRunId,
+              conversationId,
+              tool.name,
+              fc.args,
+              toolResult.output || null,
+              toolResult.success ? 'success' : 'failed',
+              toolResult.error
+            )
+            .catch((err) =>
+              logger.warn('Failed to persist tool call to database', {
+                error: err.message,
+                toolName: tool.name,
+              })
+            );
 
           groqMessages.push({
             role: 'assistant',
@@ -891,6 +941,7 @@ export class AgentOrchestrator {
         completionTokens: accumulatedCompletionTokens,
         modelName: lastModelUsed,
         latencyMs,
+        toolsUsed: toolCallsExecuted.map((t) => t.toolName).join(', ') || undefined,
       }
     );
 

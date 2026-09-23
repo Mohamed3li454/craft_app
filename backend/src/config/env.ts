@@ -61,7 +61,7 @@ export const config: AppConfig = {
   groq: {
     apiKey: process.env.GROQ_API_KEY || '',
     primaryModel: process.env.GROQ_PRIMARY_MODEL || 'openai/gpt-oss-120b',
-    fallbackModel: process.env.GROQ_FALLBACK_MODEL || 'qwen/qwen3.8-27b',
+    fallbackModel: process.env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-20b',
     whisperModel: process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo',
     isMockMode:
       process.env.GEMINI_MOCK_MODE === 'true' ||

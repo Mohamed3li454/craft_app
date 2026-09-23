@@ -1111,6 +1111,7 @@
                   ${m.model ? `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300 font-bold border border-slate-700">${m.model}</span>` : ''}
                   ${m.latencyMs ? `<span class="text-cyan-400">⚡ ${(m.latencyMs / 1000).toFixed(2)}s</span>` : ''}
                   ${m.tokens ? `<span class="text-amber-400 font-semibold">${m.tokens} toks</span>` : ''}
+                  ${m.toolsUsed ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20">🛠️ ${escapeHtml(m.toolsUsed)}</span>` : ''}
                 </div>
               ` : ''}
             </div>
