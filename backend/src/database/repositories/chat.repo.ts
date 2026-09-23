@@ -30,14 +30,18 @@ export class ChatRepository {
   ): Promise<ConversationEntity> {
     const pool = this.db.getPool();
 
-    // Check if userId is or contains a phone number
+    // Check if userId is already a UUID, or if it is or contains a phone number
     let userUuid: string;
-    const cleanPhone = normalizePhoneNumber(userId.replace(/^wa_/, ''));
-    if (cleanPhone && cleanPhone.length >= 8) {
-      const user = await this.userRepo.findOrCreateUserByPhone(cleanPhone);
-      userUuid = user.id;
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      userUuid = userId;
     } else {
-      userUuid = toDeterministicUuid(userId);
+      const cleanPhone = normalizePhoneNumber(userId.replace(/^wa_/, ''));
+      if (cleanPhone && cleanPhone.length >= 8) {
+        const user = await this.userRepo.findOrCreateUserByPhone(cleanPhone);
+        userUuid = user.id;
+      } else {
+        userUuid = toDeterministicUuid(userId);
+      }
     }
 
     if (pool) {

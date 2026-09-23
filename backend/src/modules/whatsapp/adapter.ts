@@ -7,6 +7,42 @@ export interface WhatsAppButton {
   title: string;
 }
 
+/**
+ * Checks whether a WhatsApp destination address represents a Business-Scoped User ID (BSUID).
+ * Phone numbers (with or without '+') contain strictly digits.
+ * BSUIDs are alphanumeric or contain non-digit characters (e.g., '.', '_').
+ */
+export function isBsuid(recipient: string): boolean {
+  const trimmed = recipient.trim();
+  return !/^\+?\d+$/.test(trimmed);
+}
+
+/**
+ * Normalizes a WhatsApp recipient address:
+ * - If numeric phone number (e.g. "+2010...", "2010...", "010..."): strips non-digits.
+ * - If alphanumeric BSUID (e.g. "EG.12345...", username-scoped ID): preserves exactly without stripping letters/dots.
+ */
+export function normalizeWhatsAppDestination(to: string): string {
+  const trimmed = to.trim();
+  if (/^\+?\d+$/.test(trimmed)) {
+    return trimmed.replace(/[^\d]/g, '');
+  }
+  return trimmed;
+}
+
+/**
+ * Builds the Meta Graph API addressing fields:
+ * - Phone numbers use: { to: "<PHONE_NUMBER>" }
+ * - BSUIDs use: { recipient: "<BSUID>" }
+ */
+export function buildRecipientPayload(to: string): { to: string } | { recipient: string } {
+  const destination = normalizeWhatsAppDestination(to);
+  if (isBsuid(to)) {
+    return { recipient: destination };
+  }
+  return { to: destination };
+}
+
 export class WhatsAppAdapter {
   private phoneNumberId?: string;
   private accessToken?: string;
@@ -21,14 +57,11 @@ export class WhatsAppAdapter {
    */
   public async sendRawTextMessage(to: string, text: string): Promise<boolean> {
     if (!this.phoneNumberId || !this.accessToken) {
-      logger.warn('[WhatsApp Mock Mode] Missing credentials, message logged instead of dispatched', {
-        to,
-        text,
-      });
+      logger.warn('[WhatsApp Mock Mode] Missing credentials, message logged instead of dispatched');
       return true;
     }
 
-    const cleanTo = to.replace(/[^\d]/g, '');
+    const recipientPayload = buildRecipientPayload(to);
     const url = `https://graph.facebook.com/v22.0/${this.phoneNumberId}/messages`;
 
     try {
@@ -40,7 +73,8 @@ export class WhatsAppAdapter {
         },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
-          to: cleanTo,
+          recipient_type: 'individual',
+          ...recipientPayload,
           type: 'text',
           text: {
             body: text,
@@ -54,7 +88,7 @@ export class WhatsAppAdapter {
         return false;
       }
 
-      logger.info(`WhatsApp text reply sent successfully to [${cleanTo}]`);
+      logger.info('WhatsApp text reply sent successfully');
       return true;
     } catch (err: any) {
       logger.error('Failed to send WhatsApp message', { error: err.message });
@@ -93,15 +127,11 @@ export class WhatsAppAdapter {
     buttons: WhatsAppButton[]
   ): Promise<boolean> {
     if (!this.phoneNumberId || !this.accessToken) {
-      logger.warn('[WhatsApp Mock Mode] Missing credentials, interactive buttons logged instead', {
-        to,
-        bodyText,
-        buttons,
-      });
+      logger.warn('[WhatsApp Mock Mode] Missing credentials, interactive buttons logged instead');
       return true;
     }
 
-    const cleanTo = to.replace(/[^\d]/g, '');
+    const recipientPayload = buildRecipientPayload(to);
     const url = `https://graph.facebook.com/v22.0/${this.phoneNumberId}/messages`;
 
     // Format Meta Quick-Reply buttons (max 3 buttons, title max 20 chars, id max 256 chars)
@@ -123,7 +153,7 @@ export class WhatsAppAdapter {
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           recipient_type: 'individual',
-          to: cleanTo,
+          ...recipientPayload,
           type: 'interactive',
           interactive: {
             type: 'button',
@@ -145,7 +175,7 @@ export class WhatsAppAdapter {
         return this.sendTextMessage(to, bodyText);
       }
 
-      logger.info(`WhatsApp interactive buttons sent successfully to [${cleanTo}]`);
+      logger.info('WhatsApp interactive buttons sent successfully');
       return true;
     } catch (err: any) {
       logger.error('Failed to send WhatsApp interactive buttons, falling back to text', {

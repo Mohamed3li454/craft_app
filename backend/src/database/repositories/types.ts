@@ -3,6 +3,7 @@ export interface UserEntity {
   name: string;
   email?: string;
   phoneNumber?: string;
+  bsuid?: string;
   createdAt: Date;
 }
 
