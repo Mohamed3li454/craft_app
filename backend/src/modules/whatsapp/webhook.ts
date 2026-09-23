@@ -74,6 +74,25 @@ export class WhatsAppWebhookHandler {
         hasId: !!message?.id,
       });
 
+      logger.info('WA TRACE PAYLOAD SHAPE', {
+        valueKeys: value ? Object.keys(value) : [],
+        messageKeys: message ? Object.keys(message) : [],
+        contactKeys: value?.contacts?.[0]
+          ? Object.keys(value.contacts[0])
+          : [],
+        messageTextKeys:
+          message?.text && typeof message.text === 'object'
+            ? Object.keys(message.text)
+            : [],
+      });
+
+      logger.info('WA TRACE FIELD TYPES', {
+        fromType: typeof message?.from,
+        idType: typeof message?.id,
+        typeType: typeof message?.type,
+        textType: typeof message?.text,
+      });
+
       if (!message) {
         // Status updates, acknowledgements, etc.
         res.status(200).send('EVENT_RECEIVED');
