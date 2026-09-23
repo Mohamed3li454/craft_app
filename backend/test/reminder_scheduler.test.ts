@@ -83,4 +83,25 @@ describe('ReminderScheduler & Timezone Intelligence', () => {
     expect(sentMessage).toContain('تذكير من كرافت');
     expect(sentMessage).toContain('الطقس');
   });
+
+  test('dispatches recurring daily reminder and reschedules it instead of closing it', async () => {
+    const pastDue = new Date(Date.now() - 60 * 1000);
+    const reminder = await repo.create(
+      'wa_201028067432',
+      'تذكير بأخبار التقنية اليومية',
+      pastDue,
+      'daily'
+    );
+
+    const result = await scheduler.checkAndDispatchDueReminders();
+    expect(result.dispatchedCount).toBeGreaterThanOrEqual(1);
+
+    // Verify reminder is NOT completed and dueAt was advanced to the future
+    const activeList = await repo.listByUser('wa_201028067432', false);
+    const recurringItem = activeList.find((r) => r.id === reminder.id);
+    expect(recurringItem).toBeDefined();
+    expect(recurringItem?.isCompleted).toBe(false);
+    expect(recurringItem?.recurrence).toBe('daily');
+    expect(new Date(recurringItem!.dueAt!).getTime()).toBeGreaterThan(Date.now());
+  });
 });

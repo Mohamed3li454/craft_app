@@ -108,6 +108,7 @@ export class WhatsAppWebhookHandler {
               if (actionName === 'create_reminder') {
                 const title = resolveResult.confirmation?.payload?.title || 'التذكير';
                 const parsedTime = parseDueAt(resolveResult.confirmation?.payload?.time);
+                const recurrence = resolveResult.confirmation?.payload?.recurrence || 'none';
                 let formattedTime = resolveResult.confirmation?.payload?.time || 'المحدد';
                 if (parsedTime) {
                   formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
@@ -118,7 +119,14 @@ export class WhatsAppWebhookHandler {
                     month: 'long',
                   }).format(parsedTime);
                 }
-                replyText = `✅ تم التأكيد بنجاح!\nتم حفظ وجدولة التذكير:\n• الموضوع: "${title}"\n• الموعد: ${formattedTime}\nسأقوم بتنبيهك في الوقت المحدد بإذن الله.`;
+                const recurrenceLine = recurrence === 'daily'
+                  ? '\n• التكرار: يومياً (كل يوم في نفس الموعد) 🔄'
+                  : recurrence === 'weekly'
+                  ? '\n• التكرار: أسبوعياً 🔄'
+                  : recurrence === 'monthly'
+                  ? '\n• التكرار: شهرياً 🔄'
+                  : '';
+                replyText = `✅ تم التأكيد بنجاح!\nتم حفظ وجدولة التذكير:\n• الموضوع: "${title}"\n• الموعد: ${formattedTime}${recurrenceLine}\nسأقوم بتنبيهك في الوقت المحدد بإذن الله.`;
               } else {
                 replyText = `✅ تم تأكيد وتنفيذ العملية [${actionName || 'المطلوبة'}] بنجاح!`;
               }

@@ -93,6 +93,11 @@ Tools & Web Search:
   * Calculate the target time accurately from the current Cairo time (${cairoNow}).
   * If the user says "بعد دقيقة" (in 1 minute), add 1 minute to ${cairoNow}.
   * Always provide the 'time' argument as an ISO 8601 string including the Cairo offset '+03:00' (e.g. YYYY-MM-DDTHH:mm:00+03:00).
+  * Recurring Reminders (التذكيرات المتكررة):
+    - You FULLY support recurring reminders! NEVER tell the user that recurring reminders are unsupported.
+    - If the user specifies recurrence (e.g. "كل يوم", "يومياً", "كل صباح", "كل أسبوع", "أسبوعياً", "كل شهر", "شهرياً"), ALWAYS set the 'recurrence' argument to 'daily', 'weekly', or 'monthly'.
+    - For recurring reminders, set 'time' to the first upcoming occurrence date/time (e.g. if user asks for daily reminder at 12:00 PM, set time to today at 12:00 PM if still in future, or tomorrow at 12:00 PM if 12:00 has already passed in Cairo).
+    - If no recurrence is mentioned, leave 'recurrence' as 'none'.
 - When the user asks to see or list their reminders/tasks, invoke 'list_reminders'.
 - When the user marks a task or reminder as done/finished, invoke 'complete_reminder'.
 - When the user shares personal details about themselves (such as job, profession, dialect preference, name, location, or hobbies), invoke 'save_memory' to persist it permanently.

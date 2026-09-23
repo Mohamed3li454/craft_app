@@ -3,7 +3,7 @@ import { ReminderRepository } from '../../../database/repositories/reminder.repo
 
 export class CreateReminderTool implements AgentTool {
   public readonly name = 'create_reminder';
-  public readonly description = 'Schedules an alert or reminder for the user. (Requires explicit user confirmation)';
+  public readonly description = 'Schedules an alert or reminder for the user. Supports one-time and recurring (daily/weekly/monthly) reminders. (Requires explicit user confirmation)';
   public readonly isSensitive = true; // High-risk / sensitive action
   public readonly parameters = {
     type: 'object' as const,
@@ -14,7 +14,12 @@ export class CreateReminderTool implements AgentTool {
       },
       time: {
         type: 'string',
-        description: 'When the reminder should trigger (e.g. tomorrow 10am, 2026-09-19 14:00)',
+        description: 'When the reminder should trigger (or initial occurrence if recurring, e.g. tomorrow 10am, 2026-09-19 14:00)',
+      },
+      recurrence: {
+        type: 'string',
+        description: 'Recurrence frequency for repeating reminders. Options: "none" (default: one-time), "daily" (every day), "weekly" (every week), "monthly" (every month).',
+        enum: ['none', 'daily', 'weekly', 'monthly'],
       },
     },
     required: ['title', 'time'],
@@ -26,15 +31,25 @@ export class CreateReminderTool implements AgentTool {
   ): Promise<ToolExecutionResult> {
     const title = args.title || 'Untitled Reminder';
     const time = args.time || 'Soon';
+    const recurrence = args.recurrence || 'none';
+
+    const recurrenceLabel = recurrence === 'daily'
+      ? ' [متكرر يومياً 🔄]'
+      : recurrence === 'weekly'
+      ? ' [متكرر أسبوعياً 🔄]'
+      : recurrence === 'monthly'
+      ? ' [متكرر شهرياً 🔄]'
+      : '';
 
     return {
       success: true,
       isSensitive: true,
-      confirmationDescription: `هل تؤكد إنشاء تذكير بخصوص: "${title}" في موعد: ${time}؟`,
+      confirmationDescription: `هل تؤكد إنشاء تذكير${recurrenceLabel} بخصوص: "${title}" في موعد: ${time}؟`,
       output: {
         status: 'pending_confirmation',
         title,
         time,
+        recurrence,
       },
     };
   }
@@ -78,17 +93,23 @@ export class ListRemindersTool implements AgentTool {
     }
 
     const formatted = reminders
-      .map(
-        (r, i) =>
-          `${i + 1}. ${r.title}${
-            r.dueAt
-              ? ` (الموعد: ${new Date(r.dueAt).toLocaleString('ar-EG', {
-                  timeZone: 'Africa/Cairo',
-                  hour12: true,
-                })})`
-              : ''
-          } - ${r.isCompleted ? 'مكتمل ✅' : 'قيد الانتظار ⏳'}`
-      )
+      .map((r, i) => {
+        const recBadge = r.recurrence === 'daily'
+          ? ' [يومي 🔄]'
+          : r.recurrence === 'weekly'
+          ? ' [أسبوعي 🔄]'
+          : r.recurrence === 'monthly'
+          ? ' [شهري 🔄]'
+          : '';
+        const dueStr = r.dueAt
+          ? ` (الموعد: ${new Date(r.dueAt).toLocaleString('ar-EG', {
+              timeZone: 'Africa/Cairo',
+              hour12: true,
+            })})`
+          : '';
+        const statusStr = r.isCompleted ? 'مكتمل ✅' : 'قيد الانتظار ⏳';
+        return `${i + 1}. ${r.title}${recBadge}${dueStr} - ${statusStr}`;
+      })
       .join('\n');
 
     return {

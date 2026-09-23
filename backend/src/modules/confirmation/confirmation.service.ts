@@ -81,12 +81,14 @@ export class ConfirmationService {
         try {
           const title = confirmation.payload?.title || 'بدون عنوان';
           const time = confirmation.payload?.time;
+          const recurrence = confirmation.payload?.recurrence || 'none';
           executionResult = await this.reminderRepo.create(
             confirmation.userId,
             title,
-            time
+            time,
+            recurrence
           );
-          logger.info(`Action [create_reminder] executed successfully for user [${confirmation.userId}]`);
+          logger.info(`Action [create_reminder] executed successfully for user [${confirmation.userId}] (recurrence: ${recurrence})`);
         } catch (err: any) {
           logger.error('Failed to execute approved action [create_reminder]', {
             error: err.message,

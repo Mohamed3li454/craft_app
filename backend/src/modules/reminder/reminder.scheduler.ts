@@ -1,4 +1,4 @@
-import { ReminderRepository } from '../../database/repositories/reminder.repo';
+import { ReminderRepository, calculateNextDueAt } from '../../database/repositories/reminder.repo';
 import { WhatsAppAdapter } from '../whatsapp/adapter';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { AgentOrchestrator } from '../agent/orchestrator';
@@ -46,7 +46,17 @@ export class ReminderScheduler {
         try {
           const sent = await this.whatsappAdapter.sendTextMessage(cleanPhone, messageText);
           if (sent) {
-            await this.reminderRepo.completeById(item.id);
+            // If recurring, calculate next occurrence and reschedule; otherwise mark complete
+            if (item.recurrence && item.recurrence !== 'none') {
+              const nextDueAt = calculateNextDueAt(item.dueAt, item.recurrence);
+              await this.reminderRepo.rescheduleRecurring(item.id, nextDueAt);
+              logger.info(
+                `Recurring reminder [${item.id}] ("${item.title}") rescheduled for [${nextDueAt.toISOString()}] (pattern: ${item.recurrence})`
+              );
+            } else {
+              await this.reminderRepo.completeById(item.id);
+            }
+
             dispatchedTitles.push(item.title);
 
             // Record in chat history

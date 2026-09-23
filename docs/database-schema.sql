@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS reminders (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     due_at TIMESTAMP WITH TIME ZONE,
+    recurrence VARCHAR(50) DEFAULT 'none', -- 'none' | 'daily' | 'weekly' | 'monthly'
     is_completed BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL

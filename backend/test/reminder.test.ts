@@ -60,4 +60,85 @@ describe('Reminder Engine & Tools', () => {
     expect(result.output.status).toBe('completed');
     expect(result.output.message).toContain('تم إتمام التذكير بنجاح');
   });
+
+  describe('Recurring Reminders Engine', () => {
+    const { calculateNextDueAt } = require('../src/database/repositories/reminder.repo');
+
+    test('calculateNextDueAt correctly advances daily recurrence', () => {
+      const base = new Date('2026-09-23T12:00:00+03:00');
+      const next = calculateNextDueAt(base, 'daily');
+      expect(next.getTime()).toBeGreaterThan(base.getTime());
+      expect(next.getTime()).toBeGreaterThan(Date.now());
+    });
+
+    test('calculateNextDueAt correctly advances weekly recurrence', () => {
+      const base = new Date('2026-09-23T12:00:00+03:00');
+      const next = calculateNextDueAt(base, 'weekly');
+      expect(next.getTime() - base.getTime()).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000 - 1000);
+    });
+
+    test('creates and retrieves a recurring daily reminder', async () => {
+      const recurringReminder = await repo.create(
+        testUserId,
+        'النشرة الإخبارية اليومية',
+        new Date('2026-09-24T12:00:00+03:00'),
+        'daily'
+      );
+
+      expect(recurringReminder.id).toBeDefined();
+      expect(recurringReminder.recurrence).toBe('daily');
+
+      const userReminders = await repo.listByUser(testUserId, false);
+      const found = userReminders.find((r) => r.id === recurringReminder.id);
+      expect(found).toBeDefined();
+      expect(found?.recurrence).toBe('daily');
+    });
+
+    test('rescheduleRecurring updates due date and keeps reminder active', async () => {
+      const r = await repo.create(
+        testUserId,
+        'تذكير أسبوعي رياضي',
+        new Date('2026-09-20T10:00:00Z'),
+        'weekly'
+      );
+
+      const nextWeek = new Date('2026-09-27T10:00:00Z');
+      const rescheduled = await repo.rescheduleRecurring(r.id, nextWeek);
+      expect(rescheduled).toBe(true);
+
+      const list = await repo.listByUser(testUserId, false);
+      const updated = list.find((item) => item.id === r.id);
+      expect(updated).toBeDefined();
+      expect(updated?.isCompleted).toBe(false);
+      expect(new Date(updated!.dueAt!).toISOString()).toBe(nextWeek.toISOString());
+    });
+
+    test('CreateReminderTool supports recurrence parameter and labels confirmation', async () => {
+      const tool = new CreateReminderTool();
+      const res = await tool.execute(
+        { title: 'ملخص الأخبار', time: '12:00', recurrence: 'daily' },
+        { userId: testUserId, channel: 'whatsapp', conversationId: 'conv_1' }
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.confirmationDescription).toContain('يومياً');
+      expect(res.output.recurrence).toBe('daily');
+    });
+
+    test('ListRemindersTool displays recurrence badge', async () => {
+      await repo.create(
+        testUserId,
+        'تقرير المبيعات الأسبوعي',
+        new Date('2026-09-25T09:00:00Z'),
+        'weekly'
+      );
+      const tool = new ListRemindersTool(repo);
+      const res = await tool.execute(
+        {},
+        { userId: testUserId, channel: 'whatsapp', conversationId: 'conv_1' }
+      );
+
+      expect(res.output.summary).toContain('[أسبوعي 🔄]');
+    });
+  });
 });

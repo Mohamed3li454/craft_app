@@ -55,6 +55,7 @@ export interface ReminderEntity {
   userId: string;
   title: string;
   dueAt?: Date | null;
+  recurrence?: 'none' | 'daily' | 'weekly' | 'monthly' | string;
   isCompleted: boolean;
   createdAt: Date;
   updatedAt: Date;

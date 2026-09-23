@@ -61,19 +61,71 @@ export function parseDueAt(dueAt?: Date | string | null): Date | null {
   return isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/**
+ * Calculates the next occurrence timestamp for a recurring reminder
+ * based on Cairo local timezone (Africa/Cairo UTC+3).
+ */
+export function calculateNextDueAt(currentDueAt: Date | string, recurrence: string): Date {
+  const current = currentDueAt instanceof Date ? currentDueAt : new Date(currentDueAt);
+  const next = new Date(current.getTime());
+  const now = new Date();
+
+  const rec = (recurrence || '').toLowerCase().trim();
+
+  if (rec === 'daily') {
+    next.setDate(next.getDate() + 1);
+    while (next <= now) {
+      next.setDate(next.getDate() + 1);
+    }
+  } else if (rec === 'weekly') {
+    next.setDate(next.getDate() + 7);
+    while (next <= now) {
+      next.setDate(next.getDate() + 7);
+    }
+  } else if (rec === 'monthly') {
+    next.setMonth(next.getMonth() + 1);
+    while (next <= now) {
+      next.setMonth(next.getMonth() + 1);
+    }
+  }
+
+  return next;
+}
+
 export class ReminderRepository {
   private inMemoryReminders: Map<string, ReminderEntity[]> = new Map();
+  private schemaMigrated = false;
 
   constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
+
+  private async ensureSchema(): Promise<void> {
+    if (this.schemaMigrated) return;
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        await pool.query(
+          `ALTER TABLE reminders ADD COLUMN IF NOT EXISTS recurrence VARCHAR(50) DEFAULT 'none'`
+        );
+        this.schemaMigrated = true;
+      } catch (err: any) {
+        logger.debug('Failed to run reminder table recurrence migration or already present', {
+          error: err.message,
+        });
+      }
+    }
+  }
 
   public async create(
     userId: string,
     title: string,
-    dueAt?: Date | string | null
+    dueAt?: Date | string | null,
+    recurrence: string = 'none'
   ): Promise<ReminderEntity> {
+    await this.ensureSchema();
     const pool = this.db.getPool();
     const userUuid = toDeterministicUuid(userId);
     const parsedDueAt = parseDueAt(dueAt);
+    const safeRecurrence = recurrence || 'none';
 
     if (pool) {
       try {
@@ -83,16 +135,17 @@ export class ReminderRepository {
         );
 
         const res = await pool.query(
-          `INSERT INTO reminders (user_id, title, due_at, is_completed, created_at, updated_at)
-           VALUES ($1, $2, $3, false, NOW(), NOW())
-           RETURNING id, user_id as "userId", title, due_at as "dueAt", is_completed as "isCompleted", created_at as "createdAt", updated_at as "updatedAt"`,
-          [userUuid, title, parsedDueAt]
+          `INSERT INTO reminders (user_id, title, due_at, recurrence, is_completed, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, false, NOW(), NOW())
+           RETURNING id, user_id as "userId", title, due_at as "dueAt", recurrence, is_completed as "isCompleted", created_at as "createdAt", updated_at as "updatedAt"`,
+          [userUuid, title, parsedDueAt, safeRecurrence]
         );
 
         logger.info(`Saved reminder in database for user [${userId}]`, {
           reminderId: res.rows[0].id,
           title,
           dueAt: parsedDueAt?.toISOString(),
+          recurrence: safeRecurrence,
         });
         return res.rows[0];
       } catch (err: any) {
@@ -107,6 +160,7 @@ export class ReminderRepository {
       userId,
       title,
       dueAt: parsedDueAt,
+      recurrence: safeRecurrence,
       isCompleted: false,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -116,7 +170,7 @@ export class ReminderRepository {
     existing.push(newReminder);
     this.inMemoryReminders.set(userId, existing);
 
-    logger.info(`Saved reminder in-memory for user [${userId}]`, { title });
+    logger.info(`Saved reminder in-memory for user [${userId}]`, { title, recurrence: safeRecurrence });
     return newReminder;
   }
 
@@ -124,17 +178,18 @@ export class ReminderRepository {
     userId: string,
     includeCompleted = false
   ): Promise<ReminderEntity[]> {
+    await this.ensureSchema();
     const pool = this.db.getPool();
     const userUuid = toDeterministicUuid(userId);
 
     if (pool) {
       try {
         const query = includeCompleted
-          ? `SELECT id, user_id as "userId", title, due_at as "dueAt", is_completed as "isCompleted", created_at as "createdAt", updated_at as "updatedAt"
+          ? `SELECT id, user_id as "userId", title, due_at as "dueAt", COALESCE(recurrence, 'none') as "recurrence", is_completed as "isCompleted", created_at as "createdAt", updated_at as "updatedAt"
              FROM reminders 
              WHERE user_id = $1 
              ORDER BY is_completed ASC, due_at ASC NULLS LAST, created_at DESC`
-          : `SELECT id, user_id as "userId", title, due_at as "dueAt", is_completed as "isCompleted", created_at as "createdAt", updated_at as "updatedAt"
+          : `SELECT id, user_id as "userId", title, due_at as "dueAt", COALESCE(recurrence, 'none') as "recurrence", is_completed as "isCompleted", created_at as "createdAt", updated_at as "updatedAt"
              FROM reminders 
              WHERE user_id = $1 AND is_completed = false 
              ORDER BY due_at ASC NULLS LAST, created_at DESC`;
@@ -156,6 +211,7 @@ export class ReminderRepository {
     idOrTitle: string,
     userId: string
   ): Promise<ReminderEntity | null> {
+    await this.ensureSchema();
     const pool = this.db.getPool();
     const userUuid = toDeterministicUuid(userId);
 
@@ -166,7 +222,7 @@ export class ReminderRepository {
           `UPDATE reminders 
            SET is_completed = true, updated_at = NOW() 
            WHERE user_id = $1 AND (id::text = $2 OR LOWER(title) LIKE LOWER($3))
-           RETURNING id, user_id as "userId", title, due_at as "dueAt", is_completed as "isCompleted", created_at as "createdAt", updated_at as "updatedAt"`,
+           RETURNING id, user_id as "userId", title, due_at as "dueAt", COALESCE(recurrence, 'none') as "recurrence", is_completed as "isCompleted", created_at as "createdAt", updated_at as "updatedAt"`,
           [userUuid, idOrTitle, `%${idOrTitle}%`]
         );
 
@@ -202,16 +258,18 @@ export class ReminderRepository {
     userId: string;
     title: string;
     dueAt: Date;
+    recurrence?: string;
     userName?: string;
     phoneNumber?: string;
   }>> {
+    await this.ensureSchema();
     const pool = this.db.getPool();
 
     if (pool) {
       try {
         const res = await pool.query(
           `WITH claimed AS (
-             SELECT r.id, r.user_id, r.title, r.due_at, u.name as "userName", u.phone_number as "phoneNumber"
+             SELECT r.id, r.user_id, r.title, r.due_at, COALESCE(r.recurrence, 'none') as "recurrence", u.name as "userName", u.phone_number as "phoneNumber"
              FROM reminders r
              LEFT JOIN users u ON r.user_id = u.id
              WHERE r.is_completed = false
@@ -229,6 +287,7 @@ export class ReminderRepository {
                      reminders.user_id as "userId",
                      reminders.title,
                      reminders.due_at as "dueAt",
+                     reminders.recurrence,
                      claimed."userName",
                      claimed."phoneNumber"`
         );
@@ -251,6 +310,7 @@ export class ReminderRepository {
             userId,
             title: item.title,
             dueAt: item.dueAt,
+            recurrence: item.recurrence || 'none',
             userName: userId,
           });
         }
@@ -279,6 +339,37 @@ export class ReminderRepository {
       if (item) {
         item.isCompleted = true;
         item.updatedAt = new Date();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public async rescheduleRecurring(id: string, nextDueAt: Date): Promise<boolean> {
+    const pool = this.db.getPool();
+
+    if (pool) {
+      try {
+        const res = await pool.query(
+          `UPDATE reminders 
+           SET due_at = $1, is_completed = false, updated_at = NOW() 
+           WHERE id = $2`,
+          [nextDueAt, id]
+        );
+        logger.info(`Rescheduled recurring reminder in database: [${id}] next due at [${nextDueAt.toISOString()}]`);
+        return (res.rowCount ?? 0) > 0;
+      } catch (err: any) {
+        logger.warn('Failed to reschedule recurring reminder in database', { error: err.message, id });
+      }
+    }
+
+    for (const items of this.inMemoryReminders.values()) {
+      const item = items.find((r) => r.id === id);
+      if (item) {
+        item.dueAt = nextDueAt;
+        item.isCompleted = false;
+        item.updatedAt = new Date();
+        logger.info(`Rescheduled recurring reminder in-memory: [${id}] next due at [${nextDueAt.toISOString()}]`);
         return true;
       }
     }

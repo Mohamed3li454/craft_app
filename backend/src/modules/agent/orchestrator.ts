@@ -478,6 +478,7 @@ export class AgentOrchestrator {
             let promptDetails = JSON.stringify(fc.args);
             if (tool.name === 'create_reminder') {
               const parsedTime = parseDueAt(fc.args.time);
+              const recurrence = fc.args.recurrence || 'none';
               let formattedTime = fc.args.time || 'قريباً';
               if (parsedTime) {
                 formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
@@ -488,7 +489,14 @@ export class AgentOrchestrator {
                   month: 'long',
                 }).format(parsedTime);
               }
-              promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}`;
+              const recurrenceLabel = recurrence === 'daily'
+                ? ' | التكرار: يومياً (كل يوم) 🔄'
+                : recurrence === 'weekly'
+                ? ' | التكرار: أسبوعياً 🔄'
+                : recurrence === 'monthly'
+                ? ' | التكرار: شهرياً 🔄'
+                : '';
+              promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}${recurrenceLabel}`;
             }
 
             const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
@@ -608,6 +616,7 @@ export class AgentOrchestrator {
             let promptDetails = JSON.stringify(fc.args);
             if (tool.name === 'create_reminder') {
               const parsedTime = parseDueAt(fc.args.time);
+              const recurrence = fc.args.recurrence || 'none';
               let formattedTime = fc.args.time || 'قريباً';
               if (parsedTime) {
                 formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
@@ -618,7 +627,14 @@ export class AgentOrchestrator {
                   month: 'long',
                 }).format(parsedTime);
               }
-              promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}`;
+              const recurrenceLabel = recurrence === 'daily'
+                ? ' | التكرار: يومياً (كل يوم) 🔄'
+                : recurrence === 'weekly'
+                ? ' | التكرار: أسبوعياً 🔄'
+                : recurrence === 'monthly'
+                ? ' | التكرار: شهرياً 🔄'
+                : '';
+              promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}${recurrenceLabel}`;
             }
 
             const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
