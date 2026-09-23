@@ -40,9 +40,16 @@ export class WebSearchTool implements AgentTool {
     args: Record<string, any>,
     _context: ToolContext
   ): Promise<ToolExecutionResult> {
-    const query = (args.query || '').trim();
+    let query = (args.query || '').trim();
     if (!query) {
       return { success: false, error: 'Empty search query' };
+    }
+
+    // Auto-focus price & product inquiries to Egyptian market if no specific region is mentioned
+    const isPriceOrMarketQuery = /سعر|اسعار|أسعار|بكام|تكلفة|كام|مواصفات|تاريخ نزول|موعد طرح/i.test(query);
+    const mentionsCountry = /مصر|سعودي|امارات|إمارات|كويت|قطر|بحرين|عمان|أردن|اردن|مغرب|تونس|جزائر|دبي|رياض/i.test(query);
+    if (isPriceOrMarketQuery && !mentionsCountry) {
+      query = `${query} في مصر`;
     }
 
     // Deterministic mock return for CI / unit test runs
@@ -85,17 +92,28 @@ export class WebSearchTool implements AgentTool {
         }
       }
 
-      // 2. Hybrid Search: Run Google News RSS + DuckDuckGo Lite in parallel
-      // Google News RSS is 100% unblocked on Vercel/AWS and provides real-time prices & news
-      const [googleNewsResults, ddgResults] = await Promise.all([
-        this.searchGoogleNews(query, 5),
+      // 2. Hybrid Search: Run DuckDuckGo Lite + Google News RSS in parallel with strict 2.8s budget
+      const [ddgResults, googleNewsResults] = await Promise.all([
         this.searchDuckDuckGoLite(query, 5),
+        this.searchGoogleNews(query, 5),
       ]);
 
       const combined: SearchResultItem[] = [];
       const seenTitles = new Set<string>();
 
-      for (const item of [...googleNewsResults, ...ddgResults]) {
+      // Prioritize DuckDuckGo Lite results as they contain detailed paragraphs with real prices & specs
+      const allResults = [...ddgResults, ...googleNewsResults];
+
+      // Sort: results with informative snippets (containing actual numbers, prices, or length > 50 chars) first
+      allResults.sort((a, b) => {
+        const aHasSnippet = a.snippet && a.snippet.length > 50 && !a.snippet.startsWith('تاريخ الخبر');
+        const bHasSnippet = b.snippet && b.snippet.length > 50 && !b.snippet.startsWith('تاريخ الخبر');
+        if (aHasSnippet && !bHasSnippet) return -1;
+        if (!aHasSnippet && bHasSnippet) return 1;
+        return 0;
+      });
+
+      for (const item of allResults) {
         const normalized = item.title.toLowerCase().trim();
         if (!seenTitles.has(normalized)) {
           seenTitles.add(normalized);
@@ -104,12 +122,12 @@ export class WebSearchTool implements AgentTool {
       }
 
       if (combined.length > 0) {
-        logger.info(`Live web search returned [${combined.length}] results (GoogleNews: ${googleNewsResults.length}, DDG: ${ddgResults.length}) for "${query}"`);
+        logger.info(`Live web search returned [${combined.length}] results (DDG: ${ddgResults.length}, GoogleNews: ${googleNewsResults.length}) for "${query}"`);
         return {
           success: true,
           output: {
             query,
-            source: googleNewsResults.length > 0 ? 'google_news_and_web' : 'duckduckgo',
+            source: 'live_web',
             results: combined.slice(0, 6),
           },
         };
@@ -146,7 +164,7 @@ export class WebSearchTool implements AgentTool {
    */
   public async searchGoogleNews(query: string, maxResults = 5): Promise<SearchResultItem[]> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4500);
+    const timeout = setTimeout(() => controller.abort(), 2800);
 
     try {
       const isArabic = /[\u0600-\u06FF]/.test(query);
@@ -283,7 +301,7 @@ export class WebSearchTool implements AgentTool {
 
   public async searchDuckDuckGoLite(query: string, maxResults = 5): Promise<SearchResultItem[]> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4500);
+    const timeout = setTimeout(() => controller.abort(), 2800);
 
     try {
       const response = await fetch('https://lite.duckduckgo.com/lite/', {

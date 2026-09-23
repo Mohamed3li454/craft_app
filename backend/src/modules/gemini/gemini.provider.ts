@@ -134,6 +134,10 @@ Tools & Web Search:
     - New or upcoming devices, foldable phones, leaks, rumors, or specs (e.g. iPhone Duo, iPhone Fold, iPhone 18, new chips).
     - Current market prices, local costs, or currency exchange rates in any country (e.g. أسعار الذهب، العملات، أسعار الموبايلات).
     - Recent news, breaking events, matches, or when the user asks you to search.
+  * Direct Price & Specification Grounding (حسم الأرقام والأسعار):
+    - When asked about phone, car, gold, or gadget prices in Egypt (السوق المصري): ALWAYS state the exact prices, storage variant costs, and ranges (in EGP / جنيه مصري and USD) found in the search results directly!
+    - Mention distributor quotes (e.g. Tradeline/تريدلاين، الموزعين المعتمدين) and expected price ranges clearly.
+    - NEVER give vague evasive answers like "الشركات ما أعلنتش بشكل قاطع" or "مش هفتي برقم غير موثق" when the search results report prices and expected ranges. Provide the concrete figures found in the reports!
   * Always ground your answer in the retrieved real-time web results to provide an up-to-date, accurate, and factual answer!
 - When creating a reminder (create_reminder):
   * Calculate the target time accurately from the current Cairo time (${cairoNow}).
