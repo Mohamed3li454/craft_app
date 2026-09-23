@@ -53,13 +53,12 @@ describe('ReminderScheduler & Timezone Intelligence', () => {
     expect(result.dispatchedCount).toBeGreaterThanOrEqual(1);
     expect(mockAdapter.sendTextMessage).toHaveBeenCalled();
 
-    // Verify recipient phone was extracted from wa_201028067432
-    const targetPhone = (mockAdapter.sendTextMessage as jest.Mock).mock.calls[0][0];
-    expect(targetPhone).toBe('201028067432');
-
-    const sentMessage = (mockAdapter.sendTextMessage as jest.Mock).mock.calls[0][1];
-    expect(sentMessage).toContain('تذكير من كرافت');
-    expect(sentMessage).toContain('تذكير بموعد الدواء');
+    // Verify recipient phone was extracted for wa_201028067432
+    const calls = (mockAdapter.sendTextMessage as jest.Mock).mock.calls;
+    const targetCall = calls.find((c: any) => c[0] === '201028067432');
+    expect(targetCall).toBeDefined();
+    expect(targetCall[1]).toContain('تذكير من كرافت');
+    expect(targetCall[1]).toContain('تذكير بموعد الدواء');
   });
 
   test('dispatches smart dynamic reminder with weather report when topic is weather', async () => {

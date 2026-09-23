@@ -87,12 +87,15 @@ export function createApp(): Application {
   const analyticsController = new AnalyticsController();
 
   // 6. Flutter API Routes (/api/v1)
+  app.post('/api/v1/auth/phone', chatController.loginWithPhone);
   app.post('/api/v1/chat', chatController.handleChat);
   app.post('/api/v1/chat/vision', chatController.handleChat);
   app.post('/api/v1/chat/stream', chatController.handleStream);
   app.post('/api/v1/chat/confirm', chatController.handleConfirmation);
   app.get('/api/v1/conversations', chatController.listConversations);
+  app.get('/api/v1/user/conversations', chatController.listConversations);
   app.get('/api/v1/conversations/:id/messages', chatController.getMessages);
+  app.get('/api/v1/user/reminders', chatController.listReminders);
 
   // 7. WhatsApp Webhook Routes (/webhooks/whatsapp)
   app.get('/webhooks/whatsapp', whatsappHandler.verifyWebhook);
@@ -120,6 +123,10 @@ export function createApp(): Application {
   app.get('/dashboard', analyticsController.serveDashboardUI);
   app.get('/admin', analyticsController.serveDashboardUI);
   app.get('/api/admin/analytics', analyticsController.getAnalyticsData);
+  app.get('/api/admin/conversations', analyticsController.getConversations);
+  app.get('/api/admin/conversations/:id/messages', analyticsController.getConversationTranscript);
+  app.get('/api/admin/users/:id/details', analyticsController.getUserDetails);
+  app.get('/api/admin/tools-stats', analyticsController.getToolsStats);
 
   // 4.1 Root Endpoint
   app.get('/', (_req: Request, res: Response) => {

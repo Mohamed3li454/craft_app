@@ -8,6 +8,7 @@ import { AgentOrchestrator, AgentMediaAttachment } from '../agent/orchestrator';
 import { ConfirmationService } from '../confirmation/confirmation.service';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { parseDueAt } from '../../database/repositories/reminder.repo';
+import { UserRepository } from '../../database/repositories/user.repo';
 
 export class WhatsAppWebhookHandler {
   constructor(
@@ -15,7 +16,8 @@ export class WhatsAppWebhookHandler {
     private webhookRepo: WebhookRepository = new WebhookRepository(),
     private orchestrator: AgentOrchestrator = new AgentOrchestrator(),
     private confirmationService: ConfirmationService = new ConfirmationService(),
-    private chatRepo: ChatRepository = new ChatRepository()
+    private chatRepo: ChatRepository = new ChatRepository(),
+    private userRepo: UserRepository = new UserRepository()
   ) {}
 
   /**
@@ -73,6 +75,10 @@ export class WhatsAppWebhookHandler {
         res.status(200).send('EVENT_RECEIVED');
         return;
       }
+
+      const contact = value?.contacts?.[0];
+      const profileName = contact?.profile?.name;
+      const user = await this.userRepo.findOrCreateUserByPhone(from, profileName);
 
       // 2. Deduplication check
       const alreadyProcessed = await this.webhookRepo.isEventProcessed(eventId);
@@ -138,8 +144,8 @@ export class WhatsAppWebhookHandler {
           }
 
           // Persist user interaction and assistant reply into chat history
-          const conv = await this.chatRepo.getOrCreateConversation(`wa_${from}`, 'whatsapp');
-          await this.chatRepo.saveMessage(conv.id, 'user', 'WhatsApp User', buttonTitle);
+          const conv = await this.chatRepo.getOrCreateConversation(user.id, 'whatsapp');
+          await this.chatRepo.saveMessage(conv.id, 'user', user.name || 'WhatsApp User', buttonTitle);
           await this.chatRepo.saveMessage(conv.id, 'assistant', 'Craft', replyText);
 
           await this.whatsappAdapter.sendTextMessage(from, replyText);
@@ -238,7 +244,7 @@ export class WhatsAppWebhookHandler {
 
       // 5. Run through unified Agent Orchestrator
       const agentResult = await this.orchestrator.run({
-        userId: `wa_${from}`,
+        userId: user.id,
         channel: 'whatsapp',
         text,
         media: mediaAttachment,

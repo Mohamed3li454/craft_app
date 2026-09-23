@@ -2,14 +2,28 @@ import { Request, Response } from 'express';
 import { AgentOrchestrator } from '../agent/orchestrator';
 import { ConfirmationService } from '../confirmation/confirmation.service';
 import { ChatRepository } from '../../database/repositories/chat.repo';
+import { UserRepository, normalizePhoneNumber } from '../../database/repositories/user.repo';
+import { ReminderRepository } from '../../database/repositories/reminder.repo';
 import { logger } from '../../core/logger';
 
 export class ChatController {
   constructor(
     private orchestrator: AgentOrchestrator = new AgentOrchestrator(),
     private confirmationService: ConfirmationService = new ConfirmationService(),
-    private chatRepo: ChatRepository = new ChatRepository()
+    private chatRepo: ChatRepository = new ChatRepository(),
+    private userRepo: UserRepository = new UserRepository(),
+    private reminderRepo: ReminderRepository = new ReminderRepository()
   ) {}
+
+  private async resolveEffectiveUserId(rawUserId: string, phoneNumber?: string): Promise<string> {
+    const candidatePhone = phoneNumber || rawUserId;
+    const clean = normalizePhoneNumber(candidatePhone.replace(/^wa_/, ''));
+    if (clean && clean.length >= 8) {
+      const user = await this.userRepo.findOrCreateUserByPhone(clean);
+      return user.id;
+    }
+    return rawUserId;
+  }
 
   /**
    * POST /api/v1/chat
@@ -17,15 +31,17 @@ export class ChatController {
    */
   public handleChat = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { message, userId = 'user_flutter_1', conversationId, imagePath } = req.body;
+      const { message, userId = 'user_flutter_1', phoneNumber, conversationId, imagePath } = req.body;
 
       if (!message && !imagePath) {
         res.status(400).json({ success: false, error: 'Message or imagePath required.' });
         return;
       }
 
+      const effectiveUserId = await this.resolveEffectiveUserId(userId, phoneNumber);
+
       const result = await this.orchestrator.run({
-        userId,
+        userId: effectiveUserId,
         conversationId,
         channel: 'flutter',
         text: message || 'Analyze attached image',
@@ -63,16 +79,17 @@ export class ChatController {
     };
 
     try {
-      const { message, userId = 'user_flutter_1', conversationId } = req.body;
+      const { message, userId = 'user_flutter_1', phoneNumber, conversationId } = req.body;
+      const effectiveUserId = await this.resolveEffectiveUserId(userId, phoneNumber);
 
       sendEvent('agent_started', {
         type: 'agent_started',
-        userId,
+        userId: effectiveUserId,
         createdAt: new Date().toISOString(),
       });
 
       const result = await this.orchestrator.run({
-        userId,
+        userId: effectiveUserId,
         conversationId,
         channel: 'flutter',
         text: message || '',
@@ -138,20 +155,64 @@ export class ChatController {
   };
 
   /**
-   * GET /api/v1/conversations
+   * POST /api/v1/auth/phone
+   * Login or signup via phone number (unified across WhatsApp & Flutter)
+   */
+  public loginWithPhone = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { phoneNumber, name } = req.body;
+      if (!phoneNumber) {
+        res.status(400).json({ success: false, error: 'phoneNumber is required.' });
+        return;
+      }
+
+      const user = await this.userRepo.findOrCreateUserByPhone(phoneNumber, name);
+      res.status(200).json({ success: true, user });
+    } catch (err: any) {
+      logger.error('Error in /api/v1/auth/phone', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * GET /api/v1/conversations or GET /api/v1/user/conversations
    */
   public listConversations = async (req: Request, res: Response): Promise<void> => {
-    const userId = (req.query.userId as string) || 'user_flutter_1';
-    const list = await this.chatRepo.listConversations(userId);
-    res.status(200).json({ success: true, conversations: list });
+    try {
+      const userParam = (req.query.userId as string) || (req.query.phoneNumber as string) || 'user_flutter_1';
+      const list = await this.chatRepo.getUserConversationsDetailed(userParam);
+      res.status(200).json({ success: true, conversations: list });
+    } catch (err: any) {
+      logger.error('Error in listConversations', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
   };
 
   /**
    * GET /api/v1/conversations/:id/messages
    */
   public getMessages = async (req: Request, res: Response): Promise<void> => {
-    const conversationId = req.params.id;
-    const messages = await this.chatRepo.getRecentMessages(conversationId, 50);
-    res.status(200).json({ success: true, messages });
+    try {
+      const conversationId = req.params.id;
+      const messages = await this.chatRepo.getAllMessages(conversationId);
+      res.status(200).json({ success: true, messages });
+    } catch (err: any) {
+      logger.error('Error in getMessages', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * GET /api/v1/user/reminders
+   */
+  public listReminders = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userParam = (req.query.userId as string) || (req.query.phoneNumber as string) || 'user_flutter_1';
+      const reminders = await this.reminderRepo.listByUser(userParam, true);
+      res.status(200).json({ success: true, reminders });
+    } catch (err: any) {
+      logger.error('Error in listReminders', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
   };
 }

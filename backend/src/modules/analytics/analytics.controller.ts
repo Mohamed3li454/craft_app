@@ -10,10 +10,10 @@ export class AnalyticsController {
     private analyticsRepo: AnalyticsRepository = new AnalyticsRepository()
   ) {}
 
-  private isAuthorized(req: Request): boolean {
-    const queryToken = req.query.token as string;
-    const authHeader = req.headers.authorization;
-    const customHeader = req.headers['x-admin-token'] as string;
+  public isAuthorized(req: Request): boolean {
+    const queryToken = req.query?.token as string;
+    const authHeader = req.headers?.authorization;
+    const customHeader = req.headers?.['x-admin-token'] as string;
 
     const bearerToken = authHeader && authHeader.startsWith('Bearer ')
       ? authHeader.slice(7).trim()
@@ -40,13 +40,14 @@ export class AnalyticsController {
 
     try {
       const days = parseInt(req.query.days as string, 10) || 14;
-      const userLimit = parseInt(req.query.userLimit as string, 10) || 10;
+      const userLimit = parseInt(req.query.userLimit as string, 10) || 15;
       const recentLimit = parseInt(req.query.limit as string, 10) || 30;
 
-      const [overview, dailyTrends, modelBreakdown, mediaBreakdown, topUsers, recentInteractions] =
+      const [overview, dailyTrends, hourlyDistribution, modelBreakdown, mediaBreakdown, topUsers, recentInteractions] =
         await Promise.all([
           this.analyticsRepo.getOverviewStats(),
           this.analyticsRepo.getDailyTrends(days),
+          this.analyticsRepo.getHourlyDistribution(),
           this.analyticsRepo.getModelBreakdown(),
           this.analyticsRepo.getMediaTypeBreakdown(),
           this.analyticsRepo.getTopUsers(userLimit),
@@ -58,6 +59,7 @@ export class AnalyticsController {
         timestamp: new Date().toISOString(),
         overview,
         dailyTrends,
+        hourlyDistribution,
         modelBreakdown,
         mediaBreakdown,
         topUsers,
@@ -65,6 +67,95 @@ export class AnalyticsController {
       });
     } catch (err: any) {
       logger.error('Failed to aggregate analytics data', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * GET /api/admin/conversations
+   */
+  public getConversations = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    try {
+      const search = req.query.search as string;
+      const channel = req.query.channel as string;
+      const limit = parseInt(req.query.limit as string, 10) || 50;
+      const offset = parseInt(req.query.offset as string, 10) || 0;
+
+      const conversations = await this.analyticsRepo.getConversationsList({
+        search,
+        channel,
+        limit,
+        offset,
+      });
+
+      res.status(200).json({ success: true, conversations });
+    } catch (err: any) {
+      logger.error('Failed to get conversations list', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * GET /api/admin/conversations/:id/messages
+   */
+  public getConversationTranscript = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    try {
+      const conversationId = req.params.id;
+      const messages = await this.analyticsRepo.getConversationTranscript(conversationId);
+      res.status(200).json({ success: true, messages });
+    } catch (err: any) {
+      logger.error('Failed to get conversation transcript', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * GET /api/admin/users/:id/details
+   */
+  public getUserDetails = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    try {
+      const userIdOrPhone = req.params.id;
+      const details = await this.analyticsRepo.getUserDetails(userIdOrPhone);
+      if (!details) {
+        res.status(404).json({ success: false, error: 'User not found' });
+        return;
+      }
+      res.status(200).json({ success: true, ...details });
+    } catch (err: any) {
+      logger.error('Failed to get user details', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * GET /api/admin/tools-stats
+   */
+  public getToolsStats = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    try {
+      const stats = await this.analyticsRepo.getToolsStats();
+      res.status(200).json({ success: true, ...stats });
+    } catch (err: any) {
+      logger.error('Failed to get tools stats', { error: err.message });
       res.status(500).json({ success: false, error: err.message });
     }
   };

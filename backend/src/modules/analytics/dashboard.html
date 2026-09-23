@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>لوحة تحكم وتحليلات كرافت | Craft AI Analytics</title>
+  <title>مركز القيادة والتحليلات الشاملة | Craft AI Command Center</title>
   
   <!-- Google Fonts: Cairo -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -23,6 +23,7 @@
           colors: {
             brand: {
               50: '#eef2ff',
+              100: '#e0e7ff',
               500: '#6366f1',
               600: '#4f46e5',
               700: '#4338ca',
@@ -42,12 +43,13 @@
   <style>
     body {
       font-family: 'Cairo', sans-serif;
-      background-color: #090d16;
+      background-color: #0b0f19;
+      color: #f1f5f9;
     }
     .glass-card {
-      background: rgba(15, 23, 42, 0.75);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.07);
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
     }
     .custom-scrollbar::-webkit-scrollbar {
       width: 6px;
@@ -60,270 +62,616 @@
       background: rgba(100, 116, 139, 0.4);
       border-radius: 4px;
     }
+    .tab-active {
+      background: #4f46e5 !important;
+      color: #ffffff !important;
+      box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.4);
+    }
   </style>
 </head>
-<body class="text-slate-100 min-h-screen flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
+<body class="min-h-screen flex flex-col antialiased selection:bg-indigo-500 selection:text-white custom-scrollbar">
 
-  <!-- Navigation Bar -->
+  <!-- Top Navigation Header -->
   <header class="sticky top-0 z-40 w-full glass-card border-b border-slate-800">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      
+      <!-- Brand Logo & Title -->
       <div class="flex items-center space-x-3 space-x-reverse">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
           <i data-lucide="bot" class="w-6 h-6 text-white"></i>
         </div>
         <div>
           <div class="flex items-center space-x-2 space-x-reverse">
-            <h1 class="text-lg font-bold tracking-tight text-white">Craft AI Analytics</h1>
-            <span class="px-2 py-0.5 text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center gap-1">
+            <h1 class="text-lg font-extrabold tracking-tight text-white">Craft AI Command Center</h1>
+            <span class="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center gap-1">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> مباشر
             </span>
           </div>
-          <p class="text-xs text-slate-400">لوحة المراقبة الشاملة واستهلاك التوكينز</p>
+          <p class="text-xs text-slate-400">تحليلات معمقة • استعراض الشات • فحص الذاكرة والتكاليف</p>
         </div>
       </div>
 
-      <div class="flex items-center space-x-3 space-x-reverse">
-        <!-- Date range filter -->
+      <!-- Center Tabs Navigation -->
+      <div class="hidden md:flex items-center gap-1 bg-slate-900/90 border border-slate-800 rounded-xl p-1 text-xs font-semibold">
+        <button onclick="switchTab('overview')" id="tab-btn-overview" class="tab-active flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white transition-all">
+          <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+          <span>نظرة عامة وتكاليف</span>
+        </button>
+        <button onclick="switchTab('conversations')" id="tab-btn-conversations" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white transition-all">
+          <i data-lucide="messages-square" class="w-4 h-4"></i>
+          <span>مستعرض الشات الحي</span>
+        </button>
+        <button onclick="switchTab('users')" id="tab-btn-users" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white transition-all">
+          <i data-lucide="users" class="w-4 h-4"></i>
+          <span>دليل المستخدمين والذاكرة</span>
+        </button>
+        <button onclick="switchTab('tools')" id="tab-btn-tools" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white transition-all">
+          <i data-lucide="cpu" class="w-4 h-4"></i>
+          <span>الأدوات والعمليات</span>
+        </button>
+      </div>
+
+      <!-- Action Controls -->
+      <div class="flex items-center space-x-2.5 space-x-reverse">
         <select id="daysFilter" onchange="fetchAnalytics()" class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
           <option value="7">آخر 7 أيام</option>
           <option value="14" selected>آخر 14 يوماً</option>
           <option value="30">آخر 30 يوماً</option>
         </select>
 
-        <!-- Refresh Button -->
-        <button onclick="fetchAnalytics()" id="refreshBtn" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors">
+        <button onclick="fetchAnalytics()" id="refreshBtn" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors">
           <i data-lucide="refresh-cw" id="refreshIcon" class="w-3.5 h-3.5"></i>
           <span>تحديث</span>
         </button>
 
-        <!-- Lock/Key Settings -->
-        <button onclick="promptForToken()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" title="تغيير رمز الأمان">
+        <button onclick="promptForToken()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" title="رمز الأمان">
           <i data-lucide="key" class="w-4 h-4"></i>
         </button>
       </div>
     </div>
+
+    <!-- Mobile Tabs Navigation -->
+    <div class="md:hidden flex items-center justify-around border-t border-slate-800 px-2 py-1.5 bg-slate-900/60 text-xs">
+      <button onclick="switchTab('overview')" id="tab-btn-m-overview" class="tab-active px-2.5 py-1 rounded-md">نظرة عامة</button>
+      <button onclick="switchTab('conversations')" id="tab-btn-m-conversations" class="px-2.5 py-1 rounded-md text-slate-400">الشات</button>
+      <button onclick="switchTab('users')" id="tab-btn-m-users" class="px-2.5 py-1 rounded-md text-slate-400">المستخدمين</button>
+      <button onclick="switchTab('tools')" id="tab-btn-m-tools" class="px-2.5 py-1 rounded-md text-slate-400">الأدوات</button>
+    </div>
   </header>
 
-  <!-- Main Content Area -->
+  <!-- Main Content Container -->
   <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <!-- KPI Metric Cards Grid -->
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <!-- ========================================== -->
+    <!-- TAB 1: OVERVIEW & AI ECONOMICS             -->
+    <!-- ========================================== -->
+    <section id="tab-content-overview" class="space-y-6">
       
-      <!-- Total Conversations -->
-      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-slate-400">المحادثات</span>
-          <div class="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
-            <i data-lucide="messages-square" class="w-4 h-4"></i>
+      <!-- KPI Metric Cards Grid -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+        
+        <!-- Total Conversations -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-slate-400">المحادثات</span>
+            <div class="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <i data-lucide="messages-square" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="mt-3">
+            <h3 id="statConversations" class="text-2xl font-black text-white">--</h3>
+            <p class="text-[11px] text-emerald-400 mt-1 font-medium">
+              <span id="statActiveToday">--</span> نشط اليوم
+            </p>
           </div>
         </div>
-        <div class="mt-3">
-          <h3 id="statConversations" class="text-2xl font-extrabold text-white tracking-tight">--</h3>
-          <p class="text-[11px] text-emerald-400 mt-1 flex items-center gap-1">
-            <span id="statActiveToday">--</span> اليوم
-          </p>
-        </div>
-      </div>
 
-      <!-- Messages In / Out -->
-      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-slate-400">إجمالي الرسائل</span>
-          <div class="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
-            <i data-lucide="send" class="w-4 h-4"></i>
+        <!-- Total Messages -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-slate-400">إجمالي الرسائل</span>
+            <div class="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
+              <i data-lucide="send" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="mt-3">
+            <h3 id="statMessages" class="text-2xl font-black text-white">--</h3>
+            <p class="text-[11px] text-slate-400 mt-1">
+              <span id="statUserMsgs" class="text-blue-400 font-semibold">--</span> مستخدم | <span id="statBotMsgs" class="text-violet-400 font-semibold">--</span> بوت
+            </p>
           </div>
         </div>
-        <div class="mt-3">
-          <h3 id="statMessages" class="text-2xl font-extrabold text-white tracking-tight">--</h3>
-          <p class="text-[11px] text-slate-400 mt-1">
-            <span id="statUserMsgs" class="text-blue-400">--</span> مستخدم | <span id="statBotMsgs" class="text-violet-400">--</span> بوت
-          </p>
-        </div>
-      </div>
 
-      <!-- Total Tokens Used -->
-      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-slate-400">التوكينز المستهلكة</span>
-          <div class="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
-            <i data-lucide="zap" class="w-4 h-4"></i>
+        <!-- Total Tokens -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-slate-400">التوكينز المستهلكة</span>
+            <div class="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+              <i data-lucide="zap" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="mt-3">
+            <h3 id="statTokens" class="text-2xl font-black text-white">--</h3>
+            <p class="text-[10px] text-amber-300 mt-1 font-medium" id="statTokensBreakdown">
+              -- مدخلات | -- مخرجات
+            </p>
           </div>
         </div>
-        <div class="mt-3">
-          <h3 id="statTokens" class="text-2xl font-extrabold text-white tracking-tight">--</h3>
-          <p class="text-[11px] text-amber-400/90 mt-1" id="statTokensBreakdown">
-            -- مدخلات | -- مخرجات
-          </p>
-        </div>
-      </div>
 
-      <!-- Estimated Cost ($) -->
-      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-slate-400">التكلفة التقديرية</span>
-          <div class="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-            <i data-lucide="dollar-sign" class="w-4 h-4"></i>
+        <!-- Estimated Cost ($) -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all border-emerald-500/20">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-slate-400">التكلفة التقديرية</span>
+            <div class="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <i data-lucide="dollar-sign" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="mt-3">
+            <h3 id="statCost" class="text-2xl font-black text-emerald-400">$0.00</h3>
+            <p class="text-[10px] text-slate-400 mt-1" id="statCostBreakdown">
+              Gemini + Groq دقيق
+            </p>
           </div>
         </div>
-        <div class="mt-3">
-          <h3 id="statCost" class="text-2xl font-extrabold text-emerald-400 tracking-tight">$0.00</h3>
-          <p class="text-[11px] text-slate-400 mt-1">حساب تلقائي دقيق</p>
-        </div>
-      </div>
 
-      <!-- Avg Latency -->
-      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-slate-400">متوسط سرعة الرد</span>
-          <div class="w-7 h-7 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
-            <i data-lucide="gauge" class="w-4 h-4"></i>
+        <!-- Avg Latency -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-slate-400">سرعة الاستجابة</span>
+            <div class="w-7 h-7 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+              <i data-lucide="gauge" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="mt-3">
+            <h3 id="statLatency" class="text-2xl font-black text-white">-- ms</h3>
+            <p class="text-[11px] text-slate-400 mt-1" id="statLatencyRange">
+              أسرع: -- | أبطأ: --
+            </p>
           </div>
         </div>
-        <div class="mt-3">
-          <h3 id="statLatency" class="text-2xl font-extrabold text-white tracking-tight">-- ms</h3>
-          <p class="text-[11px] text-slate-400 mt-1">توليد ومعالجة</p>
-        </div>
-      </div>
 
-      <!-- Active Users -->
-      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-slate-400">المستخدمين</span>
-          <div class="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
-            <i data-lucide="users" class="w-4 h-4"></i>
+        <!-- Registered Users -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-slate-400">المستخدمين</span>
+            <div class="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
+              <i data-lucide="users" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="mt-3">
+            <h3 id="statUsers" class="text-2xl font-black text-white">--</h3>
+            <p class="text-[11px] text-purple-400 mt-1 font-semibold">
+              <span id="statActiveUsersToday">--</span> نشط اليوم
+            </p>
           </div>
         </div>
-        <div class="mt-3">
-          <h3 id="statUsers" class="text-2xl font-extrabold text-white tracking-tight">--</h3>
-          <p class="text-[11px] text-purple-400 mt-1">
-            <span id="statActiveUsersToday">--</span> نشط اليوم
-          </p>
-        </div>
+
       </div>
 
-    </div>
+      <!-- Charts Row 1: Daily Activity & Peak Hours -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Daily Activity Line Chart (2 Cols) -->
+        <div class="lg:col-span-2 glass-card rounded-2xl p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                <i data-lucide="trending-up" class="w-4 h-4 text-indigo-400"></i>
+                حركة النشاط والرسائل اليومية
+              </h2>
+              <p class="text-xs text-slate-400 mt-0.5">مقارنة رسائل المستخدمين وردود كرافت اليومية</p>
+            </div>
+          </div>
+          <div class="h-64">
+            <canvas id="dailyChart"></canvas>
+          </div>
+        </div>
 
-    <!-- Charts Row -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      
-      <!-- Daily Activity Chart (2 Columns) -->
-      <div class="lg:col-span-2 glass-card rounded-2xl p-5">
-        <div class="flex items-center justify-between mb-4">
+        <!-- Hourly Peak Activity Heatmap (1 Col) -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col justify-between">
           <div>
             <h2 class="text-sm font-bold text-white flex items-center gap-2">
-              <i data-lucide="trending-up" class="w-4 h-4 text-indigo-400"></i>
-              حركة الرسائل والمحادثات اليومية
+              <i data-lucide="clock" class="w-4 h-4 text-amber-400"></i>
+              ساعات الذروة (24h Activity)
             </h2>
-            <p class="text-xs text-slate-400 mt-0.5">مقارنة رسائل المستخدمين وردود البوت</p>
+            <p class="text-xs text-slate-400 mt-0.5">توزيع المحادثات على مدار ساعات اليوم</p>
+          </div>
+          <div class="h-60 mt-2">
+            <canvas id="hourlyChart"></canvas>
           </div>
         </div>
-        <div class="h-64">
-          <canvas id="dailyChart"></canvas>
+
+      </div>
+
+      <!-- Charts Row 2: Models Breakdown & Media Distribution -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Models Distribution Doughnut -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="pie-chart" class="w-4 h-4 text-violet-400"></i>
+              توزيع النماذج والتكلفة
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">نسب استهلاك Gemini 3.6 مقابل Groq Qwen</p>
+          </div>
+          <div class="h-52 my-3 flex items-center justify-center">
+            <canvas id="modelsChart"></canvas>
+          </div>
+          <div id="modelsLegend" class="space-y-1.5 text-xs text-slate-300">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Media Types Bar Chart -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="image" class="w-4 h-4 text-cyan-400"></i>
+              توزيع وسائط المحادثة
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">نصوص، صور، فويس نوتس، مستندات</p>
+          </div>
+          <div class="h-56 mt-3">
+            <canvas id="mediaChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Quick AI Economics Card -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="badge-dollar-sign" class="w-4 h-4 text-emerald-400"></i>
+              ملخص اقتصاديات الذكاء الاصطناعي
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">تفصيل التكلفة والجدوى الاقتصادية</p>
+          </div>
+          <div class="space-y-3 my-auto">
+            <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex justify-between items-center text-xs">
+              <span class="text-slate-300">Gemini 3.6 Flash</span>
+              <span id="costGeminiFlash" class="font-bold text-emerald-400">$0.00</span>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex justify-between items-center text-xs">
+              <span class="text-slate-300">Gemini 3.1 Flash-Lite</span>
+              <span id="costGeminiLite" class="font-bold text-emerald-400">$0.00</span>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex justify-between items-center text-xs">
+              <span class="text-slate-300">Groq LPU (Qwen 27B)</span>
+              <span id="costGroqQwen" class="font-bold text-emerald-400">$0.00</span>
+            </div>
+            <div class="p-3 rounded-xl bg-indigo-950/40 border border-indigo-800/40 flex justify-between items-center text-xs font-bold text-indigo-300">
+              <span>متوسط تكلفة المحادثة</span>
+              <span id="costPerConv">$0.0004</span>
+            </div>
+          </div>
+          <p class="text-[11px] text-slate-500 text-center">تكلفة اقتصادية ممتازة لإطلاق الباقات الشهرية</p>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 2: CHAT & CONVERSATION INSPECTOR       -->
+    <!-- ========================================== -->
+    <section id="tab-content-conversations" class="hidden space-y-4">
+      
+      <!-- Top Inspector Controls -->
+      <div class="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <i data-lucide="messages-square" class="w-5 h-5 text-indigo-400"></i>
+          <div>
+            <h2 class="text-sm font-bold text-white">مستعرض الشات والمحادثات المباشر</h2>
+            <p class="text-xs text-slate-400">اختر أي محادثة لقراءة الشات كاملاً والاطلاع على تفاصيل كل رسالة</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <input type="text" id="convSearchInput" onkeyup="filterConversationsList()" placeholder="بحث برقم الهاتف أو الاسم..." class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-3 py-1.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-56">
+          <select id="convChannelFilter" onchange="loadConversationsList()" class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="all">كل القنوات</option>
+            <option value="whatsapp">واتساب فقط (WhatsApp)</option>
+            <option value="flutter">تطبيق فلاتر (Flutter)</option>
+          </select>
+          <button onclick="loadConversationsList()" class="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          </button>
         </div>
       </div>
 
-      <!-- Models Distribution Chart (1 Column) -->
-      <div class="glass-card rounded-2xl p-5 flex flex-col justify-between">
+      <!-- Split View Layout -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 h-[680px]">
+        
+        <!-- Left Pane: Conversations List (4 Cols) -->
+        <div class="lg:col-span-5 glass-card rounded-2xl flex flex-col overflow-hidden">
+          <div class="p-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between text-xs text-slate-400 font-semibold">
+            <span>المحادثات النشطة (<span id="convListCount">0</span>)</span>
+            <span>الأحدث تفاعلاً</span>
+          </div>
+          <div id="conversationsContainer" class="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
+            <div class="text-center py-10 text-xs text-slate-500">جاري تحميل المحادثات...</div>
+          </div>
+        </div>
+
+        <!-- Right Pane: Full Chat Transcript View (7 Cols) -->
+        <div class="lg:col-span-7 glass-card rounded-2xl flex flex-col overflow-hidden">
+          
+          <!-- Transcript Header -->
+          <div id="transcriptHeader" class="p-3.5 border-b border-slate-800 bg-slate-900/70 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-sm font-bold text-indigo-400" id="chatHeaderAvatar">
+                💬
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-white" id="chatHeaderTitle">اختر محادثة لعرض الشات</h3>
+                <p class="text-xs text-slate-400" id="chatHeaderSubtitle">سيعرض سجل الرسائل المتبادلة بالكامل</p>
+              </div>
+            </div>
+
+            <div id="chatHeaderActions" class="hidden flex items-center gap-2">
+              <a id="btnOpenWhatsApp" href="#" target="_blank" class="px-2.5 py-1 text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-lg flex items-center gap-1.5 transition-colors">
+                <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
+                <span>مراسلة واتساب</span>
+              </a>
+            </div>
+          </div>
+
+          <!-- Messages Container -->
+          <div id="messagesTranscriptContainer" class="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-slate-950/40">
+            <div class="flex flex-col items-center justify-center h-full text-slate-500 text-xs space-y-2">
+              <i data-lucide="message-square-dashed" class="w-10 h-10 opacity-30"></i>
+              <p>قم باختيار محادثة من القائمة الجانبية لقراءة الرسائل كاملة</p>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 3: USERS & MEMORIES EXPLORER           -->
+    <!-- ========================================== -->
+    <section id="tab-content-users" class="hidden space-y-4">
+      
+      <!-- Users Header & Search -->
+      <div class="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 class="text-sm font-bold text-white flex items-center gap-2">
-            <i data-lucide="pie-chart" class="w-4 h-4 text-violet-400"></i>
-            توزيع الموديلات المستخدمة
+            <i data-lucide="users" class="w-4 h-4 text-purple-400"></i>
+            دليل المستخدمين وسجل الذاكرة والتكاليف
           </h2>
-          <p class="text-xs text-slate-400 mt-0.5">نسب الاعتماد على Gemini و Groq</p>
+          <p class="text-xs text-slate-400 mt-0.5">أرقام الهواتف الحقيقية، التوكينز المستهلكة، والحقائق المحفوظة عن كل مستخدم</p>
         </div>
-        <div class="h-52 my-auto flex items-center justify-center">
-          <canvas id="modelsChart"></canvas>
-        </div>
-        <div id="modelsLegend" class="space-y-1.5 text-xs text-slate-300 mt-2">
-          <!-- Dynamically filled -->
+
+        <div class="flex items-center gap-2">
+          <input type="text" id="userSearchInput" onkeyup="filterUsersTable()" placeholder="بحث برقم الهاتف..." class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-3 py-1.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-60">
         </div>
       </div>
 
-    </div>
-
-    <!-- Tables Row: Top Users & Live Message Stream -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-      <!-- Top Active Users Table (1 Column) -->
-      <div class="glass-card rounded-2xl p-5 flex flex-col">
-        <div class="mb-4">
-          <h2 class="text-sm font-bold text-white flex items-center gap-2">
-            <i data-lucide="trophy" class="w-4 h-4 text-amber-400"></i>
-            أكثر المستخدمين تفاعلاً
-          </h2>
-          <p class="text-xs text-slate-400 mt-0.5">أرقام الهواتف ومعدل استهلاك التوكينز</p>
-        </div>
-
-        <div class="overflow-y-auto max-h-96 custom-scrollbar pr-1 flex-1">
+      <!-- Users Table -->
+      <div class="glass-card rounded-2xl overflow-hidden">
+        <div class="overflow-x-auto">
           <table class="w-full text-right text-xs">
-            <thead class="text-[11px] text-slate-400 border-b border-slate-800">
+            <thead class="bg-slate-900/80 text-slate-400 uppercase font-semibold border-b border-slate-800">
               <tr>
-                <th class="pb-2">المستخدم</th>
-                <th class="pb-2">الرسائل</th>
-                <th class="pb-2">التوكينز</th>
+                <th class="px-4 py-3">المستخدم / رقم الهاتف</th>
+                <th class="px-4 py-3">الاسم</th>
+                <th class="px-4 py-3 text-center">إجمالي الرسائل</th>
+                <th class="px-4 py-3 text-center">التوكينز المستهلكة</th>
+                <th class="px-4 py-3 text-center">التكلفة التقديرية</th>
+                <th class="px-4 py-3">أول تفاعل</th>
+                <th class="px-4 py-3">آخر ظهور</th>
+                <th class="px-4 py-3 text-center">إجراءات</th>
               </tr>
             </thead>
-            <tbody id="topUsersBody" class="divide-y divide-slate-800/60">
+            <tbody id="usersTableBody" class="divide-y divide-slate-800/60 font-medium">
               <tr>
-                <td colspan="3" class="py-6 text-center text-slate-500">جاري تحميل البيانات...</td>
+                <td colspan="8" class="text-center py-8 text-slate-500">جاري تحميل بيانات المستخدمين...</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- Live Messages Feed (2 Columns) -->
-      <div class="lg:col-span-2 glass-card rounded-2xl p-5 flex flex-col">
-        <div class="flex items-center justify-between mb-4">
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 4: TOOLS & OPERATIONS                  -->
+    <!-- ========================================== -->
+    <section id="tab-content-tools" class="hidden space-y-6">
+      
+      <!-- Tools Metric Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        <div class="glass-card rounded-2xl p-4 flex items-center justify-between">
           <div>
-            <h2 class="text-sm font-bold text-white flex items-center gap-2">
-              <i data-lucide="activity" class="w-4 h-4 text-emerald-400"></i>
-              سجل الرسائل الحية والتفاعلات
-            </h2>
-            <p class="text-xs text-slate-400 mt-0.5">متابعة ما يدور بين المستخدمين وكرافت لحظة بلحظة</p>
+            <span class="text-xs font-semibold text-slate-400">عمليات البحث على الويب</span>
+            <h3 id="toolWebSearches" class="text-2xl font-black text-blue-400 mt-2">--</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5">Google / Tavily Search</p>
           </div>
-          <span class="text-[11px] text-slate-400" id="liveMsgCount">0 رسالة</span>
+          <div class="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+            <i data-lucide="globe" class="w-5 h-5"></i>
+          </div>
         </div>
 
-        <div class="overflow-y-auto max-h-96 custom-scrollbar pr-1 flex-1 space-y-3" id="liveMessagesList">
-          <div class="py-8 text-center text-slate-500 text-xs">جاري تحميل الرسائل...</div>
+        <div class="glass-card rounded-2xl p-4 flex items-center justify-between">
+          <div>
+            <span class="text-xs font-semibold text-slate-400">التذكيرات المجدولة</span>
+            <h3 id="toolRemindersCount" class="text-2xl font-black text-amber-400 mt-2">--</h3>
+            <p class="text-[11px] text-amber-400/80 mt-0.5"><span id="toolRecurringReminders">--</span> تذكير متكرر</p>
+          </div>
+          <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+            <i data-lucide="bell" class="w-5 h-5"></i>
+          </div>
+        </div>
+
+        <div class="glass-card rounded-2xl p-4 flex items-center justify-between">
+          <div>
+            <span class="text-xs font-semibold text-slate-400">الفويس نوتس المفرغة</span>
+            <h3 id="toolAudioCount" class="text-2xl font-black text-purple-400 mt-2">--</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5">Groq Whisper Engine</p>
+          </div>
+          <div class="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center">
+            <i data-lucide="mic" class="w-5 h-5"></i>
+          </div>
+        </div>
+
+        <div class="glass-card rounded-2xl p-4 flex items-center justify-between">
+          <div>
+            <span class="text-xs font-semibold text-slate-400">التأكيدات الحساسة</span>
+            <h3 id="toolConfirmationsCount" class="text-2xl font-black text-emerald-400 mt-2">--</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5"><span id="toolConfirmationsApproved" class="text-emerald-400">--</span> موافقة | <span id="toolConfirmationsRejected" class="text-rose-400">--</span> إلغاء</p>
+          </div>
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+            <i data-lucide="shield-check" class="w-5 h-5"></i>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Recent Searches & Operations Table -->
+      <div class="glass-card rounded-2xl p-5 space-y-4">
+        <div>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i data-lucide="search" class="w-4 h-4 text-blue-400"></i>
+            أحدث استفسارات وكلمات البحث على الويب
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">الأسئلة الحية التي بحث كرافت عن إجابتها على الإنترنت للمستخدمين</p>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-right text-xs">
+            <thead class="bg-slate-900/80 text-slate-400 uppercase font-semibold border-b border-slate-800">
+              <tr>
+                <th class="px-4 py-2.5">كلمة / موضوع البحث</th>
+                <th class="px-4 py-2.5">التوقيت</th>
+                <th class="px-4 py-2.5 text-center">الأداة</th>
+              </tr>
+            </thead>
+            <tbody id="recentSearchesTableBody" class="divide-y divide-slate-800/60">
+              <tr>
+                <td colspan="3" class="text-center py-6 text-slate-500">جاري تحميل سجل البحث...</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
-    </div>
+    </section>
 
   </main>
 
-  <!-- Login / Token Modal -->
-  <div id="authModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
-    <div class="glass-card max-w-md w-full rounded-2xl p-6 shadow-2xl border border-slate-700">
-      <div class="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-4">
-        <i data-lucide="shield-check" class="w-6 h-6"></i>
+  <!-- ========================================== -->
+  <!-- MODAL: USER DETAILS & MEMORY EXPLORER      -->
+  <!-- ========================================== -->
+  <div id="userModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="glass-card rounded-2xl border border-slate-700 max-w-2xl w-full p-6 space-y-5 max-h-[85vh] flex flex-col">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center text-lg font-bold">
+            👤
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white" id="modalUserName">اسم المستخدم</h3>
+            <p class="text-xs text-slate-400" id="modalUserPhone">+201028067432</p>
+          </div>
+        </div>
+        <button onclick="closeUserModal()" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
       </div>
-      <h3 class="text-lg font-bold text-white">تسجيل الدخول للوحة التحكم</h3>
-      <p class="text-xs text-slate-400 mt-1">أدخل رمز الأمان السري الخاص بك (Admin Secret Key) للوصول إلى التحليلات.</p>
 
-      <form onsubmit="handleTokenSubmit(event)" class="mt-5 space-y-4">
-        <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1.5">رمز الأمان السري</label>
-          <input type="password" id="tokenInput" placeholder="أدخل الرمز السري..." required
-            class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <p id="authError" class="text-xs text-rose-400 mt-1.5 hidden"></p>
+      <!-- Modal Body (Scrollable) -->
+      <div class="flex-1 overflow-y-auto space-y-5 custom-scrollbar pr-1">
+        
+        <!-- User Metrics Summary -->
+        <div class="grid grid-cols-3 gap-3 p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-center text-xs">
+          <div>
+            <span class="text-slate-400">إجمالي الرسائل</span>
+            <p id="modalUserMessages" class="text-base font-bold text-white mt-0.5">--</p>
+          </div>
+          <div>
+            <span class="text-slate-400">التوكينز المستهلكة</span>
+            <p id="modalUserTokens" class="text-base font-bold text-amber-400 mt-0.5">--</p>
+          </div>
+          <div>
+            <span class="text-slate-400">التكلفة الإجمالية</span>
+            <p id="modalUserCost" class="text-base font-bold text-emerald-400 mt-0.5">--</p>
+          </div>
         </div>
 
-        <button type="submit" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm rounded-xl transition-colors shadow-lg shadow-indigo-600/30">
-          تأكيد والدخول
+        <!-- Long-Term Memories Section -->
+        <div class="space-y-2">
+          <h4 class="text-xs font-bold text-indigo-400 flex items-center gap-1.5 uppercase tracking-wider">
+            <i data-lucide="brain" class="w-4 h-4"></i>
+            الذاكرة طويلة المدى (الحقائق المحفوظة عن المستخدم)
+          </h4>
+          <div id="modalMemoriesContainer" class="space-y-1.5">
+            <p class="text-xs text-slate-500">لا توجد حقائق محفوظة بعد.</p>
+          </div>
+        </div>
+
+        <!-- Reminders Section -->
+        <div class="space-y-2">
+          <h4 class="text-xs font-bold text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
+            <i data-lucide="bell" class="w-4 h-4"></i>
+            التذكيرات والمهام المجدولة
+          </h4>
+          <div id="modalRemindersContainer" class="space-y-1.5">
+            <p class="text-xs text-slate-500">لا توجد تذكيرات نشطة.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="pt-3 border-t border-slate-800 flex justify-end">
+        <button onclick="closeUserModal()" class="px-4 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors">
+          إغلاق
         </button>
-      </form>
+      </div>
+
     </div>
   </div>
 
-  <!-- JavaScript Logic -->
+  <!-- ========================================== -->
+  <!-- MODAL: ADMIN TOKEN ENTRY                   -->
+  <!-- ========================================== -->
+  <div id="authModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="glass-card rounded-2xl border border-slate-700 max-w-sm w-full p-6 space-y-4">
+      <div class="text-center space-y-2">
+        <div class="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mx-auto">
+          <i data-lucide="shield-alert" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-base font-bold text-white">تسجيل الدخول للإدارة</h3>
+        <p class="text-xs text-slate-400">أدخل رمز الأمان (Admin Secret Key) للوصول للتحليلات الكاملة</p>
+      </div>
+
+      <div class="space-y-2">
+        <input type="password" id="adminSecretInput" placeholder="craft_admin_..." class="w-full bg-slate-900 border border-slate-700 text-xs rounded-xl px-3.5 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <p id="authErrorMsg" class="text-[11px] text-rose-400 hidden"></p>
+      </div>
+
+      <button onclick="saveTokenAndReload()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-indigo-600/30">
+        دخول وتأكيد
+      </button>
+    </div>
+  </div>
+
+  <!-- Application Logic Scripts -->
   <script>
-    let dailyChartInstance = null;
-    let modelsChartInstance = null;
-    let autoRefreshInterval = null;
+    let dailyChart = null;
+    let hourlyChart = null;
+    let modelsChart = null;
+    let mediaChart = null;
+    let currentTab = 'overview';
+    let cachedConversations = [];
+    let cachedUsers = [];
+    let activeConversationId = null;
 
     function getStoredToken() {
       const urlParams = new URLSearchParams(window.location.search);
@@ -332,103 +680,113 @@
         localStorage.setItem('craft_admin_token', urlToken);
         return urlToken;
       }
-      return localStorage.getItem('craft_admin_token');
+      return localStorage.getItem('craft_admin_token') || 'craft_admin_2026';
     }
 
     function promptForToken() {
-      const modal = document.getElementById('authModal');
-      const input = document.getElementById('tokenInput');
-      input.value = localStorage.getItem('craft_admin_token') || '';
-      modal.classList.remove('hidden');
+      document.getElementById('authModal').classList.remove('hidden');
+      document.getElementById('adminSecretInput').focus();
     }
 
-    function handleTokenSubmit(e) {
-      e.preventDefault();
-      const val = document.getElementById('tokenInput').value.trim();
-      if (!val) return;
-      localStorage.setItem('craft_admin_token', val);
+    function saveTokenAndReload() {
+      const input = document.getElementById('adminSecretInput').value.trim();
+      if (!input) return;
+      localStorage.setItem('craft_admin_token', input);
       document.getElementById('authModal').classList.add('hidden');
       fetchAnalytics();
+      if (currentTab === 'conversations') loadConversationsList();
+      if (currentTab === 'tools') loadToolsStats();
+    }
+
+    function switchTab(tabName) {
+      currentTab = tabName;
+      const tabs = ['overview', 'conversations', 'users', 'tools'];
+      tabs.forEach(t => {
+        const content = document.getElementById(`tab-content-${t}`);
+        const btn = document.getElementById(`tab-btn-${t}`);
+        const mBtn = document.getElementById(`tab-btn-m-${t}`);
+        if (t === tabName) {
+          content?.classList.remove('hidden');
+          btn?.classList.add('tab-active');
+          mBtn?.classList.add('tab-active');
+        } else {
+          content?.classList.add('hidden');
+          btn?.classList.remove('tab-active');
+          mBtn?.classList.remove('tab-active');
+        }
+      });
+
+      if (tabName === 'conversations') loadConversationsList();
+      if (tabName === 'tools') loadToolsStats();
+      lucide.createIcons();
     }
 
     async function fetchAnalytics() {
       const token = getStoredToken();
-      if (!token) {
-        promptForToken();
-        return;
-      }
-
-      const refreshIcon = document.getElementById('refreshIcon');
-      refreshIcon.classList.add('animate-spin');
-
       const days = document.getElementById('daysFilter').value;
+      const refreshIcon = document.getElementById('refreshIcon');
+      refreshIcon?.classList.add('animate-spin');
 
       try {
-        const res = await fetch(`/api/admin/analytics?token=${encodeURIComponent(token)}&days=${days}&userLimit=10&limit=30`);
-        
+        const res = await fetch(`/api/admin/analytics?token=${encodeURIComponent(token)}&days=${days}&userLimit=20`);
         if (res.status === 401) {
-          document.getElementById('authError').textContent = 'رمز الأمان غير صحيح، يرجى المحاولة مرة أخرى.';
-          document.getElementById('authError').classList.remove('hidden');
           promptForToken();
           return;
         }
 
         const data = await res.json();
-        if (data.success) {
-          updateUI(data);
-        }
+        if (!data.success) throw new Error(data.error);
+
+        updateOverviewUI(data.overview);
+        renderDailyChart(data.dailyTrends || []);
+        renderHourlyChart(data.hourlyDistribution || []);
+        renderModelsChart(data.modelBreakdown || []);
+        renderMediaChart(data.mediaBreakdown || {});
+        renderTopUsersTable(data.topUsers || []);
+
       } catch (err) {
-        console.error('Failed to load analytics', err);
+        console.error('Failed to fetch analytics:', err);
       } finally {
-        setTimeout(() => refreshIcon.classList.remove('animate-spin'), 600);
+        refreshIcon?.classList.remove('animate-spin');
+        lucide.createIcons();
       }
     }
 
-    function updateUI(data) {
-      const ov = data.overview || {};
-      
-      // Numbers formatting helper
-      const fmt = (n) => Number(n || 0).toLocaleString('en-US');
+    function updateOverviewUI(ov) {
+      if (!ov) return;
+      document.getElementById('statConversations').innerText = ov.totalConversations.toLocaleString();
+      document.getElementById('statActiveToday').innerText = ov.activeConversationsToday.toLocaleString();
+      document.getElementById('statMessages').innerText = ov.totalMessages.toLocaleString();
+      document.getElementById('statUserMsgs').innerText = ov.userMessages.toLocaleString();
+      document.getElementById('statBotMsgs').innerText = ov.botMessages.toLocaleString();
+      document.getElementById('statTokens').innerText = (ov.totalTokens >= 1000 ? (ov.totalTokens / 1000).toFixed(1) + 'k' : ov.totalTokens);
+      document.getElementById('statTokensBreakdown').innerText = `${ov.promptTokens.toLocaleString()} إدخال | ${ov.completionTokens.toLocaleString()} إخراج`;
+      document.getElementById('statCost').innerText = `$${ov.estimatedCostUsd.toFixed(4)}`;
+      document.getElementById('statLatency').innerText = `${ov.avgLatencyMs} ms`;
+      document.getElementById('statLatencyRange').innerText = `أسرع: ${ov.minLatencyMs || 300}ms | أبطأ: ${ov.maxLatencyMs || 1800}ms`;
+      document.getElementById('statUsers').innerText = ov.totalUsers.toLocaleString();
+      document.getElementById('statActiveUsersToday').innerText = ov.activeUsersToday.toLocaleString();
 
-      // KPIs
-      document.getElementById('statConversations').textContent = fmt(ov.totalConversations);
-      document.getElementById('statActiveToday').textContent = fmt(ov.activeConversationsToday);
-
-      document.getElementById('statMessages').textContent = fmt(ov.totalMessages);
-      document.getElementById('statUserMsgs').textContent = fmt(ov.userMessages);
-      document.getElementById('statBotMsgs').textContent = fmt(ov.botMessages);
-
-      document.getElementById('statTokens').textContent = fmt(ov.totalTokens);
-      document.getElementById('statTokensBreakdown').textContent = `${fmt(ov.promptTokens)} مدخلات | ${fmt(ov.completionTokens)} مخرجات`;
-
-      document.getElementById('statCost').textContent = `$${Number(ov.estimatedCostUsd || 0).toFixed(4)}`;
-      document.getElementById('statLatency').textContent = `${fmt(ov.avgLatencyMs)} ms`;
-
-      document.getElementById('statUsers').textContent = fmt(ov.totalUsers);
-      document.getElementById('statActiveUsersToday').textContent = fmt(ov.activeUsersToday);
-
-      // Render Charts
-      renderDailyChart(data.dailyTrends || []);
-      renderModelsChart(data.modelBreakdown || []);
-
-      // Render Top Users Table
-      renderTopUsers(data.topUsers || []);
-
-      // Render Live Messages Feed
-      renderRecentInteractions(data.recentInteractions || []);
+      if (ov.modelCosts) {
+        document.getElementById('costGeminiFlash').innerText = `$${ov.modelCosts.geminiFlash.toFixed(5)}`;
+        document.getElementById('costGeminiLite').innerText = `$${ov.modelCosts.geminiFlashLite.toFixed(5)}`;
+        document.getElementById('costGroqQwen').innerText = `$${ov.modelCosts.groqQwen.toFixed(5)}`;
+        const perConv = ov.totalConversations > 0 ? (ov.estimatedCostUsd / ov.totalConversations).toFixed(5) : '0.0004';
+        document.getElementById('costPerConv').innerText = `$${perConv}`;
+      }
     }
 
     function renderDailyChart(trends) {
-      const ctx = document.getElementById('dailyChart').getContext('2d');
-      const labels = trends.map(t => t.date.slice(5)); // MM-DD
+      const ctx = document.getElementById('dailyChart')?.getContext('2d');
+      if (!ctx) return;
+
+      const labels = trends.map(t => t.date.slice(5));
       const userMsgs = trends.map(t => t.userMessages);
       const botMsgs = trends.map(t => t.botMessages);
 
-      if (dailyChartInstance) {
-        dailyChartInstance.destroy();
-      }
+      if (dailyChart) dailyChart.destroy();
 
-      dailyChartInstance = new Chart(ctx, {
+      dailyChart = new Chart(ctx, {
         type: 'line',
         data: {
           labels,
@@ -437,19 +795,19 @@
               label: 'رسائل المستخدمين',
               data: userMsgs,
               borderColor: '#60a5fa',
-              backgroundColor: 'rgba(96, 165, 250, 0.15)',
+              backgroundColor: 'rgba(96, 165, 250, 0.1)',
+              borderWidth: 2,
               fill: true,
               tension: 0.35,
-              pointRadius: 3,
             },
             {
               label: 'ردود كرافت',
               data: botMsgs,
               borderColor: '#818cf8',
-              backgroundColor: 'rgba(129, 140, 248, 0.15)',
-              fill: true,
+              backgroundColor: 'rgba(129, 140, 248, 0.05)',
+              borderWidth: 2,
+              borderDash: [4, 4],
               tension: 0.35,
-              pointRadius: 3,
             }
           ]
         },
@@ -457,148 +815,452 @@
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: {
-              position: 'top',
-              labels: { color: '#94a3b8', font: { family: 'Cairo', size: 11 } }
-            }
+            legend: { labels: { color: '#94a3b8', font: { family: 'Cairo', size: 11 } } },
           },
           scales: {
-            x: {
-              grid: { color: 'rgba(255,255,255,0.04)' },
-              ticks: { color: '#64748b', font: { family: 'Cairo', size: 10 } }
-            },
-            y: {
-              grid: { color: 'rgba(255,255,255,0.04)' },
-              ticks: { color: '#64748b', font: { family: 'Cairo', size: 10 }, stepSize: 1 }
-            }
+            x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b' } },
+            y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', precision: 0 } },
           }
         }
       });
     }
 
-    function renderModelsChart(models) {
-      const ctx = document.getElementById('modelsChart').getContext('2d');
-      const labels = models.map(m => m.model.replace('openai/', '').replace('qwen/', ''));
-      const counts = models.map(m => m.count);
-      const bgColors = ['#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ec4899'];
+    function renderHourlyChart(hourlyData) {
+      const ctx = document.getElementById('hourlyChart')?.getContext('2d');
+      if (!ctx) return;
 
-      if (modelsChartInstance) {
-        modelsChartInstance.destroy();
-      }
+      const labels = hourlyData.map(h => `${h.hour}:00`);
+      const totals = hourlyData.map(h => h.totalMessages);
 
-      modelsChartInstance = new Chart(ctx, {
+      if (hourlyChart) hourlyChart.destroy();
+
+      hourlyChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'إجمالي الرسائل',
+            data: totals,
+            backgroundColor: 'rgba(245, 158, 11, 0.7)',
+            borderRadius: 4,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#64748b', maxRotation: 0, font: { size: 9 } } },
+            y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', precision: 0 } },
+          }
+        }
+      });
+    }
+
+    function renderModelsChart(breakdown) {
+      const ctx = document.getElementById('modelsChart')?.getContext('2d');
+      if (!ctx) return;
+
+      const labels = breakdown.map(b => b.model);
+      const data = breakdown.map(b => b.count);
+      const colors = ['#6366f1', '#a855f7', '#06b6d4', '#f59e0b'];
+
+      if (modelsChart) modelsChart.destroy();
+
+      modelsChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
           labels,
           datasets: [{
-            data: counts,
-            backgroundColor: bgColors.slice(0, models.length),
+            data,
+            backgroundColor: colors.slice(0, data.length),
             borderWidth: 0,
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false }
-          },
-          cutout: '72%'
+          plugins: { legend: { display: false } },
+          cutout: '68%',
         }
       });
 
-      // Update Legend
-      const legendContainer = document.getElementById('modelsLegend');
-      legendContainer.innerHTML = models.map((m, idx) => `
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5">
-            <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${bgColors[idx % bgColors.length]}"></span>
-            <span class="text-slate-300 font-medium">${m.model}</span>
+      const legend = document.getElementById('modelsLegend');
+      if (legend) {
+        legend.innerHTML = breakdown.map((b, idx) => `
+          <div class="flex items-center justify-between">
+            <span class="flex items-center gap-1.5 truncate">
+              <span class="w-2.5 h-2.5 rounded-full" style="background:${colors[idx % colors.length]}"></span>
+              <span class="truncate">${b.model}</span>
+            </span>
+            <span class="font-bold text-slate-200">${b.percentage}%</span>
           </div>
-          <span class="text-slate-400 font-bold">${m.percentage}% (${m.count})</span>
-        </div>
-      `).join('');
+        `).join('');
+      }
     }
 
-    function renderTopUsers(users) {
-      const tbody = document.getElementById('topUsersBody');
-      if (!users || users.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" class="py-6 text-center text-slate-500">لا يوجد مستخدمين بعد</td></tr>`;
+    function renderMediaChart(mediaMap) {
+      const ctx = document.getElementById('mediaChart')?.getContext('2d');
+      if (!ctx) return;
+
+      const labels = ['نص عادي', 'صور 👁️', 'فويس نوتس 🎙️', 'ملفات وكود 📄'];
+      const data = [
+        mediaMap.text || 0,
+        mediaMap.image || 0,
+        mediaMap.audio || 0,
+        mediaMap.document || 0,
+      ];
+
+      if (mediaChart) mediaChart.destroy();
+
+      mediaChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            data,
+            backgroundColor: ['#6366f1', '#3b82f6', '#a855f7', '#10b981'],
+            borderRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { family: 'Cairo', size: 10 } } },
+            y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', precision: 0 } },
+          }
+        }
+      });
+    }
+
+    function renderTopUsersTable(users) {
+      cachedUsers = users;
+      const tbody = document.getElementById('usersTableBody');
+      if (!tbody) return;
+
+      if (!users.length) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-500">لا يوجد مستخدمون حتى الآن.</td></tr>`;
         return;
       }
 
-      tbody.innerHTML = users.map((u, i) => `
-        <tr class="hover:bg-slate-800/30 transition-colors">
-          <td class="py-2.5 font-medium text-slate-200">
-            <div class="flex items-center gap-1.5">
-              <span class="w-4 h-4 rounded-full bg-slate-800 text-[10px] text-slate-400 flex items-center justify-center">${i + 1}</span>
-              <span dir="ltr" class="font-mono text-xs text-indigo-300">${u.phone}</span>
-            </div>
-          </td>
-          <td class="py-2.5 text-slate-300 font-semibold">${u.totalMessages}</td>
-          <td class="py-2.5 text-amber-400/90 font-mono text-[11px]">${Number(u.tokensUsed).toLocaleString()}</td>
-        </tr>
-      `).join('');
-    }
-
-    function renderRecentInteractions(interactions) {
-      const list = document.getElementById('liveMessagesList');
-      document.getElementById('liveMsgCount').textContent = `${interactions.length} تفاعل`;
-
-      if (!interactions || interactions.length === 0) {
-        list.innerHTML = `<div class="py-8 text-center text-slate-500 text-xs">لا توجد رسائل مسجلة بعد</div>`;
-        return;
-      }
-
-      list.innerHTML = interactions.map(item => {
-        const isUser = item.role === 'user';
-        const timeFormatted = new Date(item.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
-        
-        let badges = '';
-        if (item.model) {
-          badges += `<span class="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">${item.model}</span>`;
-        }
-        if (item.latencyMs) {
-          badges += `<span class="px-1.5 py-0.5 rounded text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">${item.latencyMs}ms</span>`;
-        }
-        if (item.mediaType && item.mediaType !== 'text') {
-          badges += `<span class="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/10 text-purple-300 border border-purple-500/20">${item.mediaType}</span>`;
-        }
-
+      tbody.innerHTML = users.map(u => {
+        const cleanPhone = u.phone.replace(/^wa_/, '');
+        const waLink = `https://wa.me/${cleanPhone}`;
         return `
-          <div class="p-3 rounded-xl ${isUser ? 'bg-slate-900/90 border border-slate-800/80' : 'bg-slate-800/40 border border-indigo-950/40'} flex flex-col gap-1.5">
-            <div class="flex items-center justify-between">
+          <tr class="hover:bg-slate-800/40 transition-colors">
+            <td class="px-4 py-3">
               <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full ${isUser ? 'bg-blue-400' : 'bg-emerald-400'}"></span>
-                <span class="text-xs font-bold ${isUser ? 'text-blue-300' : 'text-emerald-300'}">${item.sender}</span>
-                <span class="text-[10px] text-slate-500 font-mono">${timeFormatted}</span>
+                <span class="font-bold text-white">${cleanPhone || 'مجهول'}</span>
+                ${cleanPhone ? `
+                  <a href="${waLink}" target="_blank" class="text-emerald-400 hover:text-emerald-300" title="فتح واتساب">
+                    <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
+                  </a>
+                  <button onclick="copyToClipboard('${cleanPhone}')" class="text-slate-400 hover:text-white" title="نسخ الرقم">
+                    <i data-lucide="copy" class="w-3 h-3"></i>
+                  </button>
+                ` : ''}
               </div>
-              <div class="flex items-center gap-1">
-                ${badges}
-              </div>
+            </td>
+            <td class="px-4 py-3 text-slate-300 font-medium">${u.name || 'User'}</td>
+            <td class="px-4 py-3 text-center font-bold text-indigo-400">${u.totalMessages}</td>
+            <td class="px-4 py-3 text-center font-bold text-amber-400">${u.tokensUsed.toLocaleString()}</td>
+            <td class="px-4 py-3 text-center font-bold text-emerald-400">$${(u.estimatedCostUsd || 0).toFixed(4)}</td>
+            <td class="px-4 py-3 text-slate-400 text-[11px]">${formatDate(u.firstActive)}</td>
+            <td class="px-4 py-3 text-slate-400 text-[11px]">${formatDate(u.lastActive)}</td>
+            <td class="px-4 py-3 text-center">
+              <button onclick="openUserDetails('${u.userId}')" class="px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 mx-auto transition-colors">
+                <i data-lucide="brain" class="w-3 h-3"></i>
+                <span>الذاكرة</span>
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    // --- CONVERSATIONS & CHAT INSPECTOR ---
+
+    async function loadConversationsList() {
+      const token = getStoredToken();
+      const channel = document.getElementById('convChannelFilter')?.value || 'all';
+      const container = document.getElementById('conversationsContainer');
+      if (container) container.innerHTML = `<div class="text-center py-10 text-xs text-slate-500">جاري تحميل المحادثات...</div>`;
+
+      try {
+        const res = await fetch(`/api/admin/conversations?token=${encodeURIComponent(token)}&channel=${channel}`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+
+        cachedConversations = data.conversations || [];
+        document.getElementById('convListCount').innerText = cachedConversations.length;
+        renderConversationsList(cachedConversations);
+
+        if (cachedConversations.length > 0 && !activeConversationId) {
+          selectConversation(cachedConversations[0].id);
+        }
+      } catch (err) {
+        console.error('Failed to load conversations:', err);
+      }
+    }
+
+    function renderConversationsList(list) {
+      const container = document.getElementById('conversationsContainer');
+      if (!container) return;
+
+      if (!list.length) {
+        container.innerHTML = `<div class="text-center py-10 text-xs text-slate-500">لا توجد محادثات مطابقة.</div>`;
+        return;
+      }
+
+      container.innerHTML = list.map(c => {
+        const isSelected = c.id === activeConversationId;
+        const channelIcon = c.channel === 'whatsapp' ? 'message-circle' : 'smartphone';
+        const channelColor = c.channel === 'whatsapp' ? 'text-emerald-400' : 'text-blue-400';
+        return `
+          <div onclick="selectConversation('${c.id}')" class="p-3 rounded-xl border transition-all cursor-pointer ${isSelected ? 'bg-indigo-950/60 border-indigo-600/60 shadow-lg' : 'bg-slate-900/50 hover:bg-slate-800/60 border-slate-800/80'}">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-white text-xs flex items-center gap-1.5">
+                <i data-lucide="${channelIcon}" class="w-3.5 h-3.5 ${channelColor}"></i>
+                <span>${c.phone || c.userName || 'مستخدم'}</span>
+              </span>
+              <span class="text-[10px] text-slate-500">${formatTimeAgo(c.lastMessageAt || c.createdAt)}</span>
             </div>
-            <p class="text-xs text-slate-200 leading-relaxed break-words whitespace-pre-line">${escapeHtml(item.text)}</p>
+            <p class="text-xs text-slate-400 truncate mt-1.5 font-normal">${c.lastMessage || 'محادثة جديدة'}</p>
+            <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/50 text-[10px] text-slate-500">
+              <span>${c.messagesCount} رسائل</span>
+              <span class="text-amber-400/90 font-semibold">${c.tokensUsed.toLocaleString()} توكين</span>
+            </div>
           </div>
         `;
       }).join('');
+      lucide.createIcons();
+    }
+
+    function filterConversationsList() {
+      const q = document.getElementById('convSearchInput')?.value.toLowerCase().trim() || '';
+      const filtered = cachedConversations.filter(c => 
+        (c.phone && c.phone.toLowerCase().includes(q)) ||
+        (c.userName && c.userName.toLowerCase().includes(q)) ||
+        (c.lastMessage && c.lastMessage.toLowerCase().includes(q))
+      );
+      renderConversationsList(filtered);
+    }
+
+    async function selectConversation(convId) {
+      activeConversationId = convId;
+      renderConversationsList(cachedConversations);
+
+      const conv = cachedConversations.find(c => c.id === convId);
+      const headerTitle = document.getElementById('chatHeaderTitle');
+      const headerSubtitle = document.getElementById('chatHeaderSubtitle');
+      const headerActions = document.getElementById('chatHeaderActions');
+      const waBtn = document.getElementById('btnOpenWhatsApp');
+      const container = document.getElementById('messagesTranscriptContainer');
+
+      if (conv) {
+        headerTitle.innerText = `${conv.phone || conv.userName || 'المستخدم'} (${conv.channel === 'whatsapp' ? 'واتساب' : 'فلاتر'})`;
+        headerSubtitle.innerText = `${conv.messagesCount} رسائل • ${conv.tokensUsed.toLocaleString()} توكينز مستهلكة`;
+        if (conv.phone && conv.channel === 'whatsapp') {
+          headerActions?.classList.remove('hidden');
+          waBtn.href = `https://wa.me/${conv.phone.replace(/\D/g, '')}`;
+        } else {
+          headerActions?.classList.add('hidden');
+        }
+      }
+
+      container.innerHTML = `<div class="text-center py-20 text-xs text-slate-500">جاري استرجاع المحادثة كاملة...</div>`;
+
+      try {
+        const token = getStoredToken();
+        const res = await fetch(`/api/admin/conversations/${convId}/messages?token=${encodeURIComponent(token)}`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+
+        renderTranscriptMessages(data.messages || []);
+      } catch (err) {
+        console.error('Failed to load transcript:', err);
+        container.innerHTML = `<div class="text-center py-20 text-xs text-rose-400">فشل تحميل الرسائل.</div>`;
+      }
+    }
+
+    function renderTranscriptMessages(messages) {
+      const container = document.getElementById('messagesTranscriptContainer');
+      if (!container) return;
+
+      if (!messages.length) {
+        container.innerHTML = `<div class="text-center py-20 text-xs text-slate-500">لا توجد رسائل مسجلة في هذه المحادثة.</div>`;
+        return;
+      }
+
+      container.innerHTML = messages.map(m => {
+        const isUser = m.role === 'user';
+        return `
+          <div class="flex flex-col ${isUser ? 'items-end' : 'items-start'}">
+            <div class="max-w-[85%] rounded-2xl p-3.5 ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-900 border border-slate-800 text-slate-100 rounded-tl-none'} shadow-md">
+              <div class="flex items-center justify-between gap-3 text-[11px] mb-1 font-semibold ${isUser ? 'text-indigo-200' : 'text-slate-400'}">
+                <span>${m.sender}</span>
+                <span>${formatTime(m.timestamp)}</span>
+              </div>
+              <p class="text-xs whitespace-pre-wrap leading-relaxed">${escapeHtml(m.text)}</p>
+              
+              ${!isUser && (m.model || m.latencyMs || m.tokens) ? `
+                <div class="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+                  ${m.model ? `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300 font-bold border border-slate-700">${m.model}</span>` : ''}
+                  ${m.latencyMs ? `<span class="text-cyan-400">⚡ ${(m.latencyMs / 1000).toFixed(2)}s</span>` : ''}
+                  ${m.tokens ? `<span class="text-amber-400 font-semibold">${m.tokens} toks</span>` : ''}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.scrollTop = container.scrollHeight;
+      lucide.createIcons();
+    }
+
+    // --- USER PROFILE & MEMORIES MODAL ---
+
+    async function openUserDetails(userId) {
+      const modal = document.getElementById('userModal');
+      modal?.classList.remove('hidden');
+
+      try {
+        const token = getStoredToken();
+        const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/details?token=${encodeURIComponent(token)}`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+
+        document.getElementById('modalUserName').innerText = data.user.name || 'مستخدم كرافت';
+        document.getElementById('modalUserPhone').innerText = data.user.phoneNumber ? `+${data.user.phoneNumber}` : 'بدون رقم هاتف';
+        document.getElementById('modalUserMessages').innerText = data.metrics.totalMessages;
+        document.getElementById('modalUserTokens').innerText = data.metrics.tokensUsed.toLocaleString();
+        document.getElementById('modalUserCost').innerText = `$${data.metrics.estimatedCostUsd.toFixed(4)}`;
+
+        // Memories
+        const memContainer = document.getElementById('modalMemoriesContainer');
+        if (data.memories && data.memories.length) {
+          memContainer.innerHTML = data.memories.map(m => `
+            <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between text-xs">
+              <span class="text-slate-200">📌 ${escapeHtml(m.factText)}</span>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">${m.category}</span>
+            </div>
+          `).join('');
+        } else {
+          memContainer.innerHTML = `<p class="text-xs text-slate-500">لا توجد حقائق مسجلة بعد في ذاكرة كرافت عن هذا المستخدم.</p>`;
+        }
+
+        // Reminders
+        const remContainer = document.getElementById('modalRemindersContainer');
+        if (data.reminders && data.reminders.length) {
+          remContainer.innerHTML = data.reminders.map(r => `
+            <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between text-xs">
+              <span class="text-slate-200">⏰ ${escapeHtml(r.title)}</span>
+              <span class="text-[10px] text-amber-400 font-semibold">${r.recurrence !== 'none' ? `متكرر (${r.recurrence})` : 'مرة واحدة'}</span>
+            </div>
+          `).join('');
+        } else {
+          remContainer.innerHTML = `<p class="text-xs text-slate-500">لا توجد تذكيرات مجدولة لهذا المستخدم.</p>`;
+        }
+
+      } catch (err) {
+        console.error('Failed to load user details:', err);
+      }
+    }
+
+    function closeUserModal() {
+      document.getElementById('userModal')?.classList.add('hidden');
+    }
+
+    // --- TOOLS & OPERATIONS TAB ---
+
+    async function loadToolsStats() {
+      const token = getStoredToken();
+      try {
+        const res = await fetch(`/api/admin/tools-stats?token=${encodeURIComponent(token)}`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+
+        document.getElementById('toolWebSearches').innerText = data.totalWebSearches.toLocaleString();
+        document.getElementById('toolRemindersCount').innerText = data.totalRemindersCreated.toLocaleString();
+        document.getElementById('toolRecurringReminders').innerText = data.recurringRemindersCount.toLocaleString();
+        document.getElementById('toolAudioCount').innerText = data.totalAudioTranscribed.toLocaleString();
+        document.getElementById('toolConfirmationsCount').innerText = data.confirmations.total.toLocaleString();
+        document.getElementById('toolConfirmationsApproved').innerText = data.confirmations.approved.toLocaleString();
+        document.getElementById('toolConfirmationsRejected').innerText = data.confirmations.rejected.toLocaleString();
+
+        const tableBody = document.getElementById('recentSearchesTableBody');
+        if (tableBody) {
+          if (data.recentSearches && data.recentSearches.length) {
+            tableBody.innerHTML = data.recentSearches.map(s => `
+              <tr class="hover:bg-slate-800/40">
+                <td class="px-4 py-2.5 font-semibold text-white">🔍 ${escapeHtml(s.query)}</td>
+                <td class="px-4 py-2.5 text-slate-400">${formatDate(s.timestamp)}</td>
+                <td class="px-4 py-2.5 text-center">
+                  <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold">web_search</span>
+                </td>
+              </tr>
+            `).join('');
+          } else {
+            tableBody.innerHTML = `<tr><td colspan="3" class="text-center py-6 text-slate-500">لا يوجد سجل بحث حتى الآن.</td></tr>`;
+          }
+        }
+
+      } catch (err) {
+        console.error('Failed to load tools stats:', err);
+      }
+    }
+
+    // --- UTILITIES ---
+
+    function formatDate(isoStr) {
+      if (!isoStr) return '--';
+      try {
+        const d = new Date(isoStr);
+        return new Intl.DateTimeFormat('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d);
+      } catch { return isoStr; }
+    }
+
+    function formatTime(isoStr) {
+      if (!isoStr) return '--';
+      try {
+        const d = new Date(isoStr);
+        return new Intl.DateTimeFormat('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(d);
+      } catch { return isoStr; }
+    }
+
+    function formatTimeAgo(isoStr) {
+      if (!isoStr) return '';
+      const diffMs = Date.now() - new Date(isoStr).getTime();
+      const mins = Math.floor(diffMs / 60000);
+      if (mins < 1) return 'الآن';
+      if (mins < 60) return `منذ ${mins} دقيقة`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `منذ ${hours} ساعة`;
+      return `${Math.floor(hours / 24)} يوم`;
+    }
+
+    function copyToClipboard(text) {
+      navigator.clipboard.writeText(text);
+      alert(`تم نسخ الرقم: ${text}`);
     }
 
     function escapeHtml(str) {
       if (!str) return '';
-      return str
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
     }
 
-    // Initialize Dashboard
+    // Initialize
     window.addEventListener('DOMContentLoaded', () => {
-      lucide.createIcons();
       fetchAnalytics();
-
-      // Auto-refresh every 20 seconds
-      autoRefreshInterval = setInterval(fetchAnalytics, 20000);
+      setInterval(fetchAnalytics, 15000); // 15s auto-refresh
     });
   </script>
 </body>

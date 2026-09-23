@@ -160,6 +160,61 @@ describe('Craft AI Analytics & Monitoring Dashboard', () => {
     });
   });
 
+  describe('Conversations & Deep Inspector Endpoints', () => {
+    it('returns 24-hour distribution array', async () => {
+      const hourly = await analyticsRepo.getHourlyDistribution();
+      expect(Array.isArray(hourly)).toBe(true);
+      expect(hourly.length).toBe(24);
+      expect(hourly[0]).toHaveProperty('hour');
+      expect(hourly[0]).toHaveProperty('totalMessages');
+    });
+
+    it('returns conversation list with user and message details via controller', async () => {
+      const req: any = { query: { token: adminSecret } };
+      let jsonOutput: any = null;
+      const res: any = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockImplementation((val) => {
+          jsonOutput = val;
+        }),
+      };
+
+      await controller.getConversations(req, res);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(jsonOutput.success).toBe(true);
+      expect(Array.isArray(jsonOutput.conversations)).toBe(true);
+    });
+
+    it('returns full conversation transcript', async () => {
+      const conv = await chatRepo.getOrCreateConversation('inspector_user_test', 'whatsapp');
+      await chatRepo.saveMessage(conv.id, 'user', 'Tester', 'أريد معرفة الطقس اليوم');
+      await chatRepo.saveMessage(conv.id, 'assistant', 'Craft', 'الطقس معتدل وجميل!');
+
+      const transcript = await analyticsRepo.getConversationTranscript(conv.id);
+      expect(Array.isArray(transcript)).toBe(true);
+      expect(transcript.length).toBeGreaterThanOrEqual(2);
+      expect(transcript[0]).toHaveProperty('text');
+      expect(transcript[0]).toHaveProperty('sender');
+    });
+
+    it('returns deep user details including memories and metrics', async () => {
+      const details = await analyticsRepo.getUserDetails('test_inspector_user');
+      expect(details).toBeDefined();
+      expect(details?.user).toBeDefined();
+      expect(details?.metrics).toBeDefined();
+      expect(Array.isArray(details?.memories)).toBe(true);
+      expect(Array.isArray(details?.reminders)).toBe(true);
+    });
+
+    it('returns tools execution statistics', async () => {
+      const tools = await analyticsRepo.getToolsStats();
+      expect(tools).toHaveProperty('totalWebSearches');
+      expect(tools).toHaveProperty('totalRemindersCreated');
+      expect(tools).toHaveProperty('confirmations');
+      expect(tools.confirmations).toHaveProperty('approved');
+    });
+  });
+
   describe('Dashboard UI Serving', () => {
     it('serves dashboard HTML page without crashing', () => {
       const req: any = {};

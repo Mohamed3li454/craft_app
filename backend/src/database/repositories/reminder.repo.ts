@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DatabaseManager } from '../connection';
 import { ReminderEntity } from './types';
 import { logger } from '../../core/logger';
+import { UserRepository, normalizePhoneNumber } from './user.repo';
 
 function toDeterministicUuid(id: string): string {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
@@ -96,7 +97,19 @@ export class ReminderRepository {
   private inMemoryReminders: Map<string, ReminderEntity[]> = new Map();
   private schemaMigrated = false;
 
-  constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
+  constructor(
+    private db: DatabaseManager = DatabaseManager.getInstance(),
+    private userRepo: UserRepository = new UserRepository(db)
+  ) {}
+
+  private async resolveUserId(userId: string): Promise<string> {
+    const cleanPhone = normalizePhoneNumber(userId.replace(/^wa_/, ''));
+    if (cleanPhone && cleanPhone.length >= 8) {
+      const user = await this.userRepo.findOrCreateUserByPhone(cleanPhone);
+      return user.id;
+    }
+    return toDeterministicUuid(userId);
+  }
 
   private async ensureSchema(): Promise<void> {
     if (this.schemaMigrated) return;
@@ -123,7 +136,7 @@ export class ReminderRepository {
   ): Promise<ReminderEntity> {
     await this.ensureSchema();
     const pool = this.db.getPool();
-    const userUuid = toDeterministicUuid(userId);
+    const userUuid = await this.resolveUserId(userId);
     const parsedDueAt = parseDueAt(dueAt);
     const safeRecurrence = recurrence || 'none';
 
@@ -180,7 +193,7 @@ export class ReminderRepository {
   ): Promise<ReminderEntity[]> {
     await this.ensureSchema();
     const pool = this.db.getPool();
-    const userUuid = toDeterministicUuid(userId);
+    const userUuid = await this.resolveUserId(userId);
 
     if (pool) {
       try {
@@ -203,7 +216,7 @@ export class ReminderRepository {
       }
     }
 
-    const list = this.inMemoryReminders.get(userId) || [];
+    const list = this.inMemoryReminders.get(userUuid) || this.inMemoryReminders.get(userId) || [];
     return includeCompleted ? list : list.filter((r) => !r.isCompleted);
   }
 
@@ -213,7 +226,7 @@ export class ReminderRepository {
   ): Promise<ReminderEntity | null> {
     await this.ensureSchema();
     const pool = this.db.getPool();
-    const userUuid = toDeterministicUuid(userId);
+    const userUuid = await this.resolveUserId(userId);
 
     if (pool) {
       try {
