@@ -64,7 +64,7 @@ export class GroqProvider {
 
   private async withTimeout<T>(
     promise: Promise<T>,
-    timeoutMs = 6000,
+    timeoutMs = 25000,
     errorMsg = 'Groq request timed out'
   ): Promise<T> {
     let timer: NodeJS.Timeout;
@@ -248,8 +248,8 @@ Mobile & WhatsApp Elegant Formatting Rules:
         logger.info(`Image detected, routing directly to Groq Vision model [${visionModel}]`);
         return await this.withTimeout(
           this.callChat(visionModel, messages, useTools, memories, imageAttachment),
-          7000,
-          `Groq Vision model [${visionModel}] timed out after 7s`
+          35000,
+          `Groq Vision model [${visionModel}] timed out after 35s`
         );
       } catch (err: any) {
         logger.error(`Groq Vision call with [${visionModel}] failed`, { error: err.message });
@@ -275,14 +275,13 @@ Mobile & WhatsApp Elegant Formatting Rules:
       try {
         return await this.withTimeout(
           this.callChat(model, messages, useTools, memories),
-          5000,
-          `Groq model [${model}] timed out after 5s`
+          25000,
+          `Groq model [${model}] timed out after 25s`
         );
       } catch (err: any) {
         const isQuotaOrRateLimit =
           err.message?.includes('429') ||
-          err.message?.includes('rate_limit_exceeded') ||
-          err.message?.includes('timed out');
+          err.message?.includes('rate_limit_exceeded');
         if (isQuotaOrRateLimit) {
           // Parse exact retry delay from Groq error (supports e.g. "4.92s", "17m53.52s", "1h20m")
           let cooldownMs = GroqProvider.COOLDOWN_DURATION_MS;

@@ -921,7 +921,7 @@ export class AgentOrchestrator {
             geminiError: geminiErr.message,
             groqError: groqFallbackErr.message,
           });
-          finalReply = 'معلش يا باشا، حصل ضغط لحظي عالي جداً على السيرفرات حالياً. أرجو أن تعيد إرسال رسالتك بعد ثوانٍ قليلة وسأكون جاهزاً للرد عليك فوراً! 🚀';
+          finalReply = 'يا باشا أنا معاك وسامعك، حصل تهنيجة بسيطة في الاتصال بس أنا جاهز، تحب أساعدك في إيه؟ 🤝';
         }
       }
     } else {
@@ -940,7 +940,7 @@ export class AgentOrchestrator {
             groqError: groqErr.message,
             geminiError: geminiFallbackErr.message,
           });
-          finalReply = 'معلش يا باشا، حصل ضغط لحظي عالي جداً على السيرفرات حالياً. أرجو أن تعيد إرسال رسالتك بعد ثوانٍ قليلة وسأكون جاهزاً للرد عليك فوراً! 🚀';
+          finalReply = 'يا باشا أنا معاك وسامعك، حصل تهنيجة بسيطة في الاتصال بس أنا جاهز، تحب أساعدك في إيه؟ 🤝';
         }
       }
     }

@@ -48,7 +48,7 @@ export class GeminiProvider {
 
   private async withTimeout<T>(
     promise: Promise<T>,
-    timeoutMs = 5000,
+    timeoutMs = 25000,
     errorMsg = 'Gemini request timed out'
   ): Promise<T> {
     let timer: NodeJS.Timeout;
@@ -178,15 +178,16 @@ Mobile & WhatsApp Elegant Formatting Rules:
     }
 
     const hasMedia = contents.some((c) => c.parts?.some((p) => 'inlineData' in p));
-    const timeoutMs = hasMedia ? 12000 : 5000;
+    const timeoutMs = hasMedia ? 35000 : 25000;
 
     const candidateModels = [
       this.primaryModel || 'gemini-3.6-flash',
       this.fallbackModel || 'gemini-3.1-flash-lite',
       'gemini-3.6-flash',
       'gemini-3.1-flash-lite',
-      'gemini-2.5-flash-lite',
-      'gemini-3.5-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
+      'gemini-flash-latest',
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     for (let i = 0; i < candidateModels.length; i++) {
@@ -207,8 +208,7 @@ Mobile & WhatsApp Elegant Formatting Rules:
           err.message?.includes('429') ||
           err.message?.includes('Quota') ||
           err.message?.includes('quota') ||
-          err.message?.includes('503') ||
-          err.message?.includes('timed out');
+          err.message?.includes('503');
         if (isQuotaOrUnavailable) {
           GeminiProvider.setModelCooldown(model);
         }
