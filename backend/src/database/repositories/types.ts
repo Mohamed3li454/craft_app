@@ -25,6 +25,10 @@ export interface MessageEntity {
   mediaUrl?: string;
   mediaType?: string;
   tokensUsed?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  modelName?: string;
+  latencyMs?: number;
   createdAt: Date;
 }
 

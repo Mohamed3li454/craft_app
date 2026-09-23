@@ -24,6 +24,12 @@ export interface GroqMessageResponse {
     name: string;
     args: Record<string, any>;
   }>;
+  modelUsed?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 export class GroqProvider {
@@ -186,7 +192,12 @@ Mobile & WhatsApp Elegant Formatting Rules:
     imageAttachment?: { data: string; mimeType: string }
   ): Promise<GroqMessageResponse> {
     if (config.groq.isMockMode || !this.apiKey) {
-      return this.generateMockResponse(messages, memories, !!imageAttachment);
+      const mockRes = this.generateMockResponse(messages, memories, !!imageAttachment);
+      if (!mockRes.modelUsed) mockRes.modelUsed = this.primaryModel;
+      if (!mockRes.usage) {
+        mockRes.usage = { promptTokens: 30, completionTokens: 40, totalTokens: 70 };
+      }
+      return mockRes;
     }
 
     // If an image is attached, route directly to Qwen 3.8 27B which has native vision support
@@ -295,6 +306,14 @@ Mobile & WhatsApp Elegant Formatting Rules:
       throw new Error('Groq API returned empty choices array');
     }
 
+    const usage = data.usage
+      ? {
+          promptTokens: data.usage.prompt_tokens || 0,
+          completionTokens: data.usage.completion_tokens || 0,
+          totalTokens: data.usage.total_tokens || 0,
+        }
+      : undefined;
+
     // Check for tool calls
     if (assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0) {
       const parsedToolCalls = assistantMsg.tool_calls.map((tc: any) => {
@@ -314,11 +333,15 @@ Mobile & WhatsApp Elegant Formatting Rules:
       return {
         text: assistantMsg.content || '',
         functionCalls: parsedToolCalls,
+        modelUsed: modelName,
+        usage,
       };
     }
 
     return {
       text: assistantMsg.content || '',
+      modelUsed: modelName,
+      usage,
     };
   }
 

@@ -6,6 +6,7 @@ import { logger } from './core/logger';
 import { ChatController } from './modules/chat/chat.controller';
 import { WhatsAppWebhookHandler } from './modules/whatsapp/webhook';
 import { ReminderScheduler } from './modules/reminder/reminder.scheduler';
+import { AnalyticsController } from './modules/analytics/analytics.controller';
 
 export function createApp(): Application {
   const app: Application = express();
@@ -83,6 +84,7 @@ export function createApp(): Application {
   // 5. Initialize Controllers
   const chatController = new ChatController();
   const whatsappHandler = new WhatsAppWebhookHandler();
+  const analyticsController = new AnalyticsController();
 
   // 6. Flutter API Routes (/api/v1)
   app.post('/api/v1/chat', chatController.handleChat);
@@ -114,6 +116,10 @@ export function createApp(): Application {
   app.all('/api/v1/cron/reminders', handleCronReminders);
   app.all('/api/cron/reminders', handleCronReminders);
 
+  // 9. Analytics & Admin Dashboard Routes
+  app.get('/dashboard', analyticsController.serveDashboardUI);
+  app.get('/admin', analyticsController.serveDashboardUI);
+  app.get('/api/admin/analytics', analyticsController.getAnalyticsData);
 
   // 4.1 Root Endpoint
   app.get('/', (_req: Request, res: Response) => {
@@ -126,6 +132,8 @@ export function createApp(): Application {
         health: '/health',
         privacy: '/privacy',
         terms: '/terms',
+        dashboard: '/dashboard',
+        analyticsApi: '/api/admin/analytics',
         whatsappWebhook: '/webhooks/whatsapp',
         chatApi: '/api/v1/chat',
       },
