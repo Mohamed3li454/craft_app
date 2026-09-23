@@ -242,6 +242,10 @@ export class WhatsAppWebhookHandler {
         channel: 'whatsapp',
         text,
         media: mediaAttachment,
+        onInterimProgress: async (interimText: string) => {
+          logger.info(`Dispatching interim acknowledgment to WhatsApp user [${from}]: "${interimText}"`);
+          await this.whatsappAdapter.sendTextMessage(from, interimText);
+        },
       });
 
       // 6. Send reply back to WhatsApp user (Interactive Buttons if confirmation needed, else text)

@@ -26,6 +26,7 @@ export interface AgentRunInput {
   text: string;
   mediaUrl?: string;
   media?: AgentMediaAttachment;
+  onInterimProgress?: (message: string) => Promise<void> | void;
 }
 
 export interface AgentRunOutput {
@@ -364,6 +365,17 @@ export class AgentOrchestrator {
       hasMedia: !!input.media,
     });
 
+    let interimSent = false;
+    const sendInterim = async (msg: string) => {
+      if (interimSent || !input.onInterimProgress || !msg) return;
+      interimSent = true;
+      try {
+        await input.onInterimProgress(msg);
+      } catch (err: any) {
+        logger.warn('Failed to dispatch interim progress message', { error: err.message });
+      }
+    };
+
     // 1. If WhatsApp channel, consolidate any fragmented conversations into the primary one
     if (input.channel === 'whatsapp') {
       await this.chatRepo.consolidateWhatsAppConversations(input.userId);
@@ -378,6 +390,27 @@ export class AgentOrchestrator {
         (input.media?.filename || '').toLowerCase().endsWith(ext)
       );
 
+    // Immediate interim dispatch for media attachments (0ms latency)
+    if (input.media) {
+      if (isAudio) {
+        await sendInterim('ثواني أسمع الفويس وأرد عليك يا باشا! 🎙️');
+      } else {
+        const cleanMimeForCheck = (input.media.mimeType || '').toLowerCase();
+        const filenameForCheck = input.media.filename || '';
+        const extForCheck = filenameForCheck.includes('.')
+          ? filenameForCheck.substring(filenameForCheck.lastIndexOf('.')).toLowerCase()
+          : '';
+        const isImg =
+          cleanMimeForCheck.startsWith('image/') ||
+          ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'].includes(extForCheck);
+        if (isImg) {
+          await sendInterim('ثواني هبص في الصورة وأقولك رأيي يا هندسة! 👁️');
+        } else {
+          await sendInterim('ثواني هقرأ الملف المرفق وأرجعلك بالخلاصة يا باشا! 📄');
+        }
+      }
+    }
+
     if (input.media && isAudio) {
       const transcribed = await this.groqProvider.transcribeAudio(
         input.media.buffer,
@@ -387,6 +420,20 @@ export class AgentOrchestrator {
       if (transcribed) {
         textToProcess = textToProcess ? `${textToProcess}\n${transcribed}` : transcribed;
       }
+    }
+
+    // Concurrent, non-blocking pre-flight intent & interim generator for text queries via Groq (~150ms)
+    if (!interimSent && input.onInterimProgress && textToProcess && !input.media) {
+      this.groqProvider
+        .generateInterimAcknowledgement(textToProcess)
+        .then(async (acknowledged) => {
+          if (acknowledged && !interimSent) {
+            await sendInterim(acknowledged);
+          }
+        })
+        .catch((err) => {
+          logger.debug('Concurrent interim check failed', { error: err.message });
+        });
     }
 
     // 3. Process any media attachments (images, PDFs, docx, code files)
@@ -534,6 +581,10 @@ export class AgentOrchestrator {
               ],
             });
             continue;
+          }
+
+          if (tool.name === 'web_search' && !interimSent) {
+            await sendInterim('ثواني هبحثلك في المصادر وأتأكدلك من الموضوع ده وأرجعلك يا باشا 🔍');
           }
 
           logger.info(`Executing tool [${tool.name}] via Gemini`, { args: fc.args });
@@ -688,6 +739,10 @@ export class AgentOrchestrator {
             continue;
           }
 
+          if (tool.name === 'web_search' && !interimSent) {
+            await sendInterim('ثواني هبحثلك في المصادر وأتأكدلك من الموضوع ده وأرجعلك يا باشا 🔍');
+          }
+
           logger.info(`Executing tool [${tool.name}] via Groq fallback`, { args: fc.args });
           const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
             userId: input.userId,
@@ -735,6 +790,9 @@ export class AgentOrchestrator {
 
     // Clean and harmonize formatting for WhatsApp and mobile viewing (remove tables, <br>, etc.)
     finalReply = cleanWhatsAppText(finalReply);
+
+    // Prevent any late background interim messages from firing after final answer
+    interimSent = true;
 
     // Persist assistant reply
     await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', finalReply);
