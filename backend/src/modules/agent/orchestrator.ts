@@ -45,6 +45,13 @@ export interface AgentRunOutput {
     description: string;
     expiresAt: string;
   };
+  metrics?: {
+    modelUsed: string;
+    latencyMs: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 /**
@@ -359,11 +366,17 @@ export class AgentOrchestrator {
   ) {}
 
   public async run(input: AgentRunInput): Promise<AgentRunOutput> {
+    const runStartTime = Date.now();
     const agentRunId = uuidv4();
     logger.info(`Starting Agent run [${agentRunId}] on channel [${input.channel}]`, {
       userId: input.userId,
       hasMedia: !!input.media,
     });
+
+    let lastModelUsed = config.gemini.model;
+    let accumulatedPromptTokens = 0;
+    let accumulatedCompletionTokens = 0;
+    let accumulatedTotalTokens = 0;
 
     let interimSent = false;
     const sendInterim = async (msg: string) => {
@@ -390,24 +403,30 @@ export class AgentOrchestrator {
         (input.media?.filename || '').toLowerCase().endsWith(ext)
       );
 
+    const cleanMimeForCheck = (input.media?.mimeType || '').toLowerCase();
+    const filenameForCheck = input.media?.filename || '';
+    const extForCheck = filenameForCheck.includes('.')
+      ? filenameForCheck.substring(filenameForCheck.lastIndexOf('.')).toLowerCase()
+      : '';
+    const isImg =
+      cleanMimeForCheck.startsWith('image/') ||
+      ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'].includes(extForCheck);
+
+    let mediaType = 'text';
+    if (input.media) {
+      if (isAudio) mediaType = 'audio';
+      else if (isImg) mediaType = 'image';
+      else mediaType = 'document';
+    }
+
     // Immediate interim dispatch for media attachments (0ms latency)
     if (input.media) {
       if (isAudio) {
         await sendInterim('ثواني أسمع الفويس وأرد عليك يا باشا! 🎙️');
+      } else if (isImg) {
+        await sendInterim('ثواني هبص في الصورة وأقولك رأيي يا هندسة! 👁️');
       } else {
-        const cleanMimeForCheck = (input.media.mimeType || '').toLowerCase();
-        const filenameForCheck = input.media.filename || '';
-        const extForCheck = filenameForCheck.includes('.')
-          ? filenameForCheck.substring(filenameForCheck.lastIndexOf('.')).toLowerCase()
-          : '';
-        const isImg =
-          cleanMimeForCheck.startsWith('image/') ||
-          ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'].includes(extForCheck);
-        if (isImg) {
-          await sendInterim('ثواني هبص في الصورة وأقولك رأيي يا هندسة! 👁️');
-        } else {
-          await sendInterim('ثواني هقرأ الملف المرفق وأرجعلك بالخلاصة يا باشا! 📄');
-        }
+        await sendInterim('ثواني هقرأ الملف المرفق وأرجعلك بالخلاصة يا باشا! 📄');
       }
     }
 
@@ -455,13 +474,14 @@ export class AgentOrchestrator {
     );
     const conversationId = conversation.id;
 
-    // 6. Persist user message in chat history
+    // 6. Persist user message in chat history with mediaType
     await this.chatRepo.saveMessage(
       conversationId,
       'user',
       input.channel === 'whatsapp' ? 'WhatsApp User' : 'User',
       historyRecordText || effectivePrompt,
-      input.mediaUrl
+      input.mediaUrl,
+      { mediaType }
     );
 
     // 7. Load recent history for context (optimized sliding window: 8 turns for high token economy)
@@ -498,6 +518,12 @@ export class AgentOrchestrator {
         logger.debug(`Agent Gemini ReAct iteration [${iterations}/${config.security.maxIterations}]`);
 
         const geminiResponse = await this.geminiProvider.generateReply(contents, true, memories);
+        if (geminiResponse.modelUsed) lastModelUsed = geminiResponse.modelUsed;
+        if (geminiResponse.usage) {
+          accumulatedPromptTokens += geminiResponse.usage.promptTokens;
+          accumulatedCompletionTokens += geminiResponse.usage.completionTokens;
+          accumulatedTotalTokens += geminiResponse.usage.totalTokens;
+        }
 
         if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
           const fc = geminiResponse.functionCalls[0];
@@ -553,6 +579,7 @@ export class AgentOrchestrator {
 
             await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', promptNotice);
 
+            const latencyMs = Date.now() - runStartTime;
             return {
               conversationId,
               agentRunId,
@@ -564,6 +591,13 @@ export class AgentOrchestrator {
                 actionName: confirmation.actionName,
                 description: confirmation.description,
                 expiresAt: confirmation.expiresAt.toISOString(),
+              },
+              metrics: {
+                modelUsed: lastModelUsed,
+                latencyMs,
+                promptTokens: accumulatedPromptTokens,
+                completionTokens: accumulatedCompletionTokens,
+                totalTokens: accumulatedTotalTokens,
               },
             };
           }
@@ -636,6 +670,12 @@ export class AgentOrchestrator {
           memories,
           iterations === 1 ? imageAttachment : undefined
         );
+        if (groqResponse.modelUsed) lastModelUsed = groqResponse.modelUsed;
+        if (groqResponse.usage) {
+          accumulatedPromptTokens += groqResponse.usage.promptTokens;
+          accumulatedCompletionTokens += groqResponse.usage.completionTokens;
+          accumulatedTotalTokens += groqResponse.usage.totalTokens;
+        }
 
         if (groqResponse.functionCalls && groqResponse.functionCalls.length > 0) {
           const fc = groqResponse.functionCalls[0];
@@ -695,6 +735,7 @@ export class AgentOrchestrator {
 
             await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', promptNotice);
 
+            const latencyMs = Date.now() - runStartTime;
             return {
               conversationId,
               agentRunId,
@@ -706,6 +747,13 @@ export class AgentOrchestrator {
                 actionName: confirmation.actionName,
                 description: confirmation.description,
                 expiresAt: confirmation.expiresAt.toISOString(),
+              },
+              metrics: {
+                modelUsed: lastModelUsed,
+                latencyMs,
+                promptTokens: accumulatedPromptTokens,
+                completionTokens: accumulatedCompletionTokens,
+                totalTokens: accumulatedTotalTokens,
               },
             };
           }
@@ -791,11 +839,26 @@ export class AgentOrchestrator {
     // Clean and harmonize formatting for WhatsApp and mobile viewing (remove tables, <br>, etc.)
     finalReply = cleanWhatsAppText(finalReply);
 
+    const latencyMs = Date.now() - runStartTime;
+
     // Prevent any late background interim messages from firing after final answer
     interimSent = true;
 
-    // Persist assistant reply
-    await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', finalReply);
+    // Persist assistant reply with full analytics metadata
+    await this.chatRepo.saveMessage(
+      conversationId,
+      'assistant',
+      'Craft',
+      finalReply,
+      undefined,
+      {
+        tokensUsed: accumulatedTotalTokens,
+        promptTokens: accumulatedPromptTokens,
+        completionTokens: accumulatedCompletionTokens,
+        modelName: lastModelUsed,
+        latencyMs,
+      }
+    );
 
     logger.info(`Agent run [${agentRunId}] completed successfully`);
     return {
@@ -804,6 +867,13 @@ export class AgentOrchestrator {
       status: 'completed',
       replyText: finalReply,
       toolCallsExecuted,
+      metrics: {
+        modelUsed: lastModelUsed,
+        latencyMs,
+        promptTokens: accumulatedPromptTokens,
+        completionTokens: accumulatedCompletionTokens,
+        totalTokens: accumulatedTotalTokens,
+      },
     };
   }
 

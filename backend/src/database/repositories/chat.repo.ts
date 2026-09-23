@@ -79,23 +79,74 @@ export class ChatRepository {
     return newConv;
   }
 
+  private schemaChecked = false;
+
+  private async ensureSchema() {
+    if (this.schemaChecked) return;
+    const pool = this.db.getPool();
+    if (!pool) return;
+    try {
+      await pool.query(`
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS tokens_used INT DEFAULT 0;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS prompt_tokens INT DEFAULT 0;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS completion_tokens INT DEFAULT 0;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS model_name VARCHAR(100);
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS latency_ms INT DEFAULT 0;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(50);
+      `);
+      this.schemaChecked = true;
+    } catch (err: any) {
+      logger.debug('Schema check for messages table skipped', { error: err.message });
+    }
+  }
+
+  public getInMemoryConversations(): Map<string, ConversationEntity> {
+    return this.inMemoryConversations;
+  }
+
+  public getInMemoryMessages(): Map<string, MessageEntity[]> {
+    return this.inMemoryMessages;
+  }
+
   public async saveMessage(
     conversationId: string,
     senderRole: 'user' | 'assistant' | 'system' | 'tool',
     senderName: string,
     text: string,
-    mediaUrl?: string
+    mediaUrl?: string,
+    metadata?: {
+      tokensUsed?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+      modelName?: string;
+      latencyMs?: number;
+      mediaType?: string;
+    }
   ): Promise<MessageEntity> {
     const pool = this.db.getPool();
     const messageId = uuidv4();
 
     if (pool) {
       try {
+        await this.ensureSchema();
         const res = await pool.query(
-          `INSERT INTO messages (id, conversation_id, sender_role, sender_name, text, media_url)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", created_at as "createdAt"`,
-          [messageId, conversationId, senderRole, senderName, text, mediaUrl || null]
+          `INSERT INTO messages (id, conversation_id, sender_role, sender_name, text, media_url, tokens_used, prompt_tokens, completion_tokens, model_name, latency_ms, media_type)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           RETURNING id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", tokens_used as "tokensUsed", prompt_tokens as "promptTokens", completion_tokens as "completionTokens", model_name as "modelName", latency_ms as "latencyMs", media_type as "mediaType", created_at as "createdAt"`,
+          [
+            messageId,
+            conversationId,
+            senderRole,
+            senderName,
+            text,
+            mediaUrl || null,
+            metadata?.tokensUsed || 0,
+            metadata?.promptTokens || 0,
+            metadata?.completionTokens || 0,
+            metadata?.modelName || null,
+            metadata?.latencyMs || 0,
+            metadata?.mediaType || null,
+          ]
         );
         await pool.query(
           `UPDATE conversations SET updated_at = NOW() WHERE id = $1`,
@@ -116,6 +167,12 @@ export class ChatRepository {
       senderName,
       text,
       mediaUrl,
+      mediaType: metadata?.mediaType,
+      tokensUsed: metadata?.tokensUsed || 0,
+      promptTokens: metadata?.promptTokens || 0,
+      completionTokens: metadata?.completionTokens || 0,
+      modelName: metadata?.modelName,
+      latencyMs: metadata?.latencyMs || 0,
       createdAt: new Date(),
     };
 
@@ -134,7 +191,7 @@ export class ChatRepository {
     if (pool) {
       try {
         const res = await pool.query(
-          `SELECT id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", created_at as "createdAt"
+          `SELECT id, conversation_id as "conversationId", sender_role as "senderRole", sender_name as "senderName", text, media_url as "mediaUrl", tokens_used as "tokensUsed", prompt_tokens as "promptTokens", completion_tokens as "completionTokens", model_name as "modelName", latency_ms as "latencyMs", media_type as "mediaType", created_at as "createdAt"
            FROM messages 
            WHERE conversation_id = $1 
            ORDER BY created_at DESC 
@@ -149,8 +206,8 @@ export class ChatRepository {
       }
     }
 
-    const list = this.inMemoryMessages.get(conversationId) || [];
-    return list.slice(-limit);
+    const messages = this.inMemoryMessages.get(conversationId) || [];
+    return messages.slice(-limit);
   }
 
   public async listConversations(userId: string): Promise<ConversationEntity[]> {

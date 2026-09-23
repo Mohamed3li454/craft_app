@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>لوحة تحكم وتحليلات كرافت | Craft AI Analytics</title>
+  
+  <!-- Google Fonts: Cairo -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Cairo', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body {
+      font-family: 'Cairo', sans-serif;
+      background-color: #090d16;
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.4);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- Navigation Bar -->
+  <header class="sticky top-0 z-40 w-full glass-card border-b border-slate-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3 space-x-reverse">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+          <i data-lucide="bot" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2 space-x-reverse">
+            <h1 class="text-lg font-bold tracking-tight text-white">Craft AI Analytics</h1>
+            <span class="px-2 py-0.5 text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> مباشر
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">لوحة المراقبة الشاملة واستهلاك التوكينز</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3 space-x-reverse">
+        <!-- Date range filter -->
+        <select id="daysFilter" onchange="fetchAnalytics()" class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="7">آخر 7 أيام</option>
+          <option value="14" selected>آخر 14 يوماً</option>
+          <option value="30">آخر 30 يوماً</option>
+        </select>
+
+        <!-- Refresh Button -->
+        <button onclick="fetchAnalytics()" id="refreshBtn" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors">
+          <i data-lucide="refresh-cw" id="refreshIcon" class="w-3.5 h-3.5"></i>
+          <span>تحديث</span>
+        </button>
+
+        <!-- Lock/Key Settings -->
+        <button onclick="promptForToken()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" title="تغيير رمز الأمان">
+          <i data-lucide="key" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Area -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- KPI Metric Cards Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      
+      <!-- Total Conversations -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-slate-400">المحادثات</span>
+          <div class="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+            <i data-lucide="messages-square" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <h3 id="statConversations" class="text-2xl font-extrabold text-white tracking-tight">--</h3>
+          <p class="text-[11px] text-emerald-400 mt-1 flex items-center gap-1">
+            <span id="statActiveToday">--</span> اليوم
+          </p>
+        </div>
+      </div>
+
+      <!-- Messages In / Out -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-slate-400">إجمالي الرسائل</span>
+          <div class="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
+            <i data-lucide="send" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <h3 id="statMessages" class="text-2xl font-extrabold text-white tracking-tight">--</h3>
+          <p class="text-[11px] text-slate-400 mt-1">
+            <span id="statUserMsgs" class="text-blue-400">--</span> مستخدم | <span id="statBotMsgs" class="text-violet-400">--</span> بوت
+          </p>
+        </div>
+      </div>
+
+      <!-- Total Tokens Used -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-slate-400">التوكينز المستهلكة</span>
+          <div class="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+            <i data-lucide="zap" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <h3 id="statTokens" class="text-2xl font-extrabold text-white tracking-tight">--</h3>
+          <p class="text-[11px] text-amber-400/90 mt-1" id="statTokensBreakdown">
+            -- مدخلات | -- مخرجات
+          </p>
+        </div>
+      </div>
+
+      <!-- Estimated Cost ($) -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-slate-400">التكلفة التقديرية</span>
+          <div class="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+            <i data-lucide="dollar-sign" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <h3 id="statCost" class="text-2xl font-extrabold text-emerald-400 tracking-tight">$0.00</h3>
+          <p class="text-[11px] text-slate-400 mt-1">حساب تلقائي دقيق</p>
+        </div>
+      </div>
+
+      <!-- Avg Latency -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-slate-400">متوسط سرعة الرد</span>
+          <div class="w-7 h-7 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+            <i data-lucide="gauge" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <h3 id="statLatency" class="text-2xl font-extrabold text-white tracking-tight">-- ms</h3>
+          <p class="text-[11px] text-slate-400 mt-1">توليد ومعالجة</p>
+        </div>
+      </div>
+
+      <!-- Active Users -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700 transition-all">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-slate-400">المستخدمين</span>
+          <div class="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
+            <i data-lucide="users" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <h3 id="statUsers" class="text-2xl font-extrabold text-white tracking-tight">--</h3>
+          <p class="text-[11px] text-purple-400 mt-1">
+            <span id="statActiveUsersToday">--</span> نشط اليوم
+          </p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Daily Activity Chart (2 Columns) -->
+      <div class="lg:col-span-2 glass-card rounded-2xl p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="trending-up" class="w-4 h-4 text-indigo-400"></i>
+              حركة الرسائل والمحادثات اليومية
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">مقارنة رسائل المستخدمين وردود البوت</p>
+          </div>
+        </div>
+        <div class="h-64">
+          <canvas id="dailyChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Models Distribution Chart (1 Column) -->
+      <div class="glass-card rounded-2xl p-5 flex flex-col justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <i data-lucide="pie-chart" class="w-4 h-4 text-violet-400"></i>
+            توزيع الموديلات المستخدمة
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">نسب الاعتماد على Gemini و Groq</p>
+        </div>
+        <div class="h-52 my-auto flex items-center justify-center">
+          <canvas id="modelsChart"></canvas>
+        </div>
+        <div id="modelsLegend" class="space-y-1.5 text-xs text-slate-300 mt-2">
+          <!-- Dynamically filled -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Tables Row: Top Users & Live Message Stream -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- Top Active Users Table (1 Column) -->
+      <div class="glass-card rounded-2xl p-5 flex flex-col">
+        <div class="mb-4">
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <i data-lucide="trophy" class="w-4 h-4 text-amber-400"></i>
+            أكثر المستخدمين تفاعلاً
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">أرقام الهواتف ومعدل استهلاك التوكينز</p>
+        </div>
+
+        <div class="overflow-y-auto max-h-96 custom-scrollbar pr-1 flex-1">
+          <table class="w-full text-right text-xs">
+            <thead class="text-[11px] text-slate-400 border-b border-slate-800">
+              <tr>
+                <th class="pb-2">المستخدم</th>
+                <th class="pb-2">الرسائل</th>
+                <th class="pb-2">التوكينز</th>
+              </tr>
+            </thead>
+            <tbody id="topUsersBody" class="divide-y divide-slate-800/60">
+              <tr>
+                <td colspan="3" class="py-6 text-center text-slate-500">جاري تحميل البيانات...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Live Messages Feed (2 Columns) -->
+      <div class="lg:col-span-2 glass-card rounded-2xl p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="activity" class="w-4 h-4 text-emerald-400"></i>
+              سجل الرسائل الحية والتفاعلات
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">متابعة ما يدور بين المستخدمين وكرافت لحظة بلحظة</p>
+          </div>
+          <span class="text-[11px] text-slate-400" id="liveMsgCount">0 رسالة</span>
+        </div>
+
+        <div class="overflow-y-auto max-h-96 custom-scrollbar pr-1 flex-1 space-y-3" id="liveMessagesList">
+          <div class="py-8 text-center text-slate-500 text-xs">جاري تحميل الرسائل...</div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Login / Token Modal -->
+  <div id="authModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="glass-card max-w-md w-full rounded-2xl p-6 shadow-2xl border border-slate-700">
+      <div class="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-4">
+        <i data-lucide="shield-check" class="w-6 h-6"></i>
+      </div>
+      <h3 class="text-lg font-bold text-white">تسجيل الدخول للوحة التحكم</h3>
+      <p class="text-xs text-slate-400 mt-1">أدخل رمز الأمان السري الخاص بك (Admin Secret Key) للوصول إلى التحليلات.</p>
+
+      <form onsubmit="handleTokenSubmit(event)" class="mt-5 space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">رمز الأمان السري</label>
+          <input type="password" id="tokenInput" placeholder="أدخل الرمز السري..." required
+            class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <p id="authError" class="text-xs text-rose-400 mt-1.5 hidden"></p>
+        </div>
+
+        <button type="submit" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm rounded-xl transition-colors shadow-lg shadow-indigo-600/30">
+          تأكيد والدخول
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- JavaScript Logic -->
+  <script>
+    let dailyChartInstance = null;
+    let modelsChartInstance = null;
+    let autoRefreshInterval = null;
+
+    function getStoredToken() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlToken = urlParams.get('token');
+      if (urlToken) {
+        localStorage.setItem('craft_admin_token', urlToken);
+        return urlToken;
+      }
+      return localStorage.getItem('craft_admin_token');
+    }
+
+    function promptForToken() {
+      const modal = document.getElementById('authModal');
+      const input = document.getElementById('tokenInput');
+      input.value = localStorage.getItem('craft_admin_token') || '';
+      modal.classList.remove('hidden');
+    }
+
+    function handleTokenSubmit(e) {
+      e.preventDefault();
+      const val = document.getElementById('tokenInput').value.trim();
+      if (!val) return;
+      localStorage.setItem('craft_admin_token', val);
+      document.getElementById('authModal').classList.add('hidden');
+      fetchAnalytics();
+    }
+
+    async function fetchAnalytics() {
+      const token = getStoredToken();
+      if (!token) {
+        promptForToken();
+        return;
+      }
+
+      const refreshIcon = document.getElementById('refreshIcon');
+      refreshIcon.classList.add('animate-spin');
+
+      const days = document.getElementById('daysFilter').value;
+
+      try {
+        const res = await fetch(`/api/admin/analytics?token=${encodeURIComponent(token)}&days=${days}&userLimit=10&limit=30`);
+        
+        if (res.status === 401) {
+          document.getElementById('authError').textContent = 'رمز الأمان غير صحيح، يرجى المحاولة مرة أخرى.';
+          document.getElementById('authError').classList.remove('hidden');
+          promptForToken();
+          return;
+        }
+
+        const data = await res.json();
+        if (data.success) {
+          updateUI(data);
+        }
+      } catch (err) {
+        console.error('Failed to load analytics', err);
+      } finally {
+        setTimeout(() => refreshIcon.classList.remove('animate-spin'), 600);
+      }
+    }
+
+    function updateUI(data) {
+      const ov = data.overview || {};
+      
+      // Numbers formatting helper
+      const fmt = (n) => Number(n || 0).toLocaleString('en-US');
+
+      // KPIs
+      document.getElementById('statConversations').textContent = fmt(ov.totalConversations);
+      document.getElementById('statActiveToday').textContent = fmt(ov.activeConversationsToday);
+
+      document.getElementById('statMessages').textContent = fmt(ov.totalMessages);
+      document.getElementById('statUserMsgs').textContent = fmt(ov.userMessages);
+      document.getElementById('statBotMsgs').textContent = fmt(ov.botMessages);
+
+      document.getElementById('statTokens').textContent = fmt(ov.totalTokens);
+      document.getElementById('statTokensBreakdown').textContent = `${fmt(ov.promptTokens)} مدخلات | ${fmt(ov.completionTokens)} مخرجات`;
+
+      document.getElementById('statCost').textContent = `$${Number(ov.estimatedCostUsd || 0).toFixed(4)}`;
+      document.getElementById('statLatency').textContent = `${fmt(ov.avgLatencyMs)} ms`;
+
+      document.getElementById('statUsers').textContent = fmt(ov.totalUsers);
+      document.getElementById('statActiveUsersToday').textContent = fmt(ov.activeUsersToday);
+
+      // Render Charts
+      renderDailyChart(data.dailyTrends || []);
+      renderModelsChart(data.modelBreakdown || []);
+
+      // Render Top Users Table
+      renderTopUsers(data.topUsers || []);
+
+      // Render Live Messages Feed
+      renderRecentInteractions(data.recentInteractions || []);
+    }
+
+    function renderDailyChart(trends) {
+      const ctx = document.getElementById('dailyChart').getContext('2d');
+      const labels = trends.map(t => t.date.slice(5)); // MM-DD
+      const userMsgs = trends.map(t => t.userMessages);
+      const botMsgs = trends.map(t => t.botMessages);
+
+      if (dailyChartInstance) {
+        dailyChartInstance.destroy();
+      }
+
+      dailyChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'رسائل المستخدمين',
+              data: userMsgs,
+              borderColor: '#60a5fa',
+              backgroundColor: 'rgba(96, 165, 250, 0.15)',
+              fill: true,
+              tension: 0.35,
+              pointRadius: 3,
+            },
+            {
+              label: 'ردود كرافت',
+              data: botMsgs,
+              borderColor: '#818cf8',
+              backgroundColor: 'rgba(129, 140, 248, 0.15)',
+              fill: true,
+              tension: 0.35,
+              pointRadius: 3,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: { color: '#94a3b8', font: { family: 'Cairo', size: 11 } }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#64748b', font: { family: 'Cairo', size: 10 } }
+            },
+            y: {
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#64748b', font: { family: 'Cairo', size: 10 }, stepSize: 1 }
+            }
+          }
+        }
+      });
+    }
+
+    function renderModelsChart(models) {
+      const ctx = document.getElementById('modelsChart').getContext('2d');
+      const labels = models.map(m => m.model.replace('openai/', '').replace('qwen/', ''));
+      const counts = models.map(m => m.count);
+      const bgColors = ['#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ec4899'];
+
+      if (modelsChartInstance) {
+        modelsChartInstance.destroy();
+      }
+
+      modelsChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [{
+            data: counts,
+            backgroundColor: bgColors.slice(0, models.length),
+            borderWidth: 0,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          cutout: '72%'
+        }
+      });
+
+      // Update Legend
+      const legendContainer = document.getElementById('modelsLegend');
+      legendContainer.innerHTML = models.map((m, idx) => `
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${bgColors[idx % bgColors.length]}"></span>
+            <span class="text-slate-300 font-medium">${m.model}</span>
+          </div>
+          <span class="text-slate-400 font-bold">${m.percentage}% (${m.count})</span>
+        </div>
+      `).join('');
+    }
+
+    function renderTopUsers(users) {
+      const tbody = document.getElementById('topUsersBody');
+      if (!users || users.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" class="py-6 text-center text-slate-500">لا يوجد مستخدمين بعد</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = users.map((u, i) => `
+        <tr class="hover:bg-slate-800/30 transition-colors">
+          <td class="py-2.5 font-medium text-slate-200">
+            <div class="flex items-center gap-1.5">
+              <span class="w-4 h-4 rounded-full bg-slate-800 text-[10px] text-slate-400 flex items-center justify-center">${i + 1}</span>
+              <span dir="ltr" class="font-mono text-xs text-indigo-300">${u.phone}</span>
+            </div>
+          </td>
+          <td class="py-2.5 text-slate-300 font-semibold">${u.totalMessages}</td>
+          <td class="py-2.5 text-amber-400/90 font-mono text-[11px]">${Number(u.tokensUsed).toLocaleString()}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderRecentInteractions(interactions) {
+      const list = document.getElementById('liveMessagesList');
+      document.getElementById('liveMsgCount').textContent = `${interactions.length} تفاعل`;
+
+      if (!interactions || interactions.length === 0) {
+        list.innerHTML = `<div class="py-8 text-center text-slate-500 text-xs">لا توجد رسائل مسجلة بعد</div>`;
+        return;
+      }
+
+      list.innerHTML = interactions.map(item => {
+        const isUser = item.role === 'user';
+        const timeFormatted = new Date(item.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+        
+        let badges = '';
+        if (item.model) {
+          badges += `<span class="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">${item.model}</span>`;
+        }
+        if (item.latencyMs) {
+          badges += `<span class="px-1.5 py-0.5 rounded text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">${item.latencyMs}ms</span>`;
+        }
+        if (item.mediaType && item.mediaType !== 'text') {
+          badges += `<span class="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/10 text-purple-300 border border-purple-500/20">${item.mediaType}</span>`;
+        }
+
+        return `
+          <div class="p-3 rounded-xl ${isUser ? 'bg-slate-900/90 border border-slate-800/80' : 'bg-slate-800/40 border border-indigo-950/40'} flex flex-col gap-1.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full ${isUser ? 'bg-blue-400' : 'bg-emerald-400'}"></span>
+                <span class="text-xs font-bold ${isUser ? 'text-blue-300' : 'text-emerald-300'}">${item.sender}</span>
+                <span class="text-[10px] text-slate-500 font-mono">${timeFormatted}</span>
+              </div>
+              <div class="flex items-center gap-1">
+                ${badges}
+              </div>
+            </div>
+            <p class="text-xs text-slate-200 leading-relaxed break-words whitespace-pre-line">${escapeHtml(item.text)}</p>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Initialize Dashboard
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      fetchAnalytics();
+
+      // Auto-refresh every 20 seconds
+      autoRefreshInterval = setInterval(fetchAnalytics, 20000);
+    });
+  </script>
+</body>
+</html>

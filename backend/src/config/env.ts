@@ -40,6 +40,9 @@ export interface AppConfig {
   search: {
     tavilyApiKey?: string;
   };
+  admin: {
+    secretKey: string;
+  };
 }
 
 export const config: AppConfig = {
@@ -84,5 +87,8 @@ export const config: AppConfig = {
   },
   search: {
     tavilyApiKey: process.env.TAVILY_API_KEY,
+  },
+  admin: {
+    secretKey: process.env.ADMIN_SECRET_KEY || 'craft_admin_2026',
   },
 };

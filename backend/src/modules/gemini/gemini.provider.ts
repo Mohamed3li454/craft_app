@@ -9,6 +9,12 @@ export interface GeminiMessageResponse {
     name: string;
     args: Record<string, any>;
   }>;
+  modelUsed?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 export class GeminiProvider {
@@ -123,7 +129,12 @@ Mobile & WhatsApp Elegant Formatting Rules:
     memories?: string[]
   ): Promise<GeminiMessageResponse> {
     if (config.gemini.isMockMode || !this.genAI) {
-      return this.generateMockResponse(contents, memories);
+      const mockRes = this.generateMockResponse(contents, memories);
+      if (!mockRes.modelUsed) mockRes.modelUsed = 'gemini-3.6-flash';
+      if (!mockRes.usage) {
+        mockRes.usage = { promptTokens: 30, completionTokens: 40, totalTokens: 70 };
+      }
+      return mockRes;
     }
 
     try {
@@ -171,6 +182,15 @@ Mobile & WhatsApp Elegant Formatting Rules:
     });
     const response = result.response;
 
+    const usageMetadata = (response as any).usageMetadata;
+    const usage = usageMetadata
+      ? {
+          promptTokens: usageMetadata.promptTokenCount || 0,
+          completionTokens: usageMetadata.candidatesTokenCount || 0,
+          totalTokens: usageMetadata.totalTokenCount || 0,
+        }
+      : undefined;
+
     const functionCalls = response.functionCalls();
     if (functionCalls && functionCalls.length > 0) {
       return {
@@ -179,11 +199,15 @@ Mobile & WhatsApp Elegant Formatting Rules:
           name: fc.name,
           args: fc.args as Record<string, any>,
         })),
+        modelUsed: modelName,
+        usage,
       };
     }
 
     return {
       text: response.text() || '',
+      modelUsed: modelName,
+      usage,
     };
   }
 
