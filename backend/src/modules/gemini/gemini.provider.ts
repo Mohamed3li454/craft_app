@@ -213,7 +213,19 @@ Mobile & WhatsApp Elegant Formatting Rules:
           err.message?.includes('quota') ||
           err.message?.includes('503');
         if (isQuotaOrUnavailable) {
-          GeminiProvider.setModelCooldown(model);
+          let cooldownMs = 3000; // 3 seconds default
+          const retryMatch =
+            err.message?.match(/Please retry in ([^\.]+?\.\d+s|\d+[hms]+|\d+\.\d+ms|\d+ms)/i) ||
+            err.message?.match(/retryDelay["']?\s*:\s*["']?(\d+)s/i);
+          if (retryMatch) {
+            const timeStr = retryMatch[1];
+            if (timeStr.endsWith('ms')) {
+              cooldownMs = Math.max(1000, parseFloat(timeStr) + 500);
+            } else if (timeStr.endsWith('s')) {
+              cooldownMs = Math.max(1000, parseFloat(timeStr) * 1000 + 500);
+            }
+          }
+          GeminiProvider.setModelCooldown(model, cooldownMs);
         }
         logger.warn(
           `Gemini model [${model}] failed (${err.message}), trying next candidate...`

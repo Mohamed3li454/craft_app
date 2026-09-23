@@ -369,7 +369,7 @@ export function serializeToolResultForGroq(toolName: string, outputOrError: any)
       query: outputOrError.query,
       results: compactResults,
       instruction:
-        'Live search completed. Synthesize your final comprehensive response in natural, friendly Egyptian Arabic now based on the search results above. State the exact prices, numbers, and specifications found in the results directly. Do not invoke web_search again.',
+        'Live search completed. Synthesize your final comprehensive response in natural, friendly Egyptian Arabic now based on the search results above. You MUST state the exact prices, numbers in EGP (جنيه مصري) and USD, storage costs, and distributor details (e.g. Tradeline/تريدلاين) found in the results directly. Do not omit the numbers or be evasive. Do not invoke web_search again.',
     });
   }
   return JSON.stringify(outputOrError);
