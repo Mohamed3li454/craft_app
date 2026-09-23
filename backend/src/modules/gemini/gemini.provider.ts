@@ -23,7 +23,7 @@ export class GeminiProvider {
   private fallbackModel: string;
 
   private static cooldowns: Map<string, number> = new Map();
-  private static readonly COOLDOWN_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+  private static readonly COOLDOWN_DURATION_MS = 30 * 1000; // 30 seconds
 
   public static isModelInCooldown(modelName: string): boolean {
     const expiry = GeminiProvider.cooldowns.get(modelName);

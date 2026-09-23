@@ -308,10 +308,17 @@ export function formatGroqConversationHistory(
 ): GroqMessage[] {
   const turns: GroqMessage[] = [];
 
-  for (const m of messages) {
-    const text = m.text?.trim();
+  // Limit to the most recent 4 messages to avoid exceeding Groq TPM limits
+  const slicedMessages = messages.slice(-4);
+
+  for (const m of slicedMessages) {
+    let text = m.text?.trim();
     if (!text) continue;
     const role: 'user' | 'assistant' = m.senderRole === 'user' ? 'user' : 'assistant';
+    // Truncate previous assistant responses to max 350 characters to keep prompt compact
+    if (role === 'assistant' && text.length > 350) {
+      text = text.substring(0, 350) + '...';
+    }
     turns.push({ role, content: text });
   }
 
@@ -346,9 +353,9 @@ export function formatGroqConversationHistory(
 
 export function serializeToolResultForGroq(toolName: string, outputOrError: any): string {
   if (toolName === 'web_search' && outputOrError?.results && Array.isArray(outputOrError.results)) {
-    const compactResults = outputOrError.results.slice(0, 5).map((r: any) => ({
+    const compactResults = outputOrError.results.slice(0, 4).map((r: any) => ({
       title: r.title,
-      snippet: (r.snippet || '').substring(0, 300),
+      snippet: (r.snippet || '').substring(0, 160),
       url: r.url,
     }));
     return JSON.stringify({
@@ -694,11 +701,12 @@ export class AgentOrchestrator {
         groqIterations++;
         logger.debug(`Agent Groq ReAct iteration [${groqIterations}/${config.security.maxIterations}]`);
 
+        const isFirstIteration = groqIterations === 1;
         const groqResponse = await this.groqProvider.generateReply(
           groqMessages,
-          true,
+          isFirstIteration,
           memories,
-          groqIterations === 1 ? imageAttachment : undefined
+          isFirstIteration ? imageAttachment : undefined
         );
         if (groqResponse.modelUsed) lastModelUsed = groqResponse.modelUsed;
         if (groqResponse.usage) {
@@ -900,8 +908,16 @@ export class AgentOrchestrator {
         logger.warn('Gemini provider failed or encountered rate limit, falling back to Groq LPU engine', {
           error: geminiErr.message,
         });
-        const earlyReturn = await runGroqLoop();
-        if (earlyReturn) return earlyReturn;
+        try {
+          const earlyReturn = await runGroqLoop();
+          if (earlyReturn) return earlyReturn;
+        } catch (groqFallbackErr: any) {
+          logger.error('Both Gemini and Groq engines failed during agent execution', {
+            geminiError: geminiErr.message,
+            groqError: groqFallbackErr.message,
+          });
+          finalReply = 'معلش يا باشا، حصل ضغط لحظي عالي جداً على السيرفرات حالياً. أرجو أن تعيد إرسال رسالتك بعد ثوانٍ قليلة وسأكون جاهزاً للرد عليك فوراً! 🚀';
+        }
       }
     } else {
       try {
@@ -911,8 +927,16 @@ export class AgentOrchestrator {
         logger.warn('Groq LPU engine failed or encountered rate limit, falling back to Gemini engine', {
           error: groqErr.message,
         });
-        const earlyReturn = await runGeminiLoop();
-        if (earlyReturn) return earlyReturn;
+        try {
+          const earlyReturn = await runGeminiLoop();
+          if (earlyReturn) return earlyReturn;
+        } catch (geminiFallbackErr: any) {
+          logger.error('Both Groq and Gemini engines failed during agent execution', {
+            groqError: groqErr.message,
+            geminiError: geminiFallbackErr.message,
+          });
+          finalReply = 'معلش يا باشا، حصل ضغط لحظي عالي جداً على السيرفرات حالياً. أرجو أن تعيد إرسال رسالتك بعد ثوانٍ قليلة وسأكون جاهزاً للرد عليك فوراً! 🚀';
+        }
       }
     }
 

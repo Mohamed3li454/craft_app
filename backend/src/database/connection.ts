@@ -27,8 +27,8 @@ export class DatabaseManager {
         this.pool = new Pool({
           connectionString: config.database.url,
           ssl: config.nodeEnv === 'production' ? { rejectUnauthorized: false } : undefined,
-          max: 10,
-          idleTimeoutMillis: 30000,
+          max: process.env.PG_POOL_MAX ? parseInt(process.env.PG_POOL_MAX, 10) : 3,
+          idleTimeoutMillis: 10000,
           connectionTimeoutMillis: 5000,
         });
 
