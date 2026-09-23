@@ -39,7 +39,7 @@ export class GroqProvider {
   private apiKey: string;
 
   private static cooldowns: Map<string, number> = new Map();
-  private static readonly COOLDOWN_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+  private static readonly COOLDOWN_DURATION_MS = 15 * 1000; // 15 seconds (was 5 minutes)
 
   public static isModelInCooldown(modelName: string): boolean {
     const expiry = GroqProvider.cooldowns.get(modelName);
@@ -257,11 +257,13 @@ Mobile & WhatsApp Elegant Formatting Rules:
       }
     }
 
-    // Text & tools: Primary model (openai/gpt-oss-120b) with automatic fallback (openai/gpt-oss-20b) then (qwen/qwen3.8-27b)
+    // Text & tools cascade: Primary model (openai/gpt-oss-120b) with automatic fallbacks:
+    // openai/gpt-oss-20b -> qwen/qwen3.8-27b -> allam-2-7b (ultra-fast Arabic fallback for text)
     const textModels = [
       this.primaryModel,
       this.fallbackModel,
       'qwen/qwen3.8-27b',
+      ...(!useTools ? ['allam-2-7b'] : []),
     ].filter((m, idx, arr) => arr.indexOf(m) === idx);
 
     for (let i = 0; i < textModels.length; i++) {
@@ -283,7 +285,16 @@ Mobile & WhatsApp Elegant Formatting Rules:
           err.message?.includes('rate_limit_exceeded') ||
           err.message?.includes('timed out');
         if (isQuotaOrRateLimit) {
-          GroqProvider.setModelCooldown(model);
+          // Parse exact retry delay from Groq error (e.g. "Please try again in 4.92s")
+          let cooldownMs = GroqProvider.COOLDOWN_DURATION_MS;
+          const match = err.message?.match(/Please try again in (\d+(\.\d+)?)s/i);
+          if (match && match[1]) {
+            const parsedSeconds = parseFloat(match[1]);
+            if (!isNaN(parsedSeconds) && parsedSeconds > 0) {
+              cooldownMs = Math.min(25000, Math.ceil(parsedSeconds * 1000) + 1000);
+            }
+          }
+          GroqProvider.setModelCooldown(model, cooldownMs);
         }
         logger.warn(
           `Groq model [${model}] failed (${err.message}), trying next fallback model...`

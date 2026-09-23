@@ -54,6 +54,7 @@ export class WhatsAppWebhookHandler {
       return;
     }
 
+    let fromNumber = '';
     try {
       const body = req.body;
       const entry = body?.entry?.[0];
@@ -69,6 +70,7 @@ export class WhatsAppWebhookHandler {
 
       const eventId = message.id; // wamid
       const from = message.from; // User phone number
+      fromNumber = from;
       const messageType = message.type;
 
       if (!from) {
@@ -279,6 +281,15 @@ export class WhatsAppWebhookHandler {
       res.status(200).send('EVENT_RECEIVED');
     } catch (err: any) {
       logger.error('Error processing WhatsApp webhook payload', { error: err.message });
+      try {
+        if (fromNumber) {
+          const emergencyFallback =
+            'معلش يا باشا، حصل ضغط لحظي عالي جداً على السيرفرات حالياً ومقدرتش أجهز الرد في ثواني. جرب تبعتلي تاني بعد لحظات وهكون جاهز معاك فوراً! 🚀';
+          await this.whatsappAdapter.sendTextMessage(fromNumber, emergencyFallback);
+        }
+      } catch (dispatchErr: any) {
+        logger.error('Failed to dispatch emergency error notice to WhatsApp user', { error: dispatchErr.message });
+      }
       if (!res.headersSent) {
         res.status(200).send('EVENT_RECEIVED');
       }
