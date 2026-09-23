@@ -359,9 +359,9 @@ export function formatGroqConversationHistory(
 
 export function serializeToolResultForGroq(toolName: string, outputOrError: any): string {
   if (toolName === 'web_search' && outputOrError?.results && Array.isArray(outputOrError.results)) {
-    const compactResults = outputOrError.results.slice(0, 4).map((r: any) => ({
+    const compactResults = outputOrError.results.slice(0, 5).map((r: any) => ({
       title: r.title,
-      snippet: (r.snippet || '').substring(0, 160),
+      snippet: (r.snippet || '').substring(0, 350),
       url: r.url,
     }));
     return JSON.stringify({
@@ -369,7 +369,7 @@ export function serializeToolResultForGroq(toolName: string, outputOrError: any)
       query: outputOrError.query,
       results: compactResults,
       instruction:
-        'Live search completed. Synthesize your final comprehensive response in natural, friendly Egyptian Arabic now based on the search results above. Do not invoke web_search again.',
+        'Live search completed. Synthesize your final comprehensive response in natural, friendly Egyptian Arabic now based on the search results above. State the exact prices, numbers, and specifications found in the results directly. Do not invoke web_search again.',
     });
   }
   return JSON.stringify(outputOrError);
