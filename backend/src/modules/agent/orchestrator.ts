@@ -389,9 +389,11 @@ export class AgentOrchestrator {
       }
     };
 
-    // 1. If WhatsApp channel, consolidate any fragmented conversations into the primary one
+    // 1. If WhatsApp channel, consolidate any fragmented conversations into the primary one in background
     if (input.channel === 'whatsapp') {
-      await this.chatRepo.consolidateWhatsAppConversations(input.userId);
+      this.chatRepo.consolidateWhatsAppConversations(input.userId).catch((err) => {
+        logger.debug('Consolidate conversations background error', { error: err.message });
+      });
     }
 
     // 2. If voice note (audio) attached, transcribe it via Groq Whisper first!
@@ -461,31 +463,34 @@ export class AgentOrchestrator {
       input.media
     );
 
-    // 4. Extract and persist any facts mentioned by user in long-term memory
-    if (textToProcess) {
-      await this.memoryRepo.extractAndSaveFacts(input.userId, textToProcess);
-    }
-    const memories = await this.memoryRepo.getMemories(input.userId);
-
-    // 5. Get or create conversation
-    const conversation = await this.chatRepo.getOrCreateConversation(
-      input.userId,
-      input.channel
-    );
+    // 4 & 5. Parallelize conversation resolution, memory facts extraction & memories retrieval
+    const [conversation, memories] = await Promise.all([
+      this.chatRepo.getOrCreateConversation(input.userId, input.channel),
+      (async () => {
+        if (textToProcess) {
+          try {
+            await this.memoryRepo.extractAndSaveFacts(input.userId, textToProcess);
+          } catch (err: any) {
+            logger.debug('Memory fact extraction error', { error: err.message });
+          }
+        }
+        return this.memoryRepo.getMemories(input.userId);
+      })(),
+    ]);
     const conversationId = conversation.id;
 
-    // 6. Persist user message in chat history with mediaType
-    await this.chatRepo.saveMessage(
-      conversationId,
-      'user',
-      input.channel === 'whatsapp' ? 'WhatsApp User' : 'User',
-      historyRecordText || effectivePrompt,
-      input.mediaUrl,
-      { mediaType }
-    );
-
-    // 7. Load recent history for context (optimized sliding window: 8 turns for high token economy)
-    const recentMessages = await this.chatRepo.getRecentMessages(conversationId, 8);
+    // 6 & 7. Concurrently load recent history while persisting incoming message in background
+    const [recentMessages] = await Promise.all([
+      this.chatRepo.getRecentMessages(conversationId, 8),
+      this.chatRepo.saveMessage(
+        conversationId,
+        'user',
+        input.channel === 'whatsapp' ? 'WhatsApp User' : 'User',
+        historyRecordText || effectivePrompt,
+        input.mediaUrl,
+        { mediaType }
+      ),
+    ]);
 
     const isImage =
       input.media &&
@@ -501,21 +506,20 @@ export class AgentOrchestrator {
         }
       : undefined;
 
-    let iterations = 0;
     const toolCallsExecuted: AgentRunOutput['toolCallsExecuted'] = [];
     let finalReply = '';
 
-    // Primary Execution: Gemini 3.6 Flash Engine (with auto-fallback to 3.1 Flash-Lite)
-    try {
+    const runGeminiLoop = async (): Promise<AgentRunOutput | null> => {
       const contents: Content[] = formatConversationHistory(
         recentMessages,
         effectivePrompt,
         mediaPart
       );
 
-      while (iterations < config.security.maxIterations) {
-        iterations++;
-        logger.debug(`Agent Gemini ReAct iteration [${iterations}/${config.security.maxIterations}]`);
+      let geminiIterations = 0;
+      while (geminiIterations < config.security.maxIterations) {
+        geminiIterations++;
+        logger.debug(`Agent Gemini ReAct iteration [${geminiIterations}/${config.security.maxIterations}]`);
 
         const geminiResponse = await this.geminiProvider.generateReply(contents, true, memories);
         if (geminiResponse.modelUsed) lastModelUsed = geminiResponse.modelUsed;
@@ -650,25 +654,23 @@ export class AgentOrchestrator {
         }
 
         finalReply = geminiResponse.text || 'تم معالجة طلبك بنجاح.';
-        break;
+        return null;
       }
-    } catch (geminiErr: any) {
-      logger.warn('Gemini provider failed or encountered rate limit, falling back to Groq LPU engine', {
-        error: geminiErr.message,
-      });
+      return null;
+    };
 
-      // Fallback Execution: Groq LPU Engine (GPT-OSS 120B / Qwen 3.8 27B)
+    const runGroqLoop = async (): Promise<AgentRunOutput | null> => {
       const groqMessages = formatGroqConversationHistory(recentMessages, effectivePrompt);
-      iterations = 0;
-      while (iterations < config.security.maxIterations) {
-        iterations++;
-        logger.debug(`Agent Groq Fallback ReAct iteration [${iterations}/${config.security.maxIterations}]`);
+      let groqIterations = 0;
+      while (groqIterations < config.security.maxIterations) {
+        groqIterations++;
+        logger.debug(`Agent Groq ReAct iteration [${groqIterations}/${config.security.maxIterations}]`);
 
         const groqResponse = await this.groqProvider.generateReply(
           groqMessages,
           true,
           memories,
-          iterations === 1 ? imageAttachment : undefined
+          groqIterations === 1 ? imageAttachment : undefined
         );
         if (groqResponse.modelUsed) lastModelUsed = groqResponse.modelUsed;
         if (groqResponse.usage) {
@@ -760,7 +762,7 @@ export class AgentOrchestrator {
 
           // Guard against repeated search queries in the same conversation turn
           if (tool.name === 'web_search' && toolCallsExecuted.some((t) => t.toolName === 'web_search')) {
-            logger.info('Repeated web_search prevented in Groq fallback, prompting model to finalize answer');
+            logger.info('Repeated web_search prevented in Groq loop, prompting model to finalize answer');
             groqMessages.push({
               role: 'assistant',
               content: null as any,
@@ -791,7 +793,7 @@ export class AgentOrchestrator {
             await sendInterim('ثواني هبحثلك في المصادر وأتأكدلك من الموضوع ده وأرجعلك يا باشا 🔍');
           }
 
-          logger.info(`Executing tool [${tool.name}] via Groq fallback`, { args: fc.args });
+          logger.info(`Executing tool [${tool.name}] via Groq`, { args: fc.args });
           const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
             userId: input.userId,
             conversationId,
@@ -828,7 +830,39 @@ export class AgentOrchestrator {
         }
 
         finalReply = groqResponse.text || 'تم معالجة طلبك بنجاح.';
-        break;
+        return null;
+      }
+      return null;
+    };
+
+    // Intelligent Route:
+    // If media attachment (image, pdf, docx, code) is present or user explicitly set PRIMARY_LLM_PROVIDER=gemini,
+    // route to Gemini first with fallback to Groq Vision.
+    // For pure text/audio chats, route to Groq LPU engine first for sub-second (~800ms) ultra-fast responses!
+    const hasMediaAttachment = !!imageAttachment || !!mediaPart;
+    const preferGemini = process.env.PRIMARY_LLM_PROVIDER === 'gemini' || hasMediaAttachment;
+
+    if (preferGemini) {
+      try {
+        const earlyReturn = await runGeminiLoop();
+        if (earlyReturn) return earlyReturn;
+      } catch (geminiErr: any) {
+        logger.warn('Gemini provider failed or encountered rate limit, falling back to Groq LPU engine', {
+          error: geminiErr.message,
+        });
+        const earlyReturn = await runGroqLoop();
+        if (earlyReturn) return earlyReturn;
+      }
+    } else {
+      try {
+        const earlyReturn = await runGroqLoop();
+        if (earlyReturn) return earlyReturn;
+      } catch (groqErr: any) {
+        logger.warn('Groq LPU engine failed or encountered rate limit, falling back to Gemini engine', {
+          error: groqErr.message,
+        });
+        const earlyReturn = await runGeminiLoop();
+        if (earlyReturn) return earlyReturn;
       }
     }
 

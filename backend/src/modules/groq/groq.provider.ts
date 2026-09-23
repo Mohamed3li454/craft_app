@@ -38,6 +38,46 @@ export class GroqProvider {
   private whisperModel: string;
   private apiKey: string;
 
+  private static cooldowns: Map<string, number> = new Map();
+  private static readonly COOLDOWN_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
+  public static isModelInCooldown(modelName: string): boolean {
+    const expiry = GroqProvider.cooldowns.get(modelName);
+    if (!expiry) return false;
+    if (Date.now() > expiry) {
+      GroqProvider.cooldowns.delete(modelName);
+      return false;
+    }
+    return true;
+  }
+
+  public static setModelCooldown(modelName: string, durationMs = GroqProvider.COOLDOWN_DURATION_MS): void {
+    GroqProvider.cooldowns.set(modelName, Date.now() + durationMs);
+    logger.warn(
+      `Groq Model [${modelName}] marked in cooldown for ${Math.round(durationMs / 1000)}s due to quota or rate limit`
+    );
+  }
+
+  public static clearCooldowns(): void {
+    GroqProvider.cooldowns.clear();
+  }
+
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs = 6000,
+    errorMsg = 'Groq request timed out'
+  ): Promise<T> {
+    let timer: NodeJS.Timeout;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(errorMsg)), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timer!);
+    }
+  }
+
   constructor(
     private toolRegistry: ToolRegistry = ToolRegistry.getInstance()
   ) {
@@ -204,7 +244,11 @@ Mobile & WhatsApp Elegant Formatting Rules:
     if (imageAttachment) {
       try {
         logger.info(`Image detected, routing directly to Groq Vision model [${this.fallbackModel}]`);
-        return await this.callChat(this.fallbackModel, messages, useTools, memories, imageAttachment);
+        return await this.withTimeout(
+          this.callChat(this.fallbackModel, messages, useTools, memories, imageAttachment),
+          7000,
+          `Groq Vision model [${this.fallbackModel}] timed out after 7s`
+        );
       } catch (err: any) {
         logger.error(`Groq Vision call with [${this.fallbackModel}] failed`, { error: err.message });
         throw err;
@@ -212,23 +256,53 @@ Mobile & WhatsApp Elegant Formatting Rules:
     }
 
     // Text & tools: Primary model (openai/gpt-oss-120b) with automatic fallback (qwen/qwen3.8-27b)
-    try {
-      return await this.callChat(this.primaryModel, messages, useTools, memories);
-    } catch (primaryErr: any) {
-      logger.warn(
-        `Primary Groq model [${this.primaryModel}] failed, falling back to [${this.fallbackModel}]`,
-        { error: primaryErr.message }
-      );
-
+    if (!GroqProvider.isModelInCooldown(this.primaryModel)) {
       try {
-        return await this.callChat(this.fallbackModel, messages, useTools, memories);
+        return await this.withTimeout(
+          this.callChat(this.primaryModel, messages, useTools, memories),
+          5000,
+          `Primary Groq model [${this.primaryModel}] timed out after 5s`
+        );
+      } catch (primaryErr: any) {
+        const isQuotaOrRateLimit =
+          primaryErr.message?.includes('429') ||
+          primaryErr.message?.includes('rate_limit_exceeded') ||
+          primaryErr.message?.includes('timed out');
+        if (isQuotaOrRateLimit) {
+          GroqProvider.setModelCooldown(this.primaryModel);
+        }
+        logger.warn(
+          `Primary Groq model [${this.primaryModel}] failed, falling back to [${this.fallbackModel}]`,
+          { error: primaryErr.message }
+        );
+      }
+    } else {
+      logger.debug(`Skipping primary Groq model [${this.primaryModel}] — currently in cooldown`);
+    }
+
+    if (!GroqProvider.isModelInCooldown(this.fallbackModel)) {
+      try {
+        return await this.withTimeout(
+          this.callChat(this.fallbackModel, messages, useTools, memories),
+          5000,
+          `Fallback Groq model [${this.fallbackModel}] timed out after 5s`
+        );
       } catch (fallbackErr: any) {
+        const isQuotaOrRateLimit =
+          fallbackErr.message?.includes('429') ||
+          fallbackErr.message?.includes('rate_limit_exceeded') ||
+          fallbackErr.message?.includes('timed out');
+        if (isQuotaOrRateLimit) {
+          GroqProvider.setModelCooldown(this.fallbackModel);
+        }
         logger.error(`Fallback Groq model [${this.fallbackModel}] also failed`, {
           error: fallbackErr.message,
         });
         throw fallbackErr;
       }
     }
+
+    throw new Error('All configured Groq models are currently in cooldown or unavailable');
   }
 
   private async callChat(
