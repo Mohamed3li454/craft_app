@@ -843,15 +843,42 @@ export class AgentOrchestrator {
             ],
           });
 
-          const synthesisResponse = await this.geminiProvider.generateReply(contents, false, memories);
-          if (synthesisResponse.modelUsed) lastModelUsed = synthesisResponse.modelUsed;
-          if (synthesisResponse.usage) {
-            accumulatedPromptTokens += synthesisResponse.usage.promptTokens;
-            accumulatedCompletionTokens += synthesisResponse.usage.completionTokens;
-            accumulatedTotalTokens += synthesisResponse.usage.totalTokens;
+          let candidateReply = '';
+          try {
+            const synthesisResponse = await this.geminiProvider.generateReply(contents, false, memories);
+            if (synthesisResponse.modelUsed) lastModelUsed = synthesisResponse.modelUsed;
+            if (synthesisResponse.usage) {
+              accumulatedPromptTokens += synthesisResponse.usage.promptTokens;
+              accumulatedCompletionTokens += synthesisResponse.usage.completionTokens;
+              accumulatedTotalTokens += synthesisResponse.usage.totalTokens;
+            }
+            candidateReply = (synthesisResponse.text || '').trim();
+          } catch (geminiSynthErr: any) {
+            logger.warn('Gemini synthesis failed, falling back to Groq LPU for instant synthesis', {
+              error: geminiSynthErr.message,
+            });
+            try {
+              const groqRes = await this.groqProvider.generateReply(
+                [
+                  ...formatGroqConversationHistory(recentMessages, effectivePrompt),
+                  {
+                    role: 'user',
+                    content: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحدث مباشرة للمستخدم كإنسان ذكي وودود، ولا تذكر أي كلمات تقنية أو أسماء أدوات إطلاقاً.`,
+                  },
+                ],
+                false,
+                memories
+              );
+              if (groqRes.modelUsed) lastModelUsed = groqRes.modelUsed;
+              candidateReply = (groqRes.text || '').trim();
+            } catch (groqSynthErr: any) {
+              logger.error('Both Gemini and Groq synthesis failed', {
+                geminiError: geminiSynthErr.message,
+                groqError: groqSynthErr.message,
+              });
+            }
           }
 
-          let candidateReply = (synthesisResponse.text || '').trim();
           if (
             candidateReply &&
             !candidateReply.startsWith('Called tool:') &&
@@ -873,14 +900,18 @@ export class AgentOrchestrator {
               ],
             },
           ];
-          const secondAttempt = await this.geminiProvider.generateReply(fallbackContents, false, memories);
-          if (
-            secondAttempt.text &&
-            !secondAttempt.text.trim().startsWith('Called tool:') &&
-            !secondAttempt.text.trim().startsWith('Tool [')
-          ) {
-            finalReply = secondAttempt.text.trim();
-          } else {
+          try {
+            const secondAttempt = await this.geminiProvider.generateReply(fallbackContents, false, memories);
+            if (
+              secondAttempt.text &&
+              !secondAttempt.text.trim().startsWith('Called tool:') &&
+              !secondAttempt.text.trim().startsWith('Tool [')
+            ) {
+              finalReply = secondAttempt.text.trim();
+            } else {
+              finalReply = 'تم العثور على التفاصيل والأسعار المطلوبة من المصادر الرسمية، وبناءً على البيانات الحالية فإن التفاصيل متاحة لدى الموزعين المعتمدين.';
+            }
+          } catch {
             finalReply = 'تم العثور على التفاصيل والأسعار المطلوبة من المصادر الرسمية، وبناءً على البيانات الحالية فإن التفاصيل متاحة لدى الموزعين المعتمدين.';
           }
           return null;
@@ -1071,27 +1102,30 @@ export class AgentOrchestrator {
               })
             );
 
-          groqMessages.push({
-            role: 'assistant',
-            content: null as any,
-            tool_calls: [
-              {
-                id: fc.id || `fc_${Date.now()}`,
-                type: 'function',
-                function: {
-                  name: tool.name,
-                  arguments: JSON.stringify(fc.args),
-                },
-              },
-            ],
-          });
-          groqMessages.push({
-            role: 'tool',
-            tool_call_id: fc.id || `fc_${Date.now()}`,
-            name: tool.name,
-            content: serializeToolResultForGroq(tool.name, toolResult.output || toolResult.error),
-          });
-          continue;
+          const serializedResult = serializeToolResultForGroq(
+            tool.name,
+            toolResult.output || toolResult.error
+          );
+
+          // Direct synthesis prompt to avoid Groq API 400 errors (tool choice none / model called a tool)
+          const synthesisPrompt: GroqMessage[] = [
+            ...formatGroqConversationHistory(recentMessages, effectivePrompt),
+            {
+              role: 'user',
+              content: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحدث مباشرة للمستخدم كإنسان ذكي وودود، ولا تذكر أي كلمات تقنية أو أسماء أدوات إطلاقاً.`,
+            },
+          ];
+
+          const synthesisRes = await this.groqProvider.generateReply(synthesisPrompt, false, memories);
+          if (synthesisRes.modelUsed) lastModelUsed = synthesisRes.modelUsed;
+          if (synthesisRes.usage) {
+            accumulatedPromptTokens += synthesisRes.usage.promptTokens;
+            accumulatedCompletionTokens += synthesisRes.usage.completionTokens;
+            accumulatedTotalTokens += synthesisRes.usage.totalTokens;
+          }
+
+          finalReply = (synthesisRes.text || '').trim();
+          return null;
         }
 
         finalReply = groqResponse.text || 'تم معالجة طلبك بنجاح.';
