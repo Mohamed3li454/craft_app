@@ -9,6 +9,8 @@ import { ChatRepository } from '../../database/repositories/chat.repo';
 import { MessageEntity } from '../../database/repositories/types';
 import { parseDueAt } from '../../database/repositories/reminder.repo';
 import { MemoryRepository } from '../../database/repositories/memory.repo';
+import { UserRepository } from '../../database/repositories/user.repo';
+import { FAQCache } from '../cache/faq_cache';
 import { cleanWhatsAppText } from '../whatsapp/formatter';
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
@@ -21,12 +23,54 @@ export interface AgentMediaAttachment {
 
 export interface AgentRunInput {
   userId: string;
+  userPhone?: string;
   conversationId?: string;
   channel: 'flutter' | 'whatsapp';
   text: string;
   mediaUrl?: string;
   media?: AgentMediaAttachment;
   onInterimProgress?: (message: string) => Promise<void> | void;
+}
+
+export function shouldRouteToGemini(text: string, hasMedia: boolean): boolean {
+  if (hasMedia) return true;
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  const heavyKeywords = [
+    'سعر',
+    'اسعار',
+    'أسعار',
+    'كام',
+    'بكام',
+    'جنيه',
+    'دولار',
+    'مواصفات',
+    'مواصفاته',
+    'مواصفاتها',
+    'ابحث',
+    'دورلي',
+    'سيرش',
+    'اخبار',
+    'أخبار',
+    'طقس',
+    'الجو',
+    'احدث',
+    'أحدث',
+    'مقارنة',
+    'قارن',
+    'فيلم',
+    'مسلسل',
+    'اغنية',
+    'أغنية',
+    'ممثل',
+    'مخرج',
+    'ذهب',
+    'عيار',
+    'بورصة',
+    'عملات',
+    'سعر الدولار',
+  ];
+  return heavyKeywords.some((kw) => lower.includes(kw));
 }
 
 export interface AgentRunOutput {
@@ -382,7 +426,8 @@ export class AgentOrchestrator {
     private toolRegistry: ToolRegistry = ToolRegistry.getInstance(),
     private confirmationService: ConfirmationService = new ConfirmationService(),
     private chatRepo: ChatRepository = new ChatRepository(),
-    private memoryRepo: MemoryRepository = new MemoryRepository()
+    private memoryRepo: MemoryRepository = new MemoryRepository(),
+    private userRepo: UserRepository = new UserRepository()
   ) {}
 
   public async run(input: AgentRunInput): Promise<AgentRunOutput> {
@@ -408,6 +453,107 @@ export class AgentOrchestrator {
         logger.warn('Failed to dispatch interim progress message', { error: err.message });
       }
     };
+
+    const cleanUserText = (input.text || '').trim();
+
+    // 0. FAQ & Semantic Cache Check (0 tokens, latency <5ms)
+    if (!input.media && cleanUserText) {
+      const faqMatch = FAQCache.getInstance().match(cleanUserText);
+      if (faqMatch.matched && faqMatch.response) {
+        logger.info(`FAQ Cache hit for input "${cleanUserText}" [intent: ${faqMatch.intent}] - 0 tokens`);
+        const conversation = await this.chatRepo.getOrCreateConversation(input.userId, input.channel);
+        const conversationId = conversation.id;
+
+        await Promise.all([
+          this.chatRepo.saveMessage(
+            conversationId,
+            'user',
+            input.channel === 'whatsapp' ? 'WhatsApp User' : 'User',
+            cleanUserText
+          ),
+          this.chatRepo.saveMessage(
+            conversationId,
+            'assistant',
+            'Craft',
+            faqMatch.response,
+            undefined,
+            {
+              tokensUsed: 0,
+              promptTokens: 0,
+              completionTokens: 0,
+              modelName: 'faq-cache',
+              latencyMs: Date.now() - runStartTime,
+            }
+          ),
+        ]);
+
+        return {
+          conversationId,
+          agentRunId,
+          status: 'completed',
+          replyText: faqMatch.response,
+          toolCallsExecuted: [],
+          metrics: {
+            modelUsed: 'faq-cache',
+            latencyMs: Date.now() - runStartTime,
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+          },
+        };
+      }
+    }
+
+    // 0.1 User Daily Rate Limit Check (Free tier: 40 msgs/day, VIP: unlimited)
+    const limitCheck = await this.userRepo.checkAndIncrementDailyLimit(
+      input.userId,
+      input.userPhone
+    );
+    if (!limitCheck.allowed) {
+      logger.warn(`Daily limit exceeded for user [${input.userId}], phone [${input.userPhone || 'none'}]`);
+      const conversation = await this.chatRepo.getOrCreateConversation(input.userId, input.channel);
+      const conversationId = conversation.id;
+      const rateLimitReply =
+        'يا هلا بيك يا غالي! 🌟 لقد وصلت للحد الأقصى لعدد الرسائل اليومية المجانية (40 رسالة). هيتم تجديد رصيدك بالكامل مع بداية يوم جديد بإذن الله! لو محتاج مساعدة فورية أو باقة غير محدودة تقدر تتواصل مع الإدارة. نهارك سعيد! ✨';
+
+      await Promise.all([
+        this.chatRepo.saveMessage(
+          conversationId,
+          'user',
+          input.channel === 'whatsapp' ? 'WhatsApp User' : 'User',
+          cleanUserText || '[رسالة]'
+        ),
+        this.chatRepo.saveMessage(
+          conversationId,
+          'assistant',
+          'Craft',
+          rateLimitReply,
+          undefined,
+          {
+            tokensUsed: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            modelName: 'rate-limiter',
+            latencyMs: Date.now() - runStartTime,
+          }
+        ),
+      ]);
+
+      return {
+        conversationId,
+        agentRunId,
+        status: 'completed',
+        replyText: rateLimitReply,
+        toolCallsExecuted: [],
+        metrics: {
+          modelUsed: 'rate-limiter',
+          latencyMs: Date.now() - runStartTime,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+        },
+      };
+    }
 
     // 1. If WhatsApp channel, consolidate any fragmented conversations into the primary one in background
     if (input.channel === 'whatsapp') {
@@ -955,9 +1101,12 @@ export class AgentOrchestrator {
     };
 
     // Routing Strategy:
-    // Gemini (gemini-3.6-flash + gemini-3.1-flash-lite) is the PRIMARY engine,
-    // with Groq (openai/gpt-oss-120b, openai/gpt-oss-20b, qwen/qwen3.8-27b) serving as robust fallback.
-    const preferGemini = process.env.PRIMARY_LLM_PROVIDER !== 'groq';
+    // Heavy tasks (multimodal media, search, prices, specs) -> Gemini (2 keys pool)
+    // Conversational & general turns (80% of turns) -> Groq LPU (4 keys pool)
+    const isHeavy = shouldRouteToGemini(textToProcess, !!input.media);
+    const preferGemini = isHeavy || process.env.PRIMARY_LLM_PROVIDER === 'gemini';
+
+    logger.info(`Routing decision: isHeavyTask=${isHeavy}, preferGemini=${preferGemini}`);
 
     if (preferGemini) {
       try {

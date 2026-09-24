@@ -269,6 +269,7 @@ export class WhatsAppWebhookHandler {
       // 5. Run through unified Agent Orchestrator
       const agentResult = await this.orchestrator.run({
         userId: user.id,
+        userPhone: phone || user.phoneNumber || (isPhone ? senderId : undefined),
         channel: 'whatsapp',
         text,
         media: mediaAttachment,

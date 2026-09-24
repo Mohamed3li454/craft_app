@@ -10,16 +10,22 @@ export interface AppConfig {
   corsOrigin: string;
   gemini: {
     apiKey: string;
+    apiKeys: string[];
     model: string;
     fallbackModel: string;
     isMockMode: boolean;
   };
   groq: {
     apiKey: string;
+    apiKeys: string[];
     primaryModel: string;
     fallbackModel: string;
     whisperModel: string;
     isMockMode: boolean;
+  };
+  rateLimit: {
+    dailyUserMessageLimit: number;
+    vipPhoneNumbers: string[];
   };
   database: {
     url?: string;
@@ -51,6 +57,10 @@ export const config: AppConfig = {
   corsOrigin: process.env.CORS_ORIGIN || '*',
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
+    apiKeys: (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '')
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean),
     model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
     fallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite',
     isMockMode:
@@ -60,6 +70,10 @@ export const config: AppConfig = {
   },
   groq: {
     apiKey: process.env.GROQ_API_KEY || '',
+    apiKeys: (process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || '')
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean),
     primaryModel: process.env.GROQ_PRIMARY_MODEL || 'openai/gpt-oss-120b',
     fallbackModel: process.env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-20b',
     whisperModel: process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo',
@@ -68,6 +82,13 @@ export const config: AppConfig = {
       process.env.GROQ_MOCK_MODE === 'true' ||
       !process.env.GROQ_API_KEY ||
       process.env.GROQ_API_KEY.startsWith('your_'),
+  },
+  rateLimit: {
+    dailyUserMessageLimit: parseInt(process.env.DAILY_USER_MESSAGE_LIMIT || '40', 10),
+    vipPhoneNumbers: (process.env.VIP_PHONE_NUMBERS || '')
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean),
   },
   database: {
     url: process.env.DATABASE_URL,

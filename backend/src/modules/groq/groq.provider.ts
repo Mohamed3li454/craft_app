@@ -37,34 +37,54 @@ export class GroqProvider {
   private fallbackModel: string;
   private whisperModel: string;
   private apiKey: string;
+  private apiKeys: string[];
 
-  private static cooldowns: Map<string, number> = new Map();
-  private static readonly COOLDOWN_DURATION_MS = 15 * 1000; // 15 seconds (was 5 minutes)
+  private static keyCooldowns: Map<string, number> = new Map();
+  private static currentKeyIndex = 0;
+  private static modelCooldowns: Map<string, number> = new Map();
+  private static readonly COOLDOWN_DURATION_MS = 15 * 1000; // 15 seconds
 
   public static isModelInCooldown(modelName: string): boolean {
-    const expiry = GroqProvider.cooldowns.get(modelName);
+    const expiry = GroqProvider.modelCooldowns.get(modelName);
     if (!expiry) return false;
     if (Date.now() > expiry) {
-      GroqProvider.cooldowns.delete(modelName);
+      GroqProvider.modelCooldowns.delete(modelName);
       return false;
     }
     return true;
   }
 
   public static setModelCooldown(modelName: string, durationMs = GroqProvider.COOLDOWN_DURATION_MS): void {
-    GroqProvider.cooldowns.set(modelName, Date.now() + durationMs);
+    GroqProvider.modelCooldowns.set(modelName, Date.now() + durationMs);
     logger.warn(
       `Groq Model [${modelName}] marked in cooldown for ${Math.round(durationMs / 1000)}s due to quota or rate limit`
     );
   }
 
+  public static isKeyInCooldown(apiKey: string): boolean {
+    const expiry = GroqProvider.keyCooldowns.get(apiKey);
+    if (!expiry) return false;
+    if (Date.now() > expiry) {
+      GroqProvider.keyCooldowns.delete(apiKey);
+      return false;
+    }
+    return true;
+  }
+
+  public static setKeyCooldown(apiKey: string, durationMs = 15000): void {
+    GroqProvider.keyCooldowns.set(apiKey, Date.now() + durationMs);
+    const masked = apiKey ? apiKey.slice(0, 8) + '...' + apiKey.slice(-4) : 'unknown';
+    logger.warn(`Groq API Key [${masked}] marked in cooldown for ${Math.round(durationMs / 1000)}s`);
+  }
+
   public static clearCooldowns(): void {
-    GroqProvider.cooldowns.clear();
+    GroqProvider.modelCooldowns.clear();
+    GroqProvider.keyCooldowns.clear();
   }
 
   private async withTimeout<T>(
     promise: Promise<T>,
-    timeoutMs = 25000,
+    timeoutMs = 35000,
     errorMsg = 'Groq request timed out'
   ): Promise<T> {
     let timer: NodeJS.Timeout;
@@ -85,6 +105,67 @@ export class GroqProvider {
     this.fallbackModel = config.groq.fallbackModel;
     this.whisperModel = config.groq.whisperModel;
     this.apiKey = config.groq.apiKey;
+    this.apiKeys = config.groq.apiKeys && config.groq.apiKeys.length > 0
+      ? config.groq.apiKeys
+      : [config.groq.apiKey].filter(Boolean);
+  }
+
+  private getNextHealthyApiKey(): string {
+    if (this.apiKeys.length === 0) return this.apiKey || '';
+    for (let i = 0; i < this.apiKeys.length; i++) {
+      const idx = (GroqProvider.currentKeyIndex + i) % this.apiKeys.length;
+      const key = this.apiKeys[idx];
+      if (!GroqProvider.isKeyInCooldown(key)) {
+        GroqProvider.currentKeyIndex = (idx + 1) % this.apiKeys.length;
+        return key;
+      }
+    }
+    // If all keys in cooldown, return the one expiring soonest
+    let soonestKey = this.apiKeys[0];
+    let minExpiry = Infinity;
+    for (const key of this.apiKeys) {
+      const exp = GroqProvider.keyCooldowns.get(key) || 0;
+      if (exp < minExpiry) {
+        minExpiry = exp;
+        soonestKey = key;
+      }
+    }
+    return soonestKey;
+  }
+
+  private async executeWithKeyPool<T>(
+    operation: (key: string) => Promise<T>
+  ): Promise<T> {
+    const candidateKeys = [...this.apiKeys];
+    let lastError: any = null;
+
+    for (let attempt = 0; attempt < candidateKeys.length; attempt++) {
+      const key = this.getNextHealthyApiKey();
+      if (!key) break;
+
+      try {
+        return await operation(key);
+      } catch (err: any) {
+        lastError = err;
+        const isRateLimit =
+          err.message?.includes('429') ||
+          err.message?.includes('rate_limit_exceeded') ||
+          err.message?.includes('tokens per minute');
+        if (isRateLimit) {
+          let cooldownMs = 15000;
+          const retryMatch = err.message?.match(/try again in (\d+(\.\d+)?)s/i);
+          if (retryMatch) {
+            cooldownMs = Math.ceil(parseFloat(retryMatch[1]) * 1000) + 1000;
+          }
+          GroqProvider.setKeyCooldown(key, cooldownMs);
+          const masked = key.slice(0, 8) + '...' + key.slice(-4);
+          logger.warn(`Groq Key [${masked}] rate limited, rotating immediately to next key in pool...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError || new Error('All Groq API keys in pool failed or are in cooldown');
   }
 
   public getSystemInstruction(memories?: string[]): string {
@@ -104,78 +185,18 @@ export class GroqProvider {
     const cairoNow = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}+03:00`;
     const today = `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
 
-    let instruction = `You are Craft, the personal AI assistant for the Craft ecosystem (available on Flutter mobile and WhatsApp).
-Current User Timezone: Africa/Cairo (Egypt, UTC+3).
-Current Exact Local Time in Cairo: ${cairoNow} (Date: ${today}, Time: ${getPart('hour')}:${getPart('minute')}).
+    let instruction = `You are Craft, the personal AI assistant for the Craft ecosystem.
+User Timezone: Africa/Cairo (Egypt, UTC+3). Local Time: ${cairoNow} (Date: ${today}).
 Identity: Always introduce and refer to yourself as Craft. Never say you are ChatGPT, OpenAI, Groq, or Google.
-
-Personality & Universal Linguistic Chameleon (تعدد اللهجات والذكاء اللغوي التكيفي):
-- You are exceptionally intelligent, cultured, polite, concise, and friendly.
-- Dynamic Dialect Mirroring: You dynamically and seamlessly adapt to the user's language and specific Arabic dialect:
-  * Egyptian User (مصري): Speak warm, witty, natural Egyptian dialect (يا باشا، يا هندسة، تمام، زي الفل).
-  * Saudi / Gulf User (سعودي / خليجي): Speak warm, respectful, natural Saudi/Gulf dialect (يا هلا والله، أبشر، تسلم، طال عمرك، ولا يهمك، تم).
-  * Levantine User (أردني / سوري / لبناني / فلسطيني): Speak polite Levantine or clear courteous White Dialect (تكرم، يا هلا، على عيني، ولا يهمك).
-  * Maghrebi User (مغربي / جزائري / تونسي): Understand their local dialect and terms, respond in clear accessible White Arabic or simplified formal Arabic.
-  * Modern Standard Arabic (الفصحى): When the user communicates in MSA or requests it, respond in eloquent, accessible, modern Arabic.
-  * English & Other Languages: Respond fluently and professionally in whatever language the user initiates.
-- Memory Preference: If the user states a preferred dialect or name/job, remember it and mirror it consistently.
-
-Universal Cultural Grounding & Deduction Protocol (التحقق الصامت الشامل ومنع الهبد):
-- STRICT PROHIBITION: NEVER guess, fabricate, or hallucinate titles of movies, TV shows, actors, directors, songs, riddles, historical events, or local trivia from memory if not 100% certain!
-- When asked to guess, identify, or answer about ANY creative or cultural work across ANY region or culture (Egyptian cinema, Saudi TV series, Syrian drama, Gulf arts, Hollywood films, anime, international history, regional proverbs, or riddles):
-  * You MUST proactively invoke 'web_search' first before formulating your answer.
-  * Colloquial Query Extraction: Convert the user's colloquial description or dialect clues into optimal search keywords:
-    - Egyptian example: "فيلم عيل مسيحي ابوه مات وراح مدرسة حكومة" -> web_search query: "فيلم مصري طفل مسيحي مدرسة حكومية"
-    - Saudi example: "مسلسل قديم للقصبي والسدحان يضحك" -> web_search query: "مسلسل سعودي ناصر القصبي عبدالله السدحان كوميدي"
-    - Levantine example: "مسلسل بيئة شامية فيه حارة الضبع وابو عصام" -> web_search query: "مسلسل سوري بيئة شامية حارة الضبع ابو عصام"
-    - Global example: "movie about astronaut growing potatoes on Mars" -> web_search query: "movie astronaut trapped Mars growing potatoes"
-  * Ground your answer strictly on the verified search results (mention title, release year, stars/director).
-- Interactive Human-like Deduction:
-  * If the search yields ambiguous results or multiple candidates, do NOT make up fake titles.
-  * Act like an intelligent, friendly human playing a guessing game: mention the closest possibilities and ask smart narrowing questions (e.g. "هل العمل نزل قبل ولا بعد 2015؟ فاكر مين كان البطل أو المخرج؟") to deduce it together.
-
-Multimodal Vision, Audio & Document Intelligence:
-- You possess full visual, auditory, and document perception. You can analyze images, listen to audio voice notes, and inspect documents and code.
-- You can inspect, read, analyze, and debug any code and documents sent to you (PDF, Word .docx, Dart .dart, Markdown .md, JSON, YAML, etc.). Provide clear, structured, and helpful answers or code solutions.
-
-Tools & Web Search:
-- You have access to tools for current time, weather, web search, creating reminders, listing reminders, completing reminders, and saving memory facts.
-- Live Web Search (web_search):
-  * Proactively invoke 'web_search' whenever the user asks about:
-    - Culture, riddles, guessing games, movies, series, songs, books, or historical facts from any country.
-    - New or upcoming devices, foldable phones, leaks, rumors, or specs (e.g. iPhone Duo, iPhone Fold, iPhone 18, new chips).
-    - Current market prices, local costs, or currency exchange rates in any country (e.g. أسعار الذهب، العملات، أسعار الموبايلات).
-    - Recent news, breaking events, matches, or when the user asks you to search.
-  * Direct Price & Specification Grounding (حسم الأرقام والأسعار):
-    - When asked about phone, car, gold, or gadget prices in Egypt (السوق المصري): ALWAYS state the exact prices, storage variant costs, and ranges (in EGP / جنيه مصري and USD) found in the search results directly!
-    - Mention distributor quotes (e.g. Tradeline/تريدلاين، الموزعين المعتمدين) and expected price ranges clearly.
-    - NEVER give vague evasive answers like "الشركات ما أعلنتش بشكل قاطع" or "مش هفتي برقم غير موثق" when the search results report prices and expected ranges. Provide the concrete figures found in the reports!
-  * Arabic Search Query Rule: When asked in Arabic, ALWAYS formulate the 'web_search' query in Arabic with concise keywords (e.g. query: "سعر ايفون duo في مصر" or "اسعار الذهب في مصر اليوم").
-  * SINGLE SEARCH EFFICIENCY & SYNTHESIS RULE: Invoke 'web_search' once with the most relevant keywords. Once search results are returned, you MUST immediately synthesize and formulate your final comprehensive, grounded response in natural, friendly Egyptian Arabic without calling web_search or any tool again!
-  * Always ground your answer in the retrieved real-time web results to provide an up-to-date, accurate, and factual answer!
-- When creating a reminder (create_reminder):
-  * Calculate the target time accurately from the current Cairo time (${cairoNow}).
-  * If the user says "بعد دقيقة" (in 1 minute), add 1 minute to ${cairoNow}.
-  * Always provide the 'time' argument as an ISO 8601 string including the Cairo offset '+03:00' (e.g. YYYY-MM-DDTHH:mm:00+03:00).
-  * Recurring Reminders (التذكيرات المتكررة):
-    - You FULLY support recurring reminders! NEVER tell the user that recurring reminders are unsupported.
-    - If the user specifies recurrence (e.g. "كل يوم", "يومياً", "كل صباح", "كل أسبوع", "أسبوعياً", "كل شهر", "شهرياً"), ALWAYS set the 'recurrence' argument to 'daily', 'weekly', or 'monthly'.
-    - For recurring reminders, set 'time' to the first upcoming occurrence date/time (e.g. if user asks for daily reminder at 12:00 PM, set time to today at 12:00 PM if still in future, or tomorrow at 12:00 PM if 12:00 has already passed in Cairo).
-    - If no recurrence is mentioned, leave 'recurrence' as 'none'.
-- When the user asks to see or list their reminders/tasks, invoke 'list_reminders'.
-- When the user marks a task or reminder as done/finished, invoke 'complete_reminder'.
-- When the user shares personal details about themselves (such as job, profession, dialect preference, name, location, or hobbies), invoke 'save_memory' to persist it permanently.
-- Always remember details mentioned in previous turns of the conversation and the stored long-term memory below. Reference them naturally and answer immediately when asked about them!
-
-Mobile & WhatsApp Elegant Formatting Rules:
-- STRICT PROHIBITION: NEVER use Markdown tables (| column | column |). WhatsApp does not support markdown tables and renders them as an ugly, broken mess on phone screens.
-- When presenting comparisons, specifications, or structured data (such as phone specs, pricing, features, lists), ALWAYS format them using clean, elegant bullet points (• or emojis like 📱, ⚡, 💰, 📌) with bold labels (e.g. *الشاشة*: 6.7 بوصة).
-- NEVER output raw HTML tags like <br>, <div>, or <b>. Always use standard clean line breaks (\n\n).
-- WhatsApp native styling: Use *bold* for headings and key terms, _italic_ for brief notes.
-- Organization & Readability: Avoid overwhelming continuous walls of text. When giving comprehensive or long answers, organize the response into 2 to 3 clearly spaced, comfortable sections (e.g., مقدمة سريعة، ثم التفاصيل في نقاط منظمة ومريحة للعين، ثم خلاصة أو نصيحة ختامية).`;
+Tone & Dialect: Speak natural, witty, polite, and friendly Egyptian Arabic (يا باشا، يا هندسة، تمام). Be concise, helpful, and direct without unnecessary filler.
+Formatting Rules:
+- STRICT PROHIBITION: NEVER use Markdown tables (| col |). WhatsApp renders tables poorly.
+- Use clean bullet points (•) and *bold* for headings and key terms.
+- NEVER output raw HTML (<br>, <div>). Use standard clean line breaks.
+- When asked about device, gold, or currency prices in Egypt, always state concrete numbers in EGP and USD with distributor details.`;
 
     if (memories && memories.length > 0) {
-      instruction += `\n\n### الذاكرة طويلة المدى المحفوظة عن المستخدم (Stored Long-Term Profile & Facts):\n${memories.map((m) => `- ${m}`).join('\n')}\n(تذكر هذه الحقائق دائماً وبدقة تامة، ولا تسأل المستخدم عن أي معلومة مذكورة هنا أبداً بل أجب مباشرة وبثقة بناءً عليها!)`;
+      instruction += `\n\n### Stored User Profile:\n${memories.map((m) => `- ${m}`).join('\n')}`;
     }
 
     return instruction;
@@ -203,21 +224,21 @@ Mobile & WhatsApp Elegant Formatting Rules:
       const blob = new Blob([audioBuffer], { type: mimeType });
       form.append('file', blob, filename);
 
-      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: form,
+      const data: any = await this.executeWithKeyPool(async (activeKey) => {
+        const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${activeKey}`,
+          },
+          body: form,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Groq Whisper Error (${response.status}): ${errorText}`);
+        }
+        return await response.json();
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('Groq Whisper API returned error', { status: response.status, error: errorText });
-        return '';
-      }
-
-      const data: any = await response.json();
       const transcribedText = (data.text || '').trim();
       logger.info(`Successfully transcribed audio via Groq Whisper: "${transcribedText}"`);
       return transcribedText;
@@ -369,21 +390,23 @@ Mobile & WhatsApp Elegant Formatting Rules:
       payload.tool_choice = 'auto';
     }
 
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
+    const data: any = await this.executeWithKeyPool(async (activeKey) => {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${activeKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Groq API Error (${res.status}): ${errText}`);
+      }
+
+      return await res.json();
     });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Groq API Error (${res.status}): ${errText}`);
-    }
-
-    const data: any = await res.json();
     const choice = data.choices?.[0];
     const assistantMsg = choice?.message;
 
