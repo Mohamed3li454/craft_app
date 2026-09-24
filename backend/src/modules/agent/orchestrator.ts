@@ -403,17 +403,25 @@ export function formatGroqConversationHistory(
 
 export function serializeToolResultForGroq(toolName: string, outputOrError: any): string {
   if (toolName === 'web_search' && outputOrError?.results && Array.isArray(outputOrError.results)) {
-    const compactResults = outputOrError.results.slice(0, 5).map((r: any) => ({
-      title: r.title,
-      snippet: (r.snippet || '').substring(0, 350),
-      url: r.url,
-    }));
+    const compactResults = outputOrError.results.slice(0, 8).map((r: any) => {
+      let sourceSite = '';
+      if (r.url) {
+        try {
+          sourceSite = new URL(r.url).hostname.replace('www.', '');
+        } catch {}
+      }
+      return {
+        title: r.title,
+        snippet: (r.snippet || '').substring(0, 500),
+        source: sourceSite || undefined,
+      };
+    });
     return JSON.stringify({
       status: 'search_complete',
       query: outputOrError.query,
       results: compactResults,
       instruction:
-        'Live search completed. Synthesize your final comprehensive response in natural, friendly Egyptian Arabic now based on the search results above. You MUST state the exact prices, numbers in EGP (جنيه مصري) and USD, storage costs, and distributor details (e.g. Tradeline/تريدلاين) found in the results directly. Do not omit the numbers or be evasive. Do not invoke web_search again.',
+        'Live search completed. Synthesize your final comprehensive response in natural, friendly Egyptian Arabic now based on the search results above. You MUST state the exact prices, numbers in EGP (جنيه مصري) and USD, storage costs, and distributor details (e.g. Tradeline/تريدلاين) found in the results directly. Do not omit the numbers or be evasive. Never mention RSS, search engine, or API. Do not call any browsing or tool functions; output final text directly.',
     });
   }
   return JSON.stringify(outputOrError);
@@ -838,7 +846,7 @@ export class AgentOrchestrator {
             role: 'user',
             parts: [
               {
-                text: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحدث مباشرة للمستخدم كإنسان ذكي وودود، ولا تذكر أي كلمات تقنية أو أسماء أدوات إطلاقاً.`,
+                text: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحذير حاسم: إياك نهائياً أن تذكر كلمات تقنية مثل "RSS" أو "محرك البحث" أو "الـ API" أو "النتائج لم تذكر". تحدث كخبير تقني مباشر ومطلع على أحدث البيانات السوقية والموزعين.\nسعر الصرف الرسمي في مصر حوالي 48 إلى 50+ جنيه لكل دولار، لا تستخدم أسعار صرف قديمة إطلاقاً.`,
               },
             ],
           });
@@ -863,7 +871,7 @@ export class AgentOrchestrator {
                   ...formatGroqConversationHistory(recentMessages, effectivePrompt),
                   {
                     role: 'user',
-                    content: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحدث مباشرة للمستخدم كإنسان ذكي وودود، ولا تذكر أي كلمات تقنية أو أسماء أدوات إطلاقاً.`,
+                    content: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحذير حاسم: إياك نهائياً أن تذكر كلمات تقنية مثل "RSS" أو "محرك البحث" أو "الـ API" أو "النتائج لم تذكر". تحدث كخبير تقني مباشر ومطلع على أحدث البيانات السوقية والموزعين.\nسعر الصرف الرسمي في مصر حوالي 48 إلى 50+ جنيه لكل دولار، لا تستخدم أسعار صرف قديمة إطلاقاً.`,
                   },
                 ],
                 false,
@@ -1112,7 +1120,7 @@ export class AgentOrchestrator {
             ...formatGroqConversationHistory(recentMessages, effectivePrompt),
             {
               role: 'user',
-              content: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحدث مباشرة للمستخدم كإنسان ذكي وودود، ولا تذكر أي كلمات تقنية أو أسماء أدوات إطلاقاً.`,
+              content: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحذير حاسم: إياك نهائياً أن تذكر كلمات تقنية مثل "RSS" أو "محرك البحث" أو "الـ API" أو "النتائج لم تذكر". تحدث كخبير تقني مباشر ومطلع على أحدث البيانات السوقية والموزعين.\nسعر الصرف الرسمي في مصر حوالي 48 إلى 50+ جنيه لكل دولار، لا تستخدم أسعار صرف قديمة إطلاقاً.`,
             },
           ];
 
