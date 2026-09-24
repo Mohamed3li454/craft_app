@@ -23,6 +23,10 @@ export class MemoryRepository {
   ) {}
 
   private async resolveUserId(userId: string): Promise<string> {
+    if (!userId) return toDeterministicUuid('anonymous');
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return userId;
+    }
     const cleanPhone = normalizePhoneNumber(userId.replace(/^wa_/, ''));
     if (cleanPhone && cleanPhone.length >= 8) {
       const user = await this.userRepo.findOrCreateUserByPhone(cleanPhone);

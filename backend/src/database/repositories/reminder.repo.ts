@@ -103,6 +103,11 @@ export class ReminderRepository {
   ) {}
 
   private async resolveUserId(userId: string): Promise<string> {
+    if (!userId) return toDeterministicUuid('anonymous');
+    // If userId is already a valid UUID, use it directly! NEVER strip digits as a phone number!
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return userId;
+    }
     const cleanPhone = normalizePhoneNumber(userId.replace(/^wa_/, ''));
     if (cleanPhone && cleanPhone.length >= 8) {
       const user = await this.userRepo.findOrCreateUserByPhone(cleanPhone);
@@ -282,9 +287,16 @@ export class ReminderRepository {
       try {
         const res = await pool.query(
           `WITH claimed AS (
-             SELECT r.id, r.user_id, r.title, r.due_at, COALESCE(r.recurrence, 'none') as "recurrence", u.name as "userName", u.phone_number as "phoneNumber"
+             SELECT r.id, 
+                    r.user_id, 
+                    r.title, 
+                    r.due_at, 
+                    COALESCE(r.recurrence, 'none') as "recurrence", 
+                    COALESCE(u.name, wc.profile_name, 'User') as "userName", 
+                    COALESCE(u.phone_number, wc.wa_id, u.bsuid) as "phoneNumber"
              FROM reminders r
              LEFT JOIN users u ON r.user_id = u.id
+             LEFT JOIN whatsapp_contacts wc ON wc.user_id = r.user_id
              WHERE r.is_completed = false
                AND r.due_at IS NOT NULL
                AND r.due_at <= NOW()
@@ -383,6 +395,37 @@ export class ReminderRepository {
         item.isCompleted = false;
         item.updatedAt = new Date();
         logger.info(`Rescheduled recurring reminder in-memory: [${id}] next due at [${nextDueAt.toISOString()}]`);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public async revertCompletion(id: string, retryInSeconds = 60): Promise<boolean> {
+    const pool = this.db.getPool();
+    const nextRetry = new Date(Date.now() + retryInSeconds * 1000);
+
+    if (pool) {
+      try {
+        const res = await pool.query(
+          `UPDATE reminders 
+           SET is_completed = false, due_at = $1, updated_at = NOW() 
+           WHERE id = $2`,
+          [nextRetry, id]
+        );
+        logger.info(`Reverted reminder completion for retry [${id}] at [${nextRetry.toISOString()}]`);
+        return (res.rowCount ?? 0) > 0;
+      } catch (err: any) {
+        logger.warn('Failed to revert reminder completion in database', { error: err.message, id });
+      }
+    }
+
+    for (const items of this.inMemoryReminders.values()) {
+      const item = items.find((r) => r.id === id);
+      if (item) {
+        item.isCompleted = false;
+        item.dueAt = nextRetry;
+        item.updatedAt = new Date();
         return true;
       }
     }

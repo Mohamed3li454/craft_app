@@ -1,5 +1,5 @@
 import { ReminderRepository, calculateNextDueAt } from '../../database/repositories/reminder.repo';
-import { WhatsAppAdapter } from '../whatsapp/adapter';
+import { WhatsAppAdapter, isBsuid } from '../whatsapp/adapter';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { AgentOrchestrator } from '../agent/orchestrator';
 import { logger } from '../../core/logger';
@@ -34,31 +34,31 @@ export class ReminderScheduler {
     const dispatchedTitles: string[] = [];
 
     for (const item of dueList) {
-      // Resolve target phone number: prefer explicit phoneNumber, then derive from userName
+      // Resolve target phone or destination
       let targetPhone = item.phoneNumber;
 
       if (!targetPhone && item.userName) {
-        // userName could be 'wa_201234567890' or '201234567890' or a display name
         if (item.userName.startsWith('wa_')) {
           targetPhone = item.userName.replace('wa_', '');
         } else if (/^\d{8,15}$/.test(item.userName.replace(/\D/g, ''))) {
-          // userName is purely numeric → treat as phone
           targetPhone = item.userName.replace(/\D/g, '');
         }
       }
 
-      // Last resort: derive phone from userId if it looks like a UUID mapped from wa_ prefix
+      // Fallback: lookup in users & whatsapp_contacts via userId
       if (!targetPhone && item.userId) {
-        // Try to find phone via DB lookup (userId is a resolved UUID from findOrCreateUserByPhone)
         try {
           const pool = this.reminderRepo['db']?.getPool?.();
           if (pool) {
             const res = await pool.query(
-              `SELECT phone_number FROM users WHERE id = $1 LIMIT 1`,
+              `SELECT COALESCE(u.phone_number, wc.wa_id, u.bsuid) as phone 
+               FROM users u 
+               LEFT JOIN whatsapp_contacts wc ON wc.user_id = u.id 
+               WHERE u.id = $1 LIMIT 1`,
               [item.userId]
             );
-            if (res.rows[0]?.phone_number) {
-              targetPhone = res.rows[0].phone_number;
+            if (res.rows[0]?.phone) {
+              targetPhone = res.rows[0].phone;
             }
           }
         } catch {
@@ -67,16 +67,21 @@ export class ReminderScheduler {
       }
 
       if (targetPhone) {
-        const cleanPhone = targetPhone.replace(/[^\d]/g, '');
-        if (cleanPhone.length < 8) {
-          logger.warn(`Skipping reminder [${item.id}] — resolved phone too short: [${cleanPhone}]`);
+        // If BSUID (e.g. EG.1098...), preserve exactly; if phone number, clean non-digits
+        const destination = isBsuid(targetPhone)
+          ? targetPhone.trim()
+          : targetPhone.replace(/[^\d]/g, '');
+
+        if (!destination || (!isBsuid(targetPhone) && destination.length < 8)) {
+          logger.warn(`Skipping reminder [${item.id}] — invalid destination: [${destination}]`);
+          await this.reminderRepo.revertCompletion(item.id, 120);
           continue;
         }
 
         const messageText = await this.orchestrator.generateSmartReminder(item.userId, item.title);
 
         try {
-          const sent = await this.whatsappAdapter.sendTextMessage(cleanPhone, messageText);
+          const sent = await this.whatsappAdapter.sendTextMessage(destination, messageText);
           if (sent) {
             // If recurring, calculate next occurrence and reschedule; otherwise mark complete
             if (item.recurrence && item.recurrence !== 'none') {
@@ -91,19 +96,26 @@ export class ReminderScheduler {
 
             dispatchedTitles.push(item.title);
 
-            // Record in chat history
+            // Record in chat history under the real user conversation
             try {
-              const conv = await this.chatRepo.getOrCreateConversation(`wa_${cleanPhone}`, 'whatsapp');
+              const conv = await this.chatRepo.getOrCreateConversation(item.userId, 'whatsapp');
               await this.chatRepo.saveMessage(conv.id, 'assistant', 'Craft', messageText);
             } catch (err: any) {
               logger.warn('Failed to record reminder dispatch in chat history', { error: err.message });
             }
 
-            logger.info(`Successfully dispatched reminder [${item.id}] ("${item.title}") to WhatsApp [${cleanPhone}]`);
+            logger.info(`Successfully dispatched reminder [${item.id}] ("${item.title}") to WhatsApp [${destination}]`);
+          } else {
+            logger.warn(`WhatsApp dispatch returned false for reminder [${item.id}], scheduling retry in 60s`);
+            await this.reminderRepo.revertCompletion(item.id, 60);
           }
         } catch (err: any) {
-          logger.error(`Error sending reminder to WhatsApp [${cleanPhone}]`, { error: err.message });
+          logger.error(`Error sending reminder to WhatsApp [${destination}]`, { error: err.message });
+          await this.reminderRepo.revertCompletion(item.id, 60);
         }
+      } else {
+        logger.warn(`Could not resolve phone number for reminder [${item.id}] (userId: ${item.userId})`);
+        await this.reminderRepo.revertCompletion(item.id, 300);
       }
     }
 

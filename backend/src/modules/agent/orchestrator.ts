@@ -1309,27 +1309,21 @@ export class AgentOrchestrator {
                 conversationId: conv.id,
                 channel: 'whatsapp',
               });
-              groqMessages.push({
-                role: 'assistant',
-                content: null as any,
-                tool_calls: [
-                  {
-                    id: fc.id || `fc_${Date.now()}`,
-                    type: 'function',
-                    function: {
-                      name: tool.name,
-                      arguments: JSON.stringify(fc.args),
-                    },
-                  },
-                ],
-              });
-              groqMessages.push({
-                role: 'tool',
-                tool_call_id: fc.id || `fc_${Date.now()}`,
-                name: tool.name,
-                content: serializeToolResultForGroq(tool.name, toolResult.output || toolResult.error),
-              });
-              continue;
+              const directSynth: GroqMessage[] = [
+                { role: 'user', content: prompt },
+                {
+                  role: 'user',
+                  content: `[نتيجة أداة ${tool.name}]:\n${serializeToolResultForGroq(
+                    tool.name,
+                    toolResult.output || toolResult.error
+                  )}\n\nصِغ رسالة التذكير النهائية الآن بأسلوب ودود باللهجة المصرية.`,
+                },
+              ];
+              const synthRes = await this.groqProvider.generateReply(directSynth, false, memories);
+              if (synthRes.text && synthRes.text.trim()) {
+                return synthRes.text.trim();
+              }
+              break;
             }
           }
 
