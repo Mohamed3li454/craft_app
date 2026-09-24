@@ -34,13 +34,45 @@ export class ReminderScheduler {
     const dispatchedTitles: string[] = [];
 
     for (const item of dueList) {
+      // Resolve target phone number: prefer explicit phoneNumber, then derive from userName
       let targetPhone = item.phoneNumber;
-      if (!targetPhone && item.userName && item.userName.startsWith('wa_')) {
-        targetPhone = item.userName.replace('wa_', '');
+
+      if (!targetPhone && item.userName) {
+        // userName could be 'wa_201234567890' or '201234567890' or a display name
+        if (item.userName.startsWith('wa_')) {
+          targetPhone = item.userName.replace('wa_', '');
+        } else if (/^\d{8,15}$/.test(item.userName.replace(/\D/g, ''))) {
+          // userName is purely numeric → treat as phone
+          targetPhone = item.userName.replace(/\D/g, '');
+        }
+      }
+
+      // Last resort: derive phone from userId if it looks like a UUID mapped from wa_ prefix
+      if (!targetPhone && item.userId) {
+        // Try to find phone via DB lookup (userId is a resolved UUID from findOrCreateUserByPhone)
+        try {
+          const pool = this.reminderRepo['db']?.getPool?.();
+          if (pool) {
+            const res = await pool.query(
+              `SELECT phone_number FROM users WHERE id = $1 LIMIT 1`,
+              [item.userId]
+            );
+            if (res.rows[0]?.phone_number) {
+              targetPhone = res.rows[0].phone_number;
+            }
+          }
+        } catch {
+          // ignore lookup failure
+        }
       }
 
       if (targetPhone) {
         const cleanPhone = targetPhone.replace(/[^\d]/g, '');
+        if (cleanPhone.length < 8) {
+          logger.warn(`Skipping reminder [${item.id}] — resolved phone too short: [${cleanPhone}]`);
+          continue;
+        }
+
         const messageText = await this.orchestrator.generateSmartReminder(item.userId, item.title);
 
         try {
