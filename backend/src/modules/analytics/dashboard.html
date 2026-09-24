@@ -109,6 +109,10 @@
           <i data-lucide="cpu" class="w-4 h-4"></i>
           <span>الأدوات والعمليات</span>
         </button>
+        <button onclick="switchTab('faq')" id="tab-btn-faq" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white transition-all">
+          <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
+          <span>الردود السريعة (FAQ)</span>
+        </button>
       </div>
 
       <!-- Action Controls -->
@@ -132,10 +136,11 @@
 
     <!-- Mobile Tabs Navigation -->
     <div class="md:hidden flex items-center justify-around border-t border-slate-800 px-2 py-1.5 bg-slate-900/60 text-xs">
-      <button onclick="switchTab('overview')" id="tab-btn-m-overview" class="tab-active px-2.5 py-1 rounded-md">نظرة عامة</button>
-      <button onclick="switchTab('conversations')" id="tab-btn-m-conversations" class="px-2.5 py-1 rounded-md text-slate-400">الشات</button>
-      <button onclick="switchTab('users')" id="tab-btn-m-users" class="px-2.5 py-1 rounded-md text-slate-400">المستخدمين</button>
-      <button onclick="switchTab('tools')" id="tab-btn-m-tools" class="px-2.5 py-1 rounded-md text-slate-400">الأدوات</button>
+      <button onclick="switchTab('overview')" id="tab-btn-m-overview" class="tab-active px-2 py-1 rounded-md">نظرة عامة</button>
+      <button onclick="switchTab('conversations')" id="tab-btn-m-conversations" class="px-2 py-1 rounded-md text-slate-400">الشات</button>
+      <button onclick="switchTab('users')" id="tab-btn-m-users" class="px-2 py-1 rounded-md text-slate-400">المستخدمين</button>
+      <button onclick="switchTab('tools')" id="tab-btn-m-tools" class="px-2 py-1 rounded-md text-slate-400">الأدوات</button>
+      <button onclick="switchTab('faq')" id="tab-btn-m-faq" class="px-2 py-1 rounded-md text-slate-400 text-amber-400">الردود السريعة</button>
     </div>
   </header>
 
@@ -562,6 +567,39 @@
 
     </section>
 
+    <!-- ========================================== -->
+    <!-- TAB 5: INSTANT FAQ & SEMANTIC CACHE        -->
+    <!-- ========================================== -->
+    <section id="tab-content-faq" class="hidden space-y-6">
+
+      <!-- Header Banner & Action Button -->
+      <div class="glass-card rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-amber-500/20">
+        <div>
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+              <i data-lucide="zap" class="w-5 h-5"></i>
+            </div>
+            <h2 class="text-base font-bold text-white">إدارة الردود السريعة الفورية (Instant FAQ Cache)</h2>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">
+            ردود فورية (&lt;5ms) تستهلك <strong class="text-amber-300">0 توكنز</strong> وتوفر رصيد الكوتا بالكامل للأسئلة الشائعة والمتكررة.
+          </p>
+        </div>
+
+        <button onclick="openFaqModal()" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-all">
+          <i data-lucide="plus-circle" class="w-4 h-4"></i>
+          <span>إضافة رد فوري جديد</span>
+        </button>
+      </div>
+
+      <!-- FAQ Items Grid / Cards Container -->
+      <div id="faqContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Rendered dynamically -->
+        <div class="col-span-full text-center py-12 text-slate-500">جاري تحميل الردود السريعة...</div>
+      </div>
+
+    </section>
+
   </main>
 
   <!-- ========================================== -->
@@ -640,6 +678,79 @@
   </div>
 
   <!-- ========================================== -->
+  <!-- MODAL: ADD / EDIT FAQ ITEM                 -->
+  <!-- ========================================== -->
+  <div id="faqModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="glass-card rounded-2xl border border-slate-700 max-w-xl w-full p-6 space-y-4 max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+            <i data-lucide="zap" class="w-4 h-4"></i>
+          </div>
+          <h3 id="faqModalTitle" class="text-base font-bold text-white">إضافة رد فوري جديد</h3>
+        </div>
+        <button onclick="closeFaqModal()" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="faqForm" onsubmit="handleFaqSubmit(event)" class="space-y-4 overflow-y-auto custom-scrollbar pr-1 flex-1">
+        <input type="hidden" id="faqEditId" value="" />
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">عنوان الرد (للتنظيم الداخلي)</label>
+          <input type="text" id="faqTitle" required placeholder="مثال: أسعار الاشتراكات أو عنوان المقر" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">التصنيف</label>
+            <select id="faqCategory" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+              <option value="custom">مخصص (عام)</option>
+              <option value="creator">مطور النظام</option>
+              <option value="identity">هوية كرافت</option>
+              <option value="prices">الأسعار والخدمات</option>
+              <option value="greetings">تحيات وترحيب</option>
+              <option value="thanks">شكر وتقدير</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">نوع المطابقة</label>
+            <select id="faqMatchType" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+              <option value="contains">مطابقة جزئية (إذا احتوت الرسالة على الكلمة)</option>
+              <option value="exact">مطابقة تامة (نفس الجملة بالضبط)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">
+            الكلمات أو الأسئلة المفتاحية التي تطلق هذا الرد
+            <span class="text-[10px] text-slate-400 font-normal">(افصل بين كل جملة وأخرى بفاصلة أو سطر جديد)</span>
+          </label>
+          <textarea id="faqPatterns" rows="3" required placeholder="مثال:
+بكام الاشتراك
+سعر الخدمة
+تكلفة الباقة" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"></textarea>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">
+            نص الرد الذي سيصل للمستخدم (بالعامية المصرية وتنسيق واتساب)
+          </label>
+          <textarea id="faqResponse" rows="4" required placeholder="اكتب نص الرد هنا، يمكنك استخدام *عريض*، ورموز تعبيرية ⚡" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"></textarea>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+          <button type="button" onclick="closeFaqModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold">إلغاء</button>
+          <button type="submit" id="faqSubmitBtn" class="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors">حفظ الرد</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
   <!-- MODAL: ADMIN TOKEN ENTRY                   -->
   <!-- ========================================== -->
   <div id="authModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
@@ -701,7 +812,7 @@
 
     function switchTab(tabName) {
       currentTab = tabName;
-      const tabs = ['overview', 'conversations', 'users', 'tools'];
+      const tabs = ['overview', 'conversations', 'users', 'tools', 'faq'];
       tabs.forEach(t => {
         const content = document.getElementById(`tab-content-${t}`);
         const btn = document.getElementById(`tab-btn-${t}`);
@@ -719,6 +830,7 @@
 
       if (tabName === 'conversations') loadConversationsList();
       if (tabName === 'tools') loadToolsStats();
+      if (tabName === 'faq') loadFaqList();
       lucide.createIcons();
     }
 
@@ -1312,6 +1424,236 @@
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+    }
+
+    // --- FAQ & INSTANT CACHE MANAGER ---
+
+    let cachedFaqs = [];
+
+    async function loadFaqList() {
+      const token = getStoredToken();
+      const container = document.getElementById('faqContainer');
+      if (container) container.innerHTML = '<div class="col-span-full text-center py-12 text-slate-500">جاري تحميل الردود السريعة...</div>';
+      try {
+        const res = await fetch(`/api/admin/faq?token=${encodeURIComponent(token)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.items)) {
+          cachedFaqs = data.items;
+          renderFaqList(data.items);
+        } else {
+          if (container) container.innerHTML = `<div class="col-span-full text-center py-8 text-rose-400">تعذر تحميل الردود: ${data.error || 'خطأ'}</div>`;
+        }
+      } catch (err) {
+        if (container) container.innerHTML = `<div class="col-span-full text-center py-8 text-rose-400">خطأ في الاتصال بالسيرفر</div>`;
+      }
+    }
+
+    function renderFaqList(items) {
+      const container = document.getElementById('faqContainer');
+      if (!container) return;
+
+      if (!items || items.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full glass-card rounded-2xl p-10 text-center space-y-3 border border-dashed border-slate-700">
+            <div class="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto text-xl">⚡</div>
+            <h4 class="text-sm font-bold text-white">لا توجد ردود سريعة مسجلة حالياً</h4>
+            <p class="text-xs text-slate-400 max-w-sm mx-auto">أضف ردوداً للأسئلة الشائعة ليتم الرد عليها في أقل من 5ms وبدون استهلاك أي توكنز.</p>
+            <button onclick="openFaqModal()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors">
+              + إضافة أول رد سريع
+            </button>
+          </div>
+        `;
+        return;
+      }
+
+      const categoryLabels = {
+        creator: { label: 'مطور النظام', color: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
+        identity: { label: 'هوية كرافت', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
+        prices: { label: 'الأسعار والخدمات', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+        greetings: { label: 'تحيات وترحيب', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+        thanks: { label: 'شكر وتقدير', color: 'bg-pink-500/20 text-pink-300 border-pink-500/30' },
+        age: { label: 'العمر والسن', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' },
+        custom: { label: 'مخصص', color: 'bg-slate-700/50 text-slate-300 border-slate-600/40' },
+      };
+
+      container.innerHTML = items.map(item => {
+        const catInfo = categoryLabels[item.category] || categoryLabels.custom;
+        const patternsList = (item.patterns || []).slice(0, 8);
+        const hasMorePatterns = (item.patterns || []).length > 8;
+
+        return `
+          <div class="glass-card rounded-2xl p-5 space-y-4 hover:border-slate-700 transition-all flex flex-col justify-between border border-slate-800">
+            <div class="space-y-3">
+              <!-- Top Badges Row -->
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${catInfo.color}">
+                    ${catInfo.label}
+                  </span>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                    ${item.matchType === 'exact' ? 'مطابقة تامة' : 'مطابقة جزئية'}
+                  </span>
+                </div>
+                <div class="flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                  <i data-lucide="zap" class="w-3 h-3"></i>
+                  <span>وُفّر ${item.hitCount || 0} مرة</span>
+                </div>
+              </div>
+
+              <!-- Title -->
+              <h3 class="text-sm font-bold text-white">${escapeHtml(item.title)}</h3>
+
+              <!-- Keywords / Patterns Tags -->
+              <div class="space-y-1">
+                <span class="text-[10px] font-semibold text-slate-400">الكلمات المفتاحية:</span>
+                <div class="flex flex-wrap gap-1.5">
+                  ${patternsList.map(p => `
+                    <span class="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-700 text-slate-300 text-[11px]">
+                      "${escapeHtml(p)}"
+                    </span>
+                  `).join('')}
+                  ${hasMorePatterns ? `<span class="text-[10px] text-slate-400 self-center">+ ${(item.patterns.length - 8)} كلمات أخرى</span>` : ''}
+                </div>
+              </div>
+
+              <!-- Response Box Preview -->
+              <div class="space-y-1">
+                <span class="text-[10px] font-semibold text-slate-400">نص الرد الفوري:</span>
+                <div class="p-3 bg-slate-900/80 rounded-xl border border-slate-800/80 text-xs text-slate-200 whitespace-pre-line leading-relaxed max-h-36 overflow-y-auto custom-scrollbar">
+                  ${escapeHtml(item.response)}
+                </div>
+              </div>
+            </div>
+
+            <!-- Actions Row -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+              <span class="text-[10px] text-slate-500">${formatDate(item.updatedAt || item.createdAt)}</span>
+              <div class="flex items-center gap-2">
+                <button onclick="editFaqItem('${item.id}')" class="px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors">
+                  <i data-lucide="pencil" class="w-3 h-3"></i>
+                  <span>تعديل</span>
+                </button>
+                <button onclick="deleteFaqItem('${item.id}', '${item.title.replace(/'/g, "\\'")}')" class="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors">
+                  <i data-lucide="trash-2" class="w-3 h-3"></i>
+                  <span>حذف</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    function openFaqModal(item = null) {
+      document.getElementById('faqModal').classList.remove('hidden');
+      const titleEl = document.getElementById('faqModalTitle');
+      const editIdEl = document.getElementById('faqEditId');
+      const titleInput = document.getElementById('faqTitle');
+      const catInput = document.getElementById('faqCategory');
+      const matchTypeInput = document.getElementById('faqMatchType');
+      const patternsInput = document.getElementById('faqPatterns');
+      const responseInput = document.getElementById('faqResponse');
+
+      if (item) {
+        titleEl.textContent = 'تعديل الرد الفوري';
+        editIdEl.value = item.id;
+        titleInput.value = item.title || '';
+        catInput.value = item.category || 'custom';
+        matchTypeInput.value = item.matchType || 'contains';
+        patternsInput.value = (item.patterns || []).join('\n');
+        responseInput.value = item.response || '';
+      } else {
+        titleEl.textContent = 'إضافة رد فوري جديد';
+        editIdEl.value = '';
+        titleInput.value = '';
+        catInput.value = 'custom';
+        matchTypeInput.value = 'contains';
+        patternsInput.value = '';
+        responseInput.value = '';
+      }
+      titleInput.focus();
+    }
+
+    function closeFaqModal() {
+      document.getElementById('faqModal').classList.add('hidden');
+    }
+
+    function editFaqItem(id) {
+      const item = cachedFaqs.find(f => f.id === id);
+      if (item) openFaqModal(item);
+    }
+
+    async function handleFaqSubmit(e) {
+      e.preventDefault();
+      const token = getStoredToken();
+      const id = document.getElementById('faqEditId').value.trim();
+      const title = document.getElementById('faqTitle').value.trim();
+      const category = document.getElementById('faqCategory').value;
+      const matchType = document.getElementById('faqMatchType').value;
+      const rawPatterns = document.getElementById('faqPatterns').value;
+      const response = document.getElementById('faqResponse').value.trim();
+
+      const patterns = rawPatterns
+        .split(/[\n,]+/)
+        .map(p => p.trim())
+        .filter(Boolean);
+
+      if (!patterns.length) {
+        alert('يرجى إدخال كلمة مفتاحية واحدة على الأقل');
+        return;
+      }
+
+      const submitBtn = document.getElementById('faqSubmitBtn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'جاري الحفظ...';
+
+      try {
+        const url = id ? `/api/admin/faq/${id}?token=${encodeURIComponent(token)}` : `/api/admin/faq?token=${encodeURIComponent(token)}`;
+        const method = id ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ title, category, matchType, patterns, response })
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeFaqModal();
+          loadFaqList();
+        } else {
+          alert('تعذر حفظ الرد: ' + (data.error || 'خطأ غير معروف'));
+        }
+      } catch (err) {
+        alert('حدث خطأ في الاتصال بالسيرفر');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'حفظ الرد';
+      }
+    }
+
+    async function deleteFaqItem(id, title) {
+      if (!confirm(`هل أنت متأكد من حذف الرد: "${title}"؟`)) return;
+      const token = getStoredToken();
+      try {
+        const res = await fetch(`/api/admin/faq/${id}?token=${encodeURIComponent(token)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          loadFaqList();
+        } else {
+          alert('تعذر الحذف: ' + (data.error || 'خطأ غير معروف'));
+        }
+      } catch (err) {
+        alert('حدث خطأ أثناء محاولة الحذف');
+      }
     }
 
     // Initialize
