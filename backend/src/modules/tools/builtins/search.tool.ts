@@ -92,17 +92,22 @@ export class WebSearchTool implements AgentTool {
         }
       }
 
-      // 2. Hybrid Search: Run DuckDuckGo Lite + Google News RSS in parallel with strict 2.8s budget
-      const [ddgResults, googleNewsResults] = await Promise.all([
+      // 2. Multi-Engine Fusion: Run DuckDuckGo HTML + DuckDuckGo Lite + Google News concurrently
+      const [ddgHtmlRes, ddgLiteRes, googleNewsRes] = await Promise.allSettled([
+        this.searchDuckDuckGoHtml(query, 8),
         this.searchDuckDuckGoLite(query, 5),
         this.searchGoogleNews(query, 5),
       ]);
 
+      const ddgHtmlResults = ddgHtmlRes.status === 'fulfilled' ? ddgHtmlRes.value : [];
+      const ddgLiteResults = ddgLiteRes.status === 'fulfilled' ? ddgLiteRes.value : [];
+      const googleNewsResults = googleNewsRes.status === 'fulfilled' ? googleNewsRes.value : [];
+
       const combined: SearchResultItem[] = [];
       const seenTitles = new Set<string>();
 
-      // Prioritize DuckDuckGo Lite results as they contain detailed paragraphs with real prices & specs
-      const allResults = [...ddgResults, ...googleNewsResults];
+      // Prioritize DuckDuckGo HTML and Lite results as they contain detailed paragraphs with real prices & specs
+      const allResults = [...ddgHtmlResults, ...ddgLiteResults, ...googleNewsResults];
 
       // Sort: results with informative snippets (containing actual numbers, prices, or length > 50 chars) first
       allResults.sort((a, b) => {
@@ -122,13 +127,15 @@ export class WebSearchTool implements AgentTool {
       }
 
       if (combined.length > 0) {
-        logger.info(`Live web search returned [${combined.length}] results (DDG: ${ddgResults.length}, GoogleNews: ${googleNewsResults.length}) for "${query}"`);
+        logger.info(
+          `Live web search returned [${combined.length}] results (DDG HTML: ${ddgHtmlResults.length}, DDG Lite: ${ddgLiteResults.length}, GoogleNews: ${googleNewsResults.length}) for "${query}"`
+        );
         return {
           success: true,
           output: {
             query,
             source: 'live_web',
-            results: combined.slice(0, 6),
+            results: combined.slice(0, 8),
           },
         };
       }
@@ -290,7 +297,7 @@ export class WebSearchTool implements AgentTool {
       if (cleanTitle) {
         results.push({
           title: cleanTitle,
-          snippet: `تاريخ الخبر: ${pubDate}. تفاصيل التقرير: ${cleanTitle}`,
+          snippet: cleanTitle,
           url: rawLink.trim(),
         });
       }
@@ -299,9 +306,76 @@ export class WebSearchTool implements AgentTool {
     return results;
   }
 
+  /**
+   * DuckDuckGo HTML Search - Ultra fast and rich snippets with prices & specs
+   */
+  public async searchDuckDuckGoHtml(query: string, maxResults = 8): Promise<SearchResultItem[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5500);
+
+    try {
+      const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'ar-EG,ar;q=0.9,en;q=0.8',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const html = await response.text();
+      return this.parseDuckDuckGoHtml(html, maxResults);
+    } catch {
+      clearTimeout(timeout);
+      return [];
+    }
+  }
+
+  public parseDuckDuckGoHtml(html: string, maxResults: number): SearchResultItem[] {
+    const results: SearchResultItem[] = [];
+    const blocks = html.split('<div class="result results_links');
+
+    for (let i = 1; i < blocks.length && results.length < maxResults; i++) {
+      const b = blocks[i];
+      const titleMatch = b.match(/class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+      const snippetMatch = b.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
+
+      if (titleMatch && snippetMatch) {
+        let rawUrl = titleMatch[1];
+        const uddgMatch = rawUrl.match(/uddg=([^&]+)/);
+        if (uddgMatch) {
+          try {
+            rawUrl = decodeURIComponent(uddgMatch[1]);
+          } catch {}
+        }
+
+        const title = titleMatch[2].replace(/<[^>]+>/g, '').trim();
+        const snippet = snippetMatch[1].replace(/<[^>]+>/g, '').trim();
+
+        if (title && snippet) {
+          results.push({
+            title,
+            snippet,
+            url: rawUrl,
+          });
+        }
+      }
+    }
+
+    return results;
+  }
+
   public async searchDuckDuckGoLite(query: string, maxResults = 5): Promise<SearchResultItem[]> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2800);
+    const timeout = setTimeout(() => controller.abort(), 5000);
 
     try {
       const response = await fetch('https://lite.duckduckgo.com/lite/', {
