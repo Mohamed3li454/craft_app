@@ -141,12 +141,23 @@ export class GeminiProvider {
         return await operation(client, key);
       } catch (err: any) {
         lastError = err;
+        const isModelOverloaded =
+          err.message?.includes('503') ||
+          err.message?.includes('high demand') ||
+          err.message?.includes('Service Unavailable') ||
+          err.message?.includes('UNAVAILABLE');
+
+        if (isModelOverloaded) {
+          // 503 is a model capacity issue on Google's servers, not an API key quota exhaustion.
+          // Do not put the API key on cooldown! Re-throw so the caller can immediately try another model candidate.
+          throw err;
+        }
+
         const isQuotaOrRateLimit =
           err.message?.includes('429') ||
           err.message?.includes('Quota') ||
           err.message?.includes('quota') ||
-          err.message?.includes('RESOURCE_EXHAUSTED') ||
-          err.message?.includes('503');
+          err.message?.includes('RESOURCE_EXHAUSTED');
 
         if (isQuotaOrRateLimit) {
           let cooldownMs = 30000;
@@ -230,23 +241,29 @@ WhatsApp & Mobile Formatting Rules:
     }
 
     const hasMedia = contents.some((c) => c.parts?.some((p) => 'inlineData' in p));
-    const timeoutMs = hasMedia ? 45000 : 35000;
+    const timeoutMs = hasMedia ? 25000 : 4500;
 
     const candidateModels = [
-      this.primaryModel || 'gemini-3.8-flash',
-      this.fallbackModel || 'gemini-3.5-flash-lite',
-      'gemini-3.8-flash',
+      this.primaryModel,
+      'gemini-3.5-flash',
       'gemini-3.6-flash',
+      'gemini-3.8-flash',
+      this.fallbackModel,
       'gemini-3.5-flash-lite',
-      'gemini-flash-lite-latest',
-      'gemini-flash-latest',
-    ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+    ].filter((m, idx, arr) => m && arr.indexOf(m) === idx) as string[];
 
+    let modelAttempts = 0;
     for (let i = 0; i < candidateModels.length; i++) {
       const model = candidateModels[i];
       if (GeminiProvider.isModelInCooldown(model)) {
         logger.debug(`Skipping Gemini model [${model}] — currently in cooldown`);
         continue;
+      }
+
+      modelAttempts++;
+      if (modelAttempts > 2) {
+        logger.warn('Maximum Gemini model attempts reached (2), falling back immediately to Groq');
+        break;
       }
 
       try {
@@ -261,7 +278,7 @@ WhatsApp & Mobile Formatting Rules:
         logger.warn(
           `Gemini model [${model}] failed on available keys (${err.message}), trying next model candidate...`
         );
-        GeminiProvider.setModelCooldown(model, 15000);
+        GeminiProvider.setModelCooldown(model, 30000);
       }
     }
 
