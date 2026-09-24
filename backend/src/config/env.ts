@@ -63,7 +63,7 @@ export const config: AppConfig = {
       .split(',')
       .map((k) => k.trim())
       .filter(Boolean),
-    model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
     fallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite',
     isMockMode:
       process.env.GEMINI_MOCK_MODE === 'true' ||
