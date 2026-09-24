@@ -421,6 +421,15 @@ Formatting Rules:
       throw new Error('Groq API returned empty choices array');
     }
 
+    // Detect empty output: model returned neither text nor tool_calls
+    // This causes "model output must contain either output text or tool calls" downstream
+    const hasText = assistantMsg.content && assistantMsg.content.trim().length > 0;
+    const hasToolCalls = assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0;
+    if (!hasText && !hasToolCalls) {
+      // Throw so the cascade can retry with the next model
+      throw new Error(`Groq model [${modelName}] returned empty output (no text or tool calls) — retrying with next model`);
+    }
+
     const usage = data.usage
       ? {
           promptTokens: data.usage.prompt_tokens || 0,
@@ -430,7 +439,7 @@ Formatting Rules:
       : undefined;
 
     // Check for tool calls
-    if (assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0) {
+    if (hasToolCalls) {
       const parsedToolCalls = assistantMsg.tool_calls.map((tc: any) => {
         let parsedArgs: Record<string, any> = {};
         try {

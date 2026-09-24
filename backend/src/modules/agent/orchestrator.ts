@@ -1044,32 +1044,18 @@ export class AgentOrchestrator {
 
           // Guard against repeated search queries in the same conversation turn
           if (tool.name === 'web_search' && toolCallsExecuted.some((t) => t.toolName === 'web_search')) {
-            logger.info('Repeated web_search prevented in Groq loop, requesting immediate finalization');
-            const toolCallId = fc.id || `fc_${Date.now()}`;
-            groqMessages.push({
-              role: 'assistant',
-              content: null as any,
-              tool_calls: [
-                {
-                  id: toolCallId,
-                  type: 'function',
-                  function: {
-                    name: tool.name,
-                    arguments: JSON.stringify(fc.args),
-                  },
-                },
-              ],
-            });
-            groqMessages.push({
-              role: 'tool',
-              tool_call_id: toolCallId,
-              name: tool.name,
-              content: JSON.stringify({
-                status: 'search_already_completed',
-                instruction: 'The search results were already retrieved. Formulate your final detailed response to the user in warm Egyptian Arabic now based on the previous results.',
-              }),
-            });
-            const finalGroq = await this.groqProvider.generateReply(groqMessages, false, memories);
+            logger.info('Repeated web_search prevented in Groq loop, sending direct synthesis prompt');
+            // Use the previously gathered search result (last toolCallsExecuted entry with web_search)
+            const prevSearchResult = toolCallsExecuted.find((t) => t.toolName === 'web_search')?.result || '';
+            const prevSerialized = serializeToolResultForGroq('web_search', prevSearchResult);
+            const directSynthesis: GroqMessage[] = [
+              ...formatGroqConversationHistory(recentMessages, effectivePrompt),
+              {
+                role: 'user',
+                content: `[نتائج البحث من المصادر المعتمدة]:\n${prevSerialized}\n\nبناءً على هذه النتائج، أجب عن سؤال المستخدم مباشرةً وبشكل واضح ودقيق. لا تبحث مرة أخرى.`,
+              },
+            ];
+            const finalGroq = await this.groqProvider.generateReply(directSynthesis, false, memories);
             if (finalGroq.modelUsed) lastModelUsed = finalGroq.modelUsed;
             finalReply = finalGroq.text || 'تم معالجة طلبك بنجاح.';
             return null;
