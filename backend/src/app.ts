@@ -126,6 +126,7 @@ export function createApp(): Application {
   app.get('/api/admin/conversations', analyticsController.getConversations);
   app.get('/api/admin/conversations/:id/messages', analyticsController.getConversationTranscript);
   app.get('/api/admin/users/:id/details', analyticsController.getUserDetails);
+  app.post('/api/admin/users/:id/toggle-vip', analyticsController.toggleUserVip);
   app.get('/api/admin/tools-stats', analyticsController.getToolsStats);
 
   // 4.1 Root Endpoint

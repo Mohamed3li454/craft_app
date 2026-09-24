@@ -53,6 +53,8 @@ export interface TopUserItem {
   userId: string;
   phone: string;
   name: string;
+  isVip?: boolean;
+  dailyMessageCount?: number;
   totalMessages: number;
   tokensUsed: number;
   estimatedCostUsd: number;
@@ -416,6 +418,8 @@ export class AnalyticsRepository {
             c.user_id::text as user_id,
             COALESCE(u.phone_number, wc.wa_id, c.user_id::text) as phone,
             COALESCE(u.name, wc.profile_name, 'User') as name,
+            COALESCE(u.is_vip, false) as is_vip,
+            COALESCE(u.daily_message_count, 0) as daily_message_count,
             COUNT(m.id) as total_messages,
             COALESCE(SUM(m.tokens_used), 0) as tokens_used,
             COALESCE(SUM(m.prompt_tokens), 0) as prompt_tokens,
@@ -426,7 +430,7 @@ export class AnalyticsRepository {
           JOIN messages m ON m.conversation_id = c.id
           LEFT JOIN users u ON u.id = c.user_id OR u.phone_number = c.user_id::text
           LEFT JOIN whatsapp_contacts wc ON wc.user_id = c.user_id
-          GROUP BY c.user_id, u.phone_number, wc.wa_id, u.name, wc.profile_name
+          GROUP BY c.user_id, u.phone_number, wc.wa_id, u.name, wc.profile_name, u.is_vip, u.daily_message_count
           ORDER BY total_messages DESC
           LIMIT $1
         `;
@@ -440,6 +444,8 @@ export class AnalyticsRepository {
             userId: r.user_id,
             phone: (r.phone || '').replace(/^wa_/, ''),
             name: r.name || 'User',
+            isVip: !!r.is_vip,
+            dailyMessageCount: parseInt(r.daily_message_count || '0', 10),
             totalMessages: parseInt(r.total_messages || '0', 10),
             tokensUsed: parseInt(r.tokens_used || '0', 10),
             estimatedCostUsd: cost,

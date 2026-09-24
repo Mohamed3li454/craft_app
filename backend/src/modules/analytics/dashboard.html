@@ -458,17 +458,18 @@
               <tr>
                 <th class="px-4 py-3">المستخدم / رقم الهاتف</th>
                 <th class="px-4 py-3">الاسم</th>
+                <th class="px-4 py-3 text-center">الخطة / VIP</th>
+                <th class="px-4 py-3 text-center">اليوم (من 40)</th>
                 <th class="px-4 py-3 text-center">إجمالي الرسائل</th>
-                <th class="px-4 py-3 text-center">التوكينز المستهلكة</th>
+                <th class="px-4 py-3 text-center">التوكينز</th>
                 <th class="px-4 py-3 text-center">التكلفة التقديرية</th>
-                <th class="px-4 py-3">أول تفاعل</th>
                 <th class="px-4 py-3">آخر ظهور</th>
                 <th class="px-4 py-3 text-center">إجراءات</th>
               </tr>
             </thead>
             <tbody id="usersTableBody" class="divide-y divide-slate-800/60 font-medium">
               <tr>
-                <td colspan="8" class="text-center py-8 text-slate-500">جاري تحميل بيانات المستخدمين...</td>
+                <td colspan="9" class="text-center py-8 text-slate-500">جاري تحميل بيانات المستخدمين...</td>
               </tr>
             </tbody>
           </table>
@@ -941,13 +942,16 @@
       if (!tbody) return;
 
       if (!users.length) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-500">لا يوجد مستخدمون حتى الآن.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-500">لا يوجد مستخدمون حتى الآن.</td></tr>`;
         return;
       }
 
       tbody.innerHTML = users.map(u => {
-        const cleanPhone = u.phone.replace(/^wa_/, '');
+        const cleanPhone = (u.phone || '').replace(/^wa_/, '');
         const waLink = `https://wa.me/${cleanPhone}`;
+        const isVip = !!u.isVip;
+        const dailyCount = u.dailyMessageCount || 0;
+
         return `
           <tr class="hover:bg-slate-800/40 transition-colors">
             <td class="px-4 py-3">
@@ -964,21 +968,73 @@
               </div>
             </td>
             <td class="px-4 py-3 text-slate-300 font-medium">${u.name || 'User'}</td>
+            <td class="px-4 py-3 text-center">
+              ${isVip ? `
+                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  <i data-lucide="crown" class="w-2.5 h-2.5"></i> VIP
+                </span>
+              ` : `
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-700/50 text-slate-400 border border-slate-600/40">
+                  مجاني (40/يوم)
+                </span>
+              `}
+            </td>
+            <td class="px-4 py-3 text-center">
+              ${isVip ? `
+                <span class="text-amber-400 font-bold text-xs">غير محدود ♾️</span>
+              ` : `
+                <span class="font-bold text-xs ${dailyCount >= 40 ? 'text-rose-400' : 'text-slate-200'}">
+                  ${dailyCount} <span class="text-slate-500 font-normal">/ 40</span>
+                </span>
+              `}
+            </td>
             <td class="px-4 py-3 text-center font-bold text-indigo-400">${u.totalMessages}</td>
             <td class="px-4 py-3 text-center font-bold text-amber-400">${u.tokensUsed.toLocaleString()}</td>
             <td class="px-4 py-3 text-center font-bold text-emerald-400">$${(u.estimatedCostUsd || 0).toFixed(4)}</td>
-            <td class="px-4 py-3 text-slate-400 text-[11px]">${formatDate(u.firstActive)}</td>
             <td class="px-4 py-3 text-slate-400 text-[11px]">${formatDate(u.lastActive)}</td>
             <td class="px-4 py-3 text-center">
-              <button onclick="openUserDetails('${u.userId}')" class="px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 mx-auto transition-colors">
-                <i data-lucide="brain" class="w-3 h-3"></i>
-                <span>الذاكرة</span>
-              </button>
+              <div class="flex items-center justify-center gap-1.5">
+                <button onclick="toggleUserVip('${u.userId}', ${!isVip})" 
+                  class="px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${isVip ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30'}"
+                  title="${isVip ? 'إلغاء استثناء VIP والعودة لحد 40 رسالة' : 'ترقية المستخدم إلى VIP لاستخدامه بدون أي حدود'}">
+                  <i data-lucide="${isVip ? 'user-minus' : 'crown'}" class="w-3 h-3"></i>
+                  <span>${isVip ? 'إلغاء VIP' : 'ترقية VIP'}</span>
+                </button>
+                <button onclick="openUserDetails('${u.userId}')" class="px-2 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors">
+                  <i data-lucide="brain" class="w-3 h-3"></i>
+                  <span>الذاكرة</span>
+                </button>
+              </div>
             </td>
           </tr>
         `;
       }).join('');
       lucide.createIcons();
+    }
+
+    async function toggleUserVip(userId, newStatus) {
+      const token = getStoredToken();
+      if (!confirm(newStatus ? 'هل أنت متأكد من ترقية هذا المستخدم إلى قائمة VIP (بدون حد 40 رسالة)؟' : 'هل أنت متأكد من إزالة المستخدم من قائمة VIP والعودة لحد 40 رسالة يومياً؟')) {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/admin/users/${userId}/toggle-vip?token=${encodeURIComponent(token)}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ isVip: newStatus })
+        });
+        const data = await res.json();
+        if (data.success) {
+          fetchAnalyticsData();
+        } else {
+          alert('تعذر تحديث حالة المستخدم: ' + (data.error || 'خطأ غير معروف'));
+        }
+      } catch (err) {
+        alert('حدث خطأ في الاتصال بالسيرفر');
+      }
     }
 
     // --- CONVERSATIONS & CHAT INSPECTOR ---

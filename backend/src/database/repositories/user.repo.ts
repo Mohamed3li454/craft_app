@@ -52,12 +52,16 @@ export class UserRepository {
     if (!pool) return;
 
     try {
-      // 1. Ensure phone_number and bsuid columns exist on users
+      // 1. Ensure phone_number, bsuid, is_vip, and daily_message_count columns exist on users
       await pool.query(`
         ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50);
         ALTER TABLE users ADD COLUMN IF NOT EXISTS bsuid VARCHAR(255);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT false;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_message_count INT DEFAULT 0;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_message_date DATE DEFAULT CURRENT_DATE;
         CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
         CREATE INDEX IF NOT EXISTS idx_users_bsuid ON users(bsuid);
+        CREATE INDEX IF NOT EXISTS idx_users_is_vip ON users(is_vip);
       `);
 
       // 2. Ensure whatsapp_contacts table exists and wa_id supports up to 255-char BSUIDs
@@ -394,5 +398,123 @@ export class UserRepository {
       if (u.phoneNumber === cleanPhone) return u;
     }
     return null;
+  }
+
+  /**
+   * Checks and increments the daily message count for rate limiting (40 msgs/day).
+   * VIP users and numbers in VIP_PHONE_NUMBERS bypass this limit.
+   */
+  public async checkAndIncrementDailyLimit(
+    userId: string,
+    phoneNumber?: string
+  ): Promise<{ allowed: boolean; remaining: number; isVip: boolean }> {
+    const limit = 40;
+    const cleanPhone = normalizePhoneNumber(phoneNumber || '');
+
+    // 1. Check if phone is in static VIP list from environment
+    const isStaticVip = (process.env.VIP_PHONE_NUMBERS || '201028067432')
+      .split(',')
+      .map((p) => normalizePhoneNumber(p.trim()))
+      .filter(Boolean)
+      .some((vip) => vip === cleanPhone);
+
+    const pool = this.db.getPool();
+    if (!pool) {
+      const user = this.inMemoryUsers.get(userId);
+      if (isStaticVip || (user as any)?.isVip) {
+        return { allowed: true, remaining: 9999, isVip: true };
+      }
+      return { allowed: true, remaining: limit, isVip: false };
+    }
+
+    try {
+      await this.ensureSchema();
+
+      // Today's date in Cairo timezone (YYYY-MM-DD)
+      const cairoDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Africa/Cairo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+
+      const userUuid = toDeterministicUuid(userId);
+      const res = await pool.query(
+        `SELECT is_vip, daily_message_count, last_message_date, phone_number FROM users WHERE id = $1`,
+        [userUuid]
+      );
+
+      if (res.rows.length === 0) {
+        return { allowed: true, remaining: limit, isVip: false };
+      }
+
+      const row = res.rows[0];
+      const dbIsVip = !!row.is_vip;
+      const isVip = isStaticVip || dbIsVip;
+
+      if (isVip) {
+        return { allowed: true, remaining: 9999, isVip: true };
+      }
+
+      const lastDate = row.last_message_date
+        ? new Date(row.last_message_date).toISOString().split('T')[0]
+        : '';
+      const isNewDay = lastDate !== cairoDate;
+
+      const currentCount = isNewDay ? 0 : (row.daily_message_count || 0);
+
+      if (currentCount >= limit) {
+        return { allowed: false, remaining: 0, isVip: false };
+      }
+
+      const newCount = currentCount + 1;
+      await pool.query(
+        `UPDATE users SET daily_message_count = $1, last_message_date = $2, updated_at = NOW() WHERE id = $3`,
+        [newCount, cairoDate, userUuid]
+      );
+
+      return {
+        allowed: true,
+        remaining: Math.max(0, limit - newCount),
+        isVip: false,
+      };
+    } catch (err: any) {
+      logger.warn('Failed to check rate limit in DB, allowing message', { error: err.message });
+      return { allowed: true, remaining: limit, isVip: isStaticVip };
+    }
+  }
+
+  /**
+   * Toggles VIP status for a user
+   */
+  public async toggleVipStatus(userId: string): Promise<boolean | null> {
+    const pool = this.db.getPool();
+    if (!pool) return null;
+    try {
+      await this.ensureSchema();
+      const userUuid = toDeterministicUuid(userId);
+      const res = await pool.query(
+        `UPDATE users SET is_vip = NOT COALESCE(is_vip, false), updated_at = NOW() WHERE id = $1 RETURNING is_vip`,
+        [userUuid]
+      );
+      return res.rows[0]?.is_vip ?? false;
+    } catch (err: any) {
+      logger.error('Failed to toggle user VIP status', { error: err.message, userId });
+      return null;
+    }
+  }
+
+  public async setVipStatus(userId: string, isVip: boolean): Promise<boolean> {
+    const pool = this.db.getPool();
+    if (!pool) return false;
+    try {
+      await this.ensureSchema();
+      const userUuid = toDeterministicUuid(userId);
+      await pool.query(`UPDATE users SET is_vip = $1, updated_at = NOW() WHERE id = $2`, [isVip, userUuid]);
+      return true;
+    } catch (err: any) {
+      logger.error('Failed to set user VIP status', { error: err.message, userId });
+      return false;
+    }
   }
 }

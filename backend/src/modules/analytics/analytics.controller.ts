@@ -4,10 +4,12 @@ import path from 'path';
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 import { AnalyticsRepository } from '../../database/repositories/analytics.repo';
+import { UserRepository } from '../../database/repositories/user.repo';
 
 export class AnalyticsController {
   constructor(
-    private analyticsRepo: AnalyticsRepository = new AnalyticsRepository()
+    private analyticsRepo: AnalyticsRepository = new AnalyticsRepository(),
+    private userRepo: UserRepository = new UserRepository()
   ) {}
 
   public isAuthorized(req: Request): boolean {
@@ -156,6 +158,44 @@ export class AnalyticsController {
       res.status(200).json({ success: true, ...stats });
     } catch (err: any) {
       logger.error('Failed to get tools stats', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * POST /api/admin/users/:id/toggle-vip
+   */
+  public toggleUserVip = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    try {
+      const userId = req.params.id;
+      const { isVip } = req.body || {};
+      let newVip: boolean | null = null;
+      if (typeof isVip === 'boolean') {
+        const ok = await this.userRepo.setVipStatus(userId, isVip);
+        if (ok) newVip = isVip;
+      } else {
+        newVip = await this.userRepo.toggleVipStatus(userId);
+      }
+
+      if (newVip === null) {
+        res.status(404).json({ success: false, error: 'User not found or update failed' });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        user: {
+          id: userId,
+          isVip: newVip,
+        },
+      });
+    } catch (err: any) {
+      logger.error('Failed to toggle user VIP status', { error: err.message });
       res.status(500).json({ success: false, error: err.message });
     }
   };
