@@ -56,7 +56,9 @@ export const config: AppConfig = {
   nodeEnv: process.env.NODE_ENV || 'development',
   corsOrigin: process.env.CORS_ORIGIN || '*',
   gemini: {
-    apiKey: process.env.GEMINI_API_KEY || '',
+    apiKey:
+      process.env.GEMINI_API_KEY ||
+      (process.env.GEMINI_API_KEYS ? process.env.GEMINI_API_KEYS.split(',')[0].trim() : ''),
     apiKeys: (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '')
       .split(',')
       .map((k) => k.trim())
@@ -65,11 +67,13 @@ export const config: AppConfig = {
     fallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite',
     isMockMode:
       process.env.GEMINI_MOCK_MODE === 'true' ||
-      !process.env.GEMINI_API_KEY ||
-      process.env.GEMINI_API_KEY.startsWith('your_'),
+      (!process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEYS) ||
+      (process.env.GEMINI_API_KEY?.startsWith('your_') ?? false),
   },
   groq: {
-    apiKey: process.env.GROQ_API_KEY || '',
+    apiKey:
+      process.env.GROQ_API_KEY ||
+      (process.env.GROQ_API_KEYS ? process.env.GROQ_API_KEYS.split(',')[0].trim() : ''),
     apiKeys: (process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || '')
       .split(',')
       .map((k) => k.trim())
@@ -80,8 +84,8 @@ export const config: AppConfig = {
     isMockMode:
       process.env.GEMINI_MOCK_MODE === 'true' ||
       process.env.GROQ_MOCK_MODE === 'true' ||
-      !process.env.GROQ_API_KEY ||
-      process.env.GROQ_API_KEY.startsWith('your_'),
+      (!process.env.GROQ_API_KEY && !process.env.GROQ_API_KEYS) ||
+      (process.env.GROQ_API_KEY?.startsWith('your_') ?? false),
   },
   rateLimit: {
     dailyUserMessageLimit: parseInt(process.env.DAILY_USER_MESSAGE_LIMIT || '40', 10),
