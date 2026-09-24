@@ -128,6 +128,10 @@ export function createApp(): Application {
   app.get('/api/admin/users/:id/details', analyticsController.getUserDetails);
   app.post('/api/admin/users/:id/toggle-vip', analyticsController.toggleUserVip);
   app.get('/api/admin/tools-stats', analyticsController.getToolsStats);
+  app.get('/api/admin/faq', analyticsController.getFaqs);
+  app.post('/api/admin/faq', analyticsController.createFaq);
+  app.put('/api/admin/faq/:id', analyticsController.updateFaq);
+  app.delete('/api/admin/faq/:id', analyticsController.deleteFaq);
 
   // 4.1 Root Endpoint
   app.get('/', (_req: Request, res: Response) => {

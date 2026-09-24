@@ -5,11 +5,14 @@ import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 import { AnalyticsRepository } from '../../database/repositories/analytics.repo';
 import { UserRepository } from '../../database/repositories/user.repo';
+import { FAQRepository } from '../../database/repositories/faq.repo';
+import { FAQCache } from '../cache/faq_cache';
 
 export class AnalyticsController {
   constructor(
     private analyticsRepo: AnalyticsRepository = new AnalyticsRepository(),
-    private userRepo: UserRepository = new UserRepository()
+    private userRepo: UserRepository = new UserRepository(),
+    private faqRepo: FAQRepository = new FAQRepository()
   ) {}
 
   public isAuthorized(req: Request): boolean {
@@ -196,6 +199,109 @@ export class AnalyticsController {
       });
     } catch (err: any) {
       logger.error('Failed to toggle user VIP status', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * GET /api/admin/faq
+   */
+  public getFaqs = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+    try {
+      const items = await this.faqRepo.getAll();
+      res.status(200).json({ success: true, items });
+    } catch (err: any) {
+      logger.error('Failed to get FAQ items', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * POST /api/admin/faq
+   */
+  public createFaq = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+    try {
+      const { title, category, patterns, response, matchType } = req.body || {};
+      if (!title || !response || !patterns || !Array.isArray(patterns) || patterns.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: 'Title, response, and at least one pattern keyword are required.',
+        });
+        return;
+      }
+      const newItem = await this.faqRepo.create({
+        title,
+        category,
+        patterns,
+        response,
+        matchType,
+      });
+      await FAQCache.getInstance().reload();
+      res.status(201).json({ success: true, item: newItem });
+    } catch (err: any) {
+      logger.error('Failed to create FAQ item', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * PUT /api/admin/faq/:id
+   */
+  public updateFaq = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+    try {
+      const id = req.params.id;
+      const { title, category, patterns, response, matchType, isActive } = req.body || {};
+      const updated = await this.faqRepo.update(id, {
+        title,
+        category,
+        patterns,
+        response,
+        matchType,
+        isActive,
+      });
+      if (!updated) {
+        res.status(404).json({ success: false, error: 'FAQ item not found' });
+        return;
+      }
+      await FAQCache.getInstance().reload();
+      res.status(200).json({ success: true, item: updated });
+    } catch (err: any) {
+      logger.error('Failed to update FAQ item', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * DELETE /api/admin/faq/:id
+   */
+  public deleteFaq = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+    try {
+      const id = req.params.id;
+      const ok = await this.faqRepo.delete(id);
+      if (!ok) {
+        res.status(404).json({ success: false, error: 'FAQ item not found' });
+        return;
+      }
+      await FAQCache.getInstance().reload();
+      res.status(200).json({ success: true, message: 'FAQ item deleted successfully' });
+    } catch (err: any) {
+      logger.error('Failed to delete FAQ item', { error: err.message });
       res.status(500).json({ success: false, error: err.message });
     }
   };

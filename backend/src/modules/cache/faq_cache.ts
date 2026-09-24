@@ -1,13 +1,11 @@
-/**
- * Semantic & Pattern-Based FAQ Cache for Instant 0-Token Zero-Latency Responses.
- * Intercepts common repetitive queries (identity, creator, greetings, thanks, etc.)
- * and answers in <5ms without touching external LLMs.
- */
+import { FAQRepository, FAQItem, DEFAULT_FAQS } from '../../database/repositories/faq.repo';
+import { logger } from '../../core/logger';
 
 export interface FAQMatchResult {
   matched: boolean;
   response?: string;
   intent?: string;
+  itemId?: string;
 }
 
 export function normalizeArabicText(text: string): string {
@@ -36,8 +34,28 @@ export function normalizeArabicText(text: string): string {
     .trim();
 }
 
+interface NormalizedFAQItem {
+  id: string;
+  category: string;
+  response: string;
+  matchType: 'contains' | 'exact';
+  normalizedPatterns: string[];
+}
+
 export class FAQCache {
   private static instance: FAQCache;
+  private faqRepo: FAQRepository = new FAQRepository();
+  private cachedItems: NormalizedFAQItem[] = [];
+  private isLoaded = false;
+
+  private constructor() {
+    // Initial in-memory population from static defaults
+    this.populateStaticDefaults();
+    // Asynchronously load custom and database items
+    this.loadFromDb().catch((err) => {
+      logger.debug('Initial FAQ DB load error, using static defaults', { error: err.message });
+    });
+  }
 
   public static getInstance(): FAQCache {
     if (!FAQCache.instance) {
@@ -46,132 +64,73 @@ export class FAQCache {
     return FAQCache.instance;
   }
 
+  private populateStaticDefaults(): void {
+    this.cachedItems = DEFAULT_FAQS.map((d, index) => ({
+      id: `default_${index}`,
+      category: d.category,
+      response: d.response,
+      matchType: d.matchType,
+      normalizedPatterns: d.patterns.map((p) => normalizeArabicText(p)).filter(Boolean),
+    }));
+  }
+
+  public async loadFromDb(): Promise<void> {
+    try {
+      const items = await this.faqRepo.getAll();
+      const activeItems = items.filter((i) => i.isActive);
+
+      if (activeItems.length > 0) {
+        this.cachedItems = activeItems.map((item) => ({
+          id: item.id,
+          category: item.category,
+          response: item.response,
+          matchType: item.matchType,
+          normalizedPatterns: item.patterns.map((p) => normalizeArabicText(p)).filter(Boolean),
+        }));
+        this.isLoaded = true;
+        logger.info(`FAQCache loaded [${this.cachedItems.length}] active items from database`);
+      }
+    } catch (err: any) {
+      logger.warn('Failed to load FAQs from DB, retaining current cache', { error: err.message });
+    }
+  }
+
+  public async reload(): Promise<void> {
+    await this.loadFromDb();
+  }
+
   /**
-   * Checks if an incoming user prompt matches a high-frequency FAQ pattern.
-   * Returns instant formatted reply if matched, or { matched: false } if LLM processing is required.
+   * Ultra-fast in-memory pattern matching (< 1ms).
+   * Matches against database-backed FAQ items.
    */
   public match(rawText: string): FAQMatchResult {
     const norm = normalizeArabicText(rawText);
     if (!norm) return { matched: false };
 
-    // 1. Creator & Developer Questions (e.g. مين اللي عملك، مين محمد علي، اسم اللي برمجك)
-    const creatorPatterns = [
-      'مين اللي عملك',
-      'مين عملك',
-      'مين برمجك',
-      'مين صاحبك',
-      'مين اللي عمل الشات',
-      'مين اللي عمل الشات ده',
-      'مين صنعك',
-      'اسم اللي عملك',
-      'عايز اسم اللي عملك',
-      'عايز اسم الي عملك',
-      'مين مطورك',
-      'مين اللي طورك',
-      'مين عمل هذا البوت',
-      'مين صاحب البوت',
-      'تعرف حد اسمه محمد علي',
-      'تعرف محمد علي',
-      'مين محمد علي',
-      'مين المطور',
-      'من صنعك',
-      'من برمجك',
-      'من طورك',
-      'من مطورك',
-      'من هو محمد علي',
-    ];
-    if (creatorPatterns.some((p) => norm.includes(normalizeArabicText(p)))) {
-      return {
-        matched: true,
-        intent: 'creator',
-        response:
-          'تم تصميمي وتطويري بالكامل بواسطة المهندس *محمد علي (Mohamed Ali)* وفريق منظومة *Craft* كوكيل ذكي متطور لمساعدتك وإنجاز مهامك اليومية بأعلى كفاءة وسرعة! 🚀✨\n\nتأمرني بأي حاجة يا باشا؟',
-      };
-    }
+    for (const item of this.cachedItems) {
+      for (const pattern of item.normalizedPatterns) {
+        if (!pattern) continue;
 
-    // 2. Identity & Introduction (e.g. انت مين، اسمك ايه، عرفني بنفسك)
-    const identityPatterns = [
-      'انت مين',
-      'عرفني بنفسك',
-      'اسمك ايه',
-      'ما هو اسمك',
-      'انت ايه',
-      'بتعمل ايه',
-      'مين انت',
-      'ما هي وظيفتك',
-      'شغال ايه',
-      'ما هو كرافت',
-      'ايه كرافت ده',
-    ];
-    if (identityPatterns.some((p) => norm === normalizeArabicText(p) || norm.startsWith(normalizeArabicText(p)))) {
-      return {
-        matched: true,
-        intent: 'identity',
-        response:
-          'أنا *كرافت (Craft)* ⚡، مساعدك الشخصي الذكي! أقدر أساعدك في كل حاجة: الإجابة على استفساراتك، البحث المباشر في الإنترنت، إدارة وتنظيم تذكيراتك ومواعيدك، وفحص الصور والملفات الصوتية والمستندات بدقة.\n\nقولي يا باشا، أقدر أساعدك بإيه النهاردة؟',
-      };
-    }
+        let matched = false;
+        if (item.matchType === 'exact') {
+          matched = norm === pattern || norm.startsWith(pattern + ' ') || norm === pattern;
+        } else {
+          matched = norm.includes(pattern);
+        }
 
-    // 3. Age & Birthday Questions (e.g. عندك كام سنة، سنك كام)
-    const agePatterns = [
-      'عندك كام سنة',
-      'عمرك كام',
-      'سنك كام',
-      'كم عمرك',
-      'تاريخ ميلادك',
-      'متى ولدت',
-    ];
-    if (agePatterns.some((p) => norm.includes(normalizeArabicText(p)))) {
-      return {
-        matched: true,
-        intent: 'age',
-        response:
-          'أنا ذكاء اصطناعي، ماليش سن أو عمر بالمعنى التقليدي 🤖، دايماً متحدث في أحدث نسخة وجاهز أخدمك على مدار الساعة في أي وقت!',
-      };
-    }
-
-    // 4. Brief Casual Greetings (Exact match only to not intercept questions starting with greeting)
-    const exactGreetings = [
-      'ازيك',
-      'عامل ايه',
-      'اخبارك ايه',
-      'اخبارك',
-      'صباح الخير',
-      'مساء الخير',
-      'سلام عليكم',
-      'السلام عليكم',
-      'سلام',
-      'هاي',
-      'اهلا',
-      'مرحبا',
-    ];
-    if (exactGreetings.some((g) => norm === normalizeArabicText(g))) {
-      return {
-        matched: true,
-        intent: 'greeting',
-        response:
-          'يا هلا والله يا باشا! الحمد لله كله تمام وزي الفل، يومك سعيد يا رب. طمني عليك وأنا تحت أمرك فوراً، تحب أساعدك في إيه؟ 😊',
-      };
-    }
-
-    // 5. Thanks & Gratitude
-    const exactThanks = [
-      'شكرا',
-      'تسلم',
-      'الف شكر',
-      'حبيبي',
-      'تسلم ايدك',
-      'شكرا جزيلا',
-      'مشكور',
-      'الله يخليك',
-    ];
-    if (exactThanks.some((t) => norm === normalizeArabicText(t))) {
-      return {
-        matched: true,
-        intent: 'thanks',
-        response:
-          'العفو يا باشا على راسي! أنا في خدمتك دايماً وفي أي وقت، تسلم يا غالي. 🙏✨',
-      };
+        if (matched) {
+          // Increment hit count asynchronously in background
+          if (!item.id.startsWith('default_')) {
+            this.faqRepo.incrementHitCount(item.id);
+          }
+          return {
+            matched: true,
+            response: item.response,
+            intent: item.category,
+            itemId: item.id,
+          };
+        }
+      }
     }
 
     return { matched: false };
