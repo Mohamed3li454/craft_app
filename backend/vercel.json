@@ -10,11 +10,5 @@
     "api/index.ts": {
       "maxDuration": 30
     }
-  },
-  "crons": [
-    {
-      "path": "/api/cron/reminders",
-      "schedule": "* * * * *"
-    }
-  ]
+  }
 }
