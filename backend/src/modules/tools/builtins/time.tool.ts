@@ -16,12 +16,13 @@ export class CurrentTimeTool implements AgentTool {
 
   public async execute(
     args: Record<string, any>,
-    _context: ToolContext
+    context: ToolContext
   ): Promise<ToolExecutionResult> {
     const timeZone = args.timeZone || 'Africa/Cairo';
     const now = new Date();
+    const locale = context?.languageContext?.locale || 'ar-EG';
     try {
-      const formatted = new Intl.DateTimeFormat('ar-EG', {
+      const formatted = new Intl.DateTimeFormat(locale, {
         timeZone,
         dateStyle: 'full',
         timeStyle: 'long',

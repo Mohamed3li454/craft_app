@@ -1,5 +1,6 @@
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
+import { LanguageContext } from '../language/types';
 import { ToolRegistry } from '../tools/registry';
 
 export interface GroqMessage {
@@ -168,7 +169,7 @@ export class GroqProvider {
     throw lastError || new Error('All Groq API keys in pool failed or are in cooldown');
   }
 
-  public getSystemInstruction(memories?: string[]): string {
+  public getSystemInstruction(memories?: string[], languageContext?: LanguageContext): string {
     const now = new Date();
     const cairoFormatter = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Africa/Cairo',
@@ -185,10 +186,62 @@ export class GroqProvider {
     const cairoNow = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}+03:00`;
     const today = `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
 
+    let toneAndLanguage = '';
+    if (languageContext) {
+      if (languageContext.targetLanguage === 'en') {
+        toneAndLanguage = `Response Language & Style:
+- Language: English (US)
+- Tone: Warm, highly professional, direct, concise, and helpful.
+- Rule: You MUST formulate your entire response in natural, fluent English. Do NOT switch to Arabic unless explicitly requested.`;
+      } else if (languageContext.targetLanguage === 'fr') {
+        toneAndLanguage = `Response Language & Style:
+- Language: French
+- Tone: Warm, professional, concise, and helpful.
+- Rule: You MUST formulate your response in natural, fluent French.`;
+      } else if (languageContext.targetLanguage === 'de') {
+        toneAndLanguage = `Response Language & Style:
+- Language: German
+- Tone: Warm, professional, concise, and helpful.
+- Rule: You MUST formulate your response in natural, fluent German.`;
+      } else if (languageContext.targetLanguage === 'es') {
+        toneAndLanguage = `Response Language & Style:
+- Language: Spanish
+- Tone: Warm, professional, concise, and helpful.
+- Rule: You MUST formulate your response in natural, fluent Spanish.`;
+      } else {
+        // Arabic
+        if (languageContext.dialect === 'egyptian') {
+          toneAndLanguage = `Response Language & Style:
+- Language: Arabic
+- Dialect: Natural, friendly, and professional Egyptian Arabic (اللهجة المصرية العامية الراقية والمهنية).
+- Tone: Warm, direct, concise, and helpful. Avoid excessive colloquial fillers like "يا باشا" or "يا هندسة".`;
+        } else if (languageContext.dialect === 'gulf') {
+          toneAndLanguage = `Response Language & Style:
+- Language: Arabic
+- Dialect: Gulf Arabic (اللهجة الخليجية البيضاء والمهنية).
+- Tone: Warm, respectful, concise, and helpful.`;
+        } else if (languageContext.dialect === 'levantine') {
+          toneAndLanguage = `Response Language & Style:
+- Language: Arabic
+- Dialect: Levantine Arabic (اللهجة الشامية المهنية).
+- Tone: Warm, concise, and helpful.`;
+        } else {
+          // Modern Standard Arabic
+          toneAndLanguage = `Response Language & Style:
+- Language: Modern Standard Arabic (العربية الفصحى المعاصرة السلسة والواضحة).
+- Tone: Elegant, professional, clear, concise, and helpful.`;
+        }
+      }
+    } else {
+      toneAndLanguage = `Response Language & Style:
+- Language: Arabic (Modern Standard Arabic or match the user's input language).
+- Tone: Professional, warm, and concise.`;
+    }
+
     let instruction = `You are Craft, the personal AI assistant for the Craft ecosystem.
 User Timezone: Africa/Cairo (Egypt, UTC+3). Local Time: ${cairoNow} (Date: ${today}).
 Identity: Always introduce and refer to yourself as Craft. Never say you are ChatGPT, OpenAI, Groq, or Google.
-Tone & Dialect: Warm, professional, and concise Egyptian Arabic. Be friendly but avoid excessive colloquial fillers like "يا باشا" or "يا هندسة" on every message. Be direct and helpful.
+${toneAndLanguage}
 
 ### Reminders & Tasks (CRITICAL RULES):
 - ALWAYS call 'create_reminder' when the user asks to be reminded of ANYTHING — even casually worded requests like: "فكرني", "ذكرني", "اعمل لي تذكير", "ابعتلي رسالة بعد X", "remind me", "set a reminder", "alert me".
@@ -210,6 +263,7 @@ Formatting Rules:
 
     if (memories && memories.length > 0) {
       instruction += `\n\n### Stored User Profile:\n${memories.map((m) => `- ${m}`).join('\n')}`;
+      instruction += `\n*Priority Rule*: The active "Response Language & Style" specified above is authoritative for the current request and MUST strictly take precedence over any stored language or dialect preferences in the user profile.`;
     }
 
     return instruction;
@@ -221,7 +275,8 @@ Formatting Rules:
   public async transcribeAudio(
     audioBuffer: Buffer,
     mimeType = 'audio/ogg',
-    filename = 'voice_note.ogg'
+    filename = 'voice_note.ogg',
+    languageContext?: LanguageContext
   ): Promise<string> {
     if (config.groq.isMockMode || !this.apiKey) {
       return 'رسالة صوتية من المستخدم (Mock Audio Transcription)';
@@ -231,8 +286,25 @@ Formatting Rules:
       logger.info(`Transcribing audio with Groq Whisper (${audioBuffer.length} bytes, mime: ${mimeType})`);
       const form = new FormData();
       form.append('model', this.whisperModel);
-      form.append('language', 'ar');
-      form.append('prompt', 'تسجيل صوتي مصري لوكيل كرافت الذكي');
+
+      // Only pass explicit language constraint if high-confidence language context is available
+      if (languageContext && languageContext.confidence >= 0.70) {
+        if (languageContext.targetLanguage === 'en') {
+          form.append('language', 'en');
+          form.append('prompt', 'Voice recording for Craft personal AI assistant');
+        } else if (languageContext.targetLanguage === 'fr') {
+          form.append('language', 'fr');
+        } else if (languageContext.targetLanguage === 'ar') {
+          form.append('language', 'ar');
+          const prompt = languageContext.dialect === 'egyptian'
+            ? 'تسجيل صوتي مصري لوكيل كرافت الذكي'
+            : 'تسجيل صوتي لوكيل كرافت الذكي';
+          form.append('prompt', prompt);
+        }
+      } else {
+        // Without high confidence hint, allow Whisper auto-detection while providing acoustic context
+        form.append('prompt', 'Audio message for Craft AI assistant / تسجيل صوتي لوكيل كرافت');
+      }
 
       const blob = new Blob([audioBuffer], { type: mimeType });
       form.append('file', blob, filename);
@@ -268,10 +340,11 @@ Formatting Rules:
     messages: GroqMessage[],
     useTools = true,
     memories?: string[],
-    imageAttachment?: { data: string; mimeType: string }
+    imageAttachment?: { data: string; mimeType: string },
+    languageContext?: LanguageContext
   ): Promise<GroqMessageResponse> {
     if (config.groq.isMockMode || !this.apiKey) {
-      const mockRes = this.generateMockResponse(messages, memories, !!imageAttachment);
+      const mockRes = this.generateMockResponse(messages, memories, !!imageAttachment, languageContext);
       if (!mockRes.modelUsed) mockRes.modelUsed = this.primaryModel;
       if (!mockRes.usage) {
         mockRes.usage = { promptTokens: 30, completionTokens: 40, totalTokens: 70 };
@@ -285,7 +358,7 @@ Formatting Rules:
       try {
         logger.info(`Image detected, routing directly to Groq Vision model [${visionModel}]`);
         return await this.withTimeout(
-          this.callChat(visionModel, messages, useTools, memories, imageAttachment),
+          this.callChat(visionModel, messages, useTools, memories, imageAttachment, languageContext),
           35000,
           `Groq Vision model [${visionModel}] timed out after 35s`
         );
@@ -312,7 +385,7 @@ Formatting Rules:
 
       try {
         return await this.withTimeout(
-          this.callChat(model, messages, useTools, memories),
+          this.callChat(model, messages, useTools, memories, undefined, languageContext),
           25000,
           `Groq model [${model}] timed out after 25s`
         );
@@ -355,9 +428,10 @@ Formatting Rules:
     messages: GroqMessage[],
     useTools: boolean,
     memories?: string[],
-    imageAttachment?: { data: string; mimeType: string }
+    imageAttachment?: { data: string; mimeType: string },
+    languageContext?: LanguageContext
   ): Promise<GroqMessageResponse> {
-    const systemPrompt = this.getSystemInstruction(memories);
+    const systemPrompt = this.getSystemInstruction(memories, languageContext);
 
     // Format messages for Groq / OpenAI API
     const formattedMessages: GroqMessage[] = [];
@@ -481,7 +555,8 @@ Formatting Rules:
   public generateMockResponse(
     messages: GroqMessage[],
     memories?: string[],
-    hasImage = false
+    hasImage = false,
+    languageContext?: LanguageContext
   ): GroqMessageResponse {
     const lastMsg = messages[messages.length - 1];
     const lastContent = typeof lastMsg?.content === 'string' ? lastMsg.content : '';
@@ -660,7 +735,17 @@ Formatting Rules:
       };
     }
 
-    // Default conversational reply
+    // Default conversational reply based on language context
+    if (languageContext?.targetLanguage === 'en') {
+      return {
+        text: 'Hello! I am Craft, your personal AI assistant powered by Groq. How can I assist you today?',
+      };
+    }
+    if (languageContext?.targetLanguage === 'fr') {
+      return {
+        text: "Bonjour ! Je suis Craft, votre assistant IA personnel. Comment puis-je vous aider aujourd'hui ?",
+      };
+    }
     return {
       text: 'أهلاً بك! أنا Craft، وكيلك الذكي الشخصي المدعوم بمحرك Groq الفائق. كيف يمكنني مساعدتك اليوم؟',
     };
@@ -669,10 +754,13 @@ Formatting Rules:
   /**
    * Ultra-fast intent classifier & contextual interim acknowledgment generator (~150ms).
    * Determines if the user's prompt requires web research, live facts, or checking external info.
-   * If yes: returns a natural, short 1-sentence acknowledgement in the user's dialect (e.g. "هتأكدلك من كذا دلوقتي يا باشا").
+   * If yes: returns a natural, short 1-sentence acknowledgement in the user's language without colloquial titles.
    * If no: returns null.
    */
-  public async generateInterimAcknowledgement(userPrompt: string): Promise<string | null> {
+  public async generateInterimAcknowledgement(
+    userPrompt: string,
+    languageContext?: LanguageContext
+  ): Promise<string | null> {
     if (!userPrompt || userPrompt.trim().length === 0) {
       return null;
     }
@@ -687,19 +775,28 @@ Formatting Rules:
         lower.includes('ابحث') ||
         lower.includes('دور') ||
         lower.includes('سعر') ||
+        lower.includes('price') ||
+        lower.includes('cost') ||
         lower.includes('موقع') ||
         lower.includes('أخبار') ||
         lower.includes('اخبار') ||
+        lower.includes('news') ||
         lower.includes('search');
 
       if (needsSearch) {
+        if (languageContext?.targetLanguage === 'en') {
+          if (lower.includes('price') || lower.includes('cost') || lower.includes('سعر')) {
+            return 'Give me a moment to check current market prices.';
+          }
+          return 'Give me a moment to search reliable sources for you.';
+        }
         if (lower.includes('سعر')) {
           return 'ثواني هشوفلك الأسعار في السوق دلوقتي وأرجعلك.';
         }
         if (lower.includes('موقع')) {
-          return 'هتأكدلك من المواقع المتاحة دلوقتي يا باشا.';
+          return 'هتأكدلك من المواقع المتاحة دلوقتي.';
         }
-        return 'ثواني هبحثلك في المصادر وأرجعلك في ثواني يا باشا.';
+        return 'ثواني هبحثلك في المصادر وأرجعلك في ثواني.';
       }
       return null;
     }

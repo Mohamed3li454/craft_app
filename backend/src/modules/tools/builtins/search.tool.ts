@@ -1,6 +1,7 @@
 import { AgentTool, ToolContext, ToolExecutionResult } from '../tool.interface';
 import { config } from '../../../config/env';
 import { logger } from '../../../core/logger';
+import { LanguageContext } from '../../language/types';
 
 export interface SearchResultItem {
   title: string;
@@ -38,18 +39,11 @@ export class WebSearchTool implements AgentTool {
 
   public async execute(
     args: Record<string, any>,
-    _context: ToolContext
+    context: ToolContext
   ): Promise<ToolExecutionResult> {
-    let query = (args.query || '').trim();
+    const query = (args.query || '').trim();
     if (!query) {
       return { success: false, error: 'Empty search query' };
-    }
-
-    // Auto-focus price & product inquiries to Egyptian market if no specific region is mentioned
-    const isPriceOrMarketQuery = /سعر|اسعار|أسعار|بكام|تكلفة|كام|مواصفات|تاريخ نزول|موعد طرح/i.test(query);
-    const mentionsCountry = /مصر|سعودي|امارات|إمارات|كويت|قطر|بحرين|عمان|أردن|اردن|مغرب|تونس|جزائر|دبي|رياض/i.test(query);
-    if (isPriceOrMarketQuery && !mentionsCountry) {
-      query = `${query} في مصر`;
     }
 
     // Deterministic mock return for CI / unit test runs
@@ -94,9 +88,9 @@ export class WebSearchTool implements AgentTool {
 
       // 2. Multi-Engine Fusion: Run DuckDuckGo HTML + DuckDuckGo Lite + Google News concurrently
       const [ddgHtmlRes, ddgLiteRes, googleNewsRes] = await Promise.allSettled([
-        this.searchDuckDuckGoHtml(query, 8),
-        this.searchDuckDuckGoLite(query, 5),
-        this.searchGoogleNews(query, 5),
+        this.searchDuckDuckGoHtml(query, 8, context?.languageContext),
+        this.searchDuckDuckGoLite(query, 5, context?.languageContext),
+        this.searchGoogleNews(query, 5, context?.languageContext),
       ]);
 
       const ddgHtmlResults = ddgHtmlRes.status === 'fulfilled' ? ddgHtmlRes.value : [];
@@ -169,15 +163,20 @@ export class WebSearchTool implements AgentTool {
   /**
    * Official Google News RSS Search - 100% unblocked on Cloud/Vercel/AWS Lambda
    */
-  public async searchGoogleNews(query: string, maxResults = 5): Promise<SearchResultItem[]> {
+  public async searchGoogleNews(
+    query: string,
+    maxResults = 5,
+    languageContext?: LanguageContext
+  ): Promise<SearchResultItem[]> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2800);
 
     try {
       const isArabic = /[\u0600-\u06FF]/.test(query);
-      const hl = isArabic ? 'ar' : 'en-US';
-      let gl = 'US';
-      let ceid = 'US:en';
+      const isEnglish = languageContext?.targetLanguage === 'en' || (!isArabic && /^[a-zA-Z0-9\s.,!?'"-]+$/.test(query));
+      const hl = isEnglish ? 'en-US' : (isArabic ? 'ar' : (languageContext?.locale || 'en-US'));
+      let gl = isEnglish ? 'US' : 'EG';
+      let ceid = isEnglish ? 'US:en' : 'EG:ar';
 
       if (isArabic) {
         const lowerQuery = query.toLowerCase();
@@ -196,11 +195,17 @@ export class WebSearchTool implements AgentTool {
         } else if (/مغرب|رباط|كازا|دار البيضاء/.test(lowerQuery)) {
           gl = 'MA';
           ceid = 'MA:ar';
+        } else if (/مصر|القاهرة|الإسكندرية|الاسكندرية/.test(lowerQuery)) {
+          gl = 'EG';
+          ceid = 'EG:ar';
         } else {
-          // General Arabic region / Pan-Arab
+          // General Pan-Arab default
           gl = 'EG';
           ceid = 'EG:ar';
         }
+      } else if (languageContext?.targetLanguage === 'fr') {
+        gl = 'FR';
+        ceid = 'FR:fr';
       }
 
       const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${hl}&gl=${gl}&ceid=${ceid}`;
@@ -309,9 +314,19 @@ export class WebSearchTool implements AgentTool {
   /**
    * DuckDuckGo HTML Search - Ultra fast and rich snippets with prices & specs
    */
-  public async searchDuckDuckGoHtml(query: string, maxResults = 8): Promise<SearchResultItem[]> {
+  public async searchDuckDuckGoHtml(
+    query: string,
+    maxResults = 8,
+    languageContext?: LanguageContext
+  ): Promise<SearchResultItem[]> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5500);
+
+    const acceptLang = languageContext?.targetLanguage === 'en'
+      ? 'en-US,en;q=0.9'
+      : (languageContext?.targetLanguage === 'fr'
+        ? 'fr-FR,fr;q=0.9,en;q=0.8'
+        : 'ar-EG,ar;q=0.9,en;q=0.8');
 
     try {
       const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
@@ -320,7 +335,7 @@ export class WebSearchTool implements AgentTool {
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'ar-EG,ar;q=0.9,en;q=0.8',
+          'Accept-Language': acceptLang,
         },
         signal: controller.signal,
       });
@@ -373,9 +388,19 @@ export class WebSearchTool implements AgentTool {
     return results;
   }
 
-  public async searchDuckDuckGoLite(query: string, maxResults = 5): Promise<SearchResultItem[]> {
+  public async searchDuckDuckGoLite(
+    query: string,
+    maxResults = 5,
+    languageContext?: LanguageContext
+  ): Promise<SearchResultItem[]> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const acceptLang = languageContext?.targetLanguage === 'en'
+      ? 'en-US,en;q=0.9'
+      : (languageContext?.targetLanguage === 'fr'
+        ? 'fr-FR,fr;q=0.9,en;q=0.8'
+        : 'ar,en;q=0.9');
 
     try {
       const response = await fetch('https://lite.duckduckgo.com/lite/', {
@@ -385,7 +410,7 @@ export class WebSearchTool implements AgentTool {
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
           'Content-Type': 'application/x-www-form-urlencoded',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'ar,en;q=0.9',
+          'Accept-Language': acceptLang,
         },
         body: new URLSearchParams({ q: query }).toString(),
         signal: controller.signal,

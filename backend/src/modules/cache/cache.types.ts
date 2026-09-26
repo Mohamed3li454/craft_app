@@ -1,4 +1,5 @@
 import { ResponseStrategy } from '../../database/repositories/semantic_cache.types';
+import { LanguageContext } from '../language/types';
 
 export interface CacheContext {
   userId?: string;
@@ -9,6 +10,7 @@ export interface CacheContext {
   channel?: string;
   slots?: Record<string, string>;
   metadata?: Record<string, unknown>;
+  languageContext?: LanguageContext;
 }
 
 export type SemanticCacheResult =

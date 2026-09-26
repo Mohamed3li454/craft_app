@@ -131,17 +131,21 @@ export class WhatsAppWebhookHandler {
 
           const resolveResult = await this.confirmationService.verifyAndResolve(token, decision);
 
+          const isEnglish =
+            buttonTitle.toLowerCase().includes('confirm') ||
+            buttonTitle.toLowerCase().includes('cancel');
+
           let replyText = '';
           if (resolveResult.success) {
             if (decision === 'approved') {
               const actionName = resolveResult.confirmation?.actionName;
               if (actionName === 'create_reminder') {
-                const title = resolveResult.confirmation?.payload?.title || 'التذكير';
+                const title = resolveResult.confirmation?.payload?.title || (isEnglish ? 'Reminder' : 'التذكير');
                 const parsedTime = parseDueAt(resolveResult.confirmation?.payload?.time);
                 const recurrence = resolveResult.confirmation?.payload?.recurrence || 'none';
-                let formattedTime = resolveResult.confirmation?.payload?.time || 'المحدد';
+                let formattedTime = resolveResult.confirmation?.payload?.time || (isEnglish ? 'Scheduled time' : 'المحدد');
                 if (parsedTime) {
-                  formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
+                  formattedTime = new Intl.DateTimeFormat(isEnglish ? 'en-US' : 'ar-EG-u-nu-latn', {
                     timeZone: 'Africa/Cairo',
                     hour: 'numeric',
                     minute: 'numeric',
@@ -149,22 +153,38 @@ export class WhatsAppWebhookHandler {
                     month: 'long',
                   }).format(parsedTime);
                 }
-                const recurrenceLine = recurrence === 'daily'
-                  ? '\n• التكرار: يومياً (كل يوم في نفس الموعد) 🔄'
-                  : recurrence === 'weekly'
-                  ? '\n• التكرار: أسبوعياً 🔄'
-                  : recurrence === 'monthly'
-                  ? '\n• التكرار: شهرياً 🔄'
-                  : '';
-                replyText = `✅ تم التأكيد بنجاح!\nتم حفظ وجدولة التذكير:\n• الموضوع: "${title}"\n• الموعد: ${formattedTime}${recurrenceLine}\nسأقوم بتنبيهك في الوقت المحدد بإذن الله.`;
+                const recurrenceLine = isEnglish
+                  ? (recurrence === 'daily'
+                      ? '\n• Recurrence: Daily (at the same time) 🔄'
+                      : recurrence === 'weekly'
+                      ? '\n• Recurrence: Weekly 🔄'
+                      : recurrence === 'monthly'
+                      ? '\n• Recurrence: Monthly 🔄'
+                      : '')
+                  : (recurrence === 'daily'
+                      ? '\n• التكرار: يومياً (كل يوم في نفس الموعد) 🔄'
+                      : recurrence === 'weekly'
+                      ? '\n• التكرار: أسبوعياً 🔄'
+                      : recurrence === 'monthly'
+                      ? '\n• التكرار: شهرياً 🔄'
+                      : '');
+                replyText = isEnglish
+                  ? `✅ Successfully confirmed!\nReminder scheduled:\n• Topic: "${title}"\n• Time: ${formattedTime}${recurrenceLine}\nI will notify you at the scheduled time.`
+                  : `✅ تم التأكيد بنجاح!\nتم حفظ وجدولة التذكير:\n• الموضوع: "${title}"\n• الموعد: ${formattedTime}${recurrenceLine}\nسأقوم بتنبيهك في الوقت المحدد بإذن الله.`;
               } else {
-                replyText = `✅ تم تأكيد وتنفيذ العملية [${actionName || 'المطلوبة'}] بنجاح!`;
+                replyText = isEnglish
+                  ? `✅ Action [${actionName || 'Requested'}] confirmed and executed successfully!`
+                  : `✅ تم تأكيد وتنفيذ العملية [${actionName || 'المطلوبة'}] بنجاح!`;
               }
             } else {
-              replyText = '❌ تم إلغاء الإجراء بناءً على رغبتك. لن يتم تنفيذ أي عملية.';
+              replyText = isEnglish
+                ? '❌ Action was cancelled at your request. Nothing will be executed.'
+                : '❌ تم إلغاء الإجراء بناءً على رغبتك. لن يتم تنفيذ أي عملية.';
             }
           } else {
-            replyText = `⚠️ ${resolveResult.message}\n(قد يكون الطلب قد انتهت صلاحيته أو تم اتخاذ قرار بشأنه مسبقاً).`;
+            replyText = isEnglish
+              ? `⚠️ ${resolveResult.message}\n(The request may have expired or already been resolved).`
+              : `⚠️ ${resolveResult.message}\n(قد يكون الطلب قد انتهت صلاحيته أو تم اتخاذ قرار بشأنه مسبقاً).`;
           }
 
           // Persist user interaction and assistant reply into chat history
@@ -286,11 +306,14 @@ export class WhatsAppWebhookHandler {
         agentResult.confirmationRequest?.token
       ) {
         const token = agentResult.confirmationRequest.token;
-        const prompt = `${agentResult.replyText}\n\nاضغط على أحد الأزرار أدناه لتأكيد أو إلغاء التنفيذ:`;
+        const isEnglish = agentResult.languageContext?.targetLanguage === 'en';
+        const prompt = isEnglish
+          ? `${agentResult.replyText}\n\nTap a button below to confirm or cancel:`
+          : `${agentResult.replyText}\n\nاضغط على أحد الأزرار أدناه لتأكيد أو إلغاء التنفيذ:`;
 
         await this.whatsappAdapter.sendInteractiveButtons(senderId, prompt, [
-          { id: `conf_approve_${token}`, title: 'تأكيد ✅' },
-          { id: `conf_reject_${token}`, title: 'إلغاء ❌' },
+          { id: `conf_approve_${token}`, title: isEnglish ? 'Confirm ✅' : 'تأكيد ✅' },
+          { id: `conf_reject_${token}`, title: isEnglish ? 'Cancel ❌' : 'إلغاء ❌' },
         ]);
       } else {
         await this.whatsappAdapter.sendTextMessage(senderId, agentResult.replyText);
@@ -302,7 +325,7 @@ export class WhatsAppWebhookHandler {
       try {
         if (fromNumber) {
           const emergencyFallback =
-            'يا باشا أنا معاك وسامعك، حصل تهنيجة بسيطة في الاتصال، ابعتلي تاني وأنا تحت أمرك فوراً! 🤝';
+            'عذراً، حدث انقطاع مؤقت في الاتصال، يرجى إعادة إرسال رسالتك وسأكون جاهزاً لمساعدتك فوراً! 🤝';
           await this.whatsappAdapter.sendTextMessage(fromNumber, emergencyFallback);
         }
       } catch (dispatchErr: any) {

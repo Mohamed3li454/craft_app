@@ -1,7 +1,10 @@
+import { LanguageContext } from '../language/types';
+
 export interface ToolContext {
   userId: string;
   conversationId: string;
   channel: 'flutter' | 'whatsapp';
+  languageContext?: LanguageContext;
 }
 
 export interface ToolExecutionResult {

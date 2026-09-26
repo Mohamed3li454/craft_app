@@ -27,24 +27,25 @@ export class CreateReminderTool implements AgentTool {
 
   public async execute(
     args: Record<string, any>,
-    _context: ToolContext
+    context: ToolContext
   ): Promise<ToolExecutionResult> {
     const title = args.title || 'Untitled Reminder';
     const time = args.time || 'Soon';
     const recurrence = args.recurrence || 'none';
+    const isEnglish = context.languageContext?.targetLanguage === 'en';
 
-    const recurrenceLabel = recurrence === 'daily'
-      ? ' [متكرر يومياً 🔄]'
-      : recurrence === 'weekly'
-      ? ' [متكرر أسبوعياً 🔄]'
-      : recurrence === 'monthly'
-      ? ' [متكرر شهرياً 🔄]'
-      : '';
+    const recurrenceLabel = isEnglish
+      ? (recurrence === 'daily' ? ' [repeats daily 🔄]' : recurrence === 'weekly' ? ' [repeats weekly 🔄]' : recurrence === 'monthly' ? ' [repeats monthly 🔄]' : '')
+      : (recurrence === 'daily' ? ' [متكرر يومياً 🔄]' : recurrence === 'weekly' ? ' [متكرر أسبوعياً 🔄]' : recurrence === 'monthly' ? ' [متكرر شهرياً 🔄]' : '');
+
+    const confirmationDescription = isEnglish
+      ? `Do you confirm scheduling a reminder${recurrenceLabel} regarding: "${title}" at: ${time}?`
+      : `هل تؤكد إنشاء تذكير${recurrenceLabel} بخصوص: "${title}" في موعد: ${time}؟`;
 
     return {
       success: true,
       isSensitive: true,
-      confirmationDescription: `هل تؤكد إنشاء تذكير${recurrenceLabel} بخصوص: "${title}" في موعد: ${time}؟`,
+      confirmationDescription,
       output: {
         status: 'pending_confirmation',
         title,
@@ -81,33 +82,34 @@ export class ListRemindersTool implements AgentTool {
       args.includeCompleted === true
     );
 
+    const isEnglish = context.languageContext?.targetLanguage === 'en';
+    const locale = context.languageContext?.locale || (isEnglish ? 'en-US' : 'ar-EG');
+
     if (reminders.length === 0) {
       return {
         success: true,
         output: {
           count: 0,
           reminders: [],
-          summary: 'لا توجد أي تذكيرات أو مهام مسجلة حالياً.',
+          summary: isEnglish ? 'No active reminders or tasks scheduled currently.' : 'لا توجد أي تذكيرات أو مهام مسجلة حالياً.',
         },
       };
     }
 
     const formatted = reminders
       .map((r, i) => {
-        const recBadge = r.recurrence === 'daily'
-          ? ' [يومي 🔄]'
-          : r.recurrence === 'weekly'
-          ? ' [أسبوعي 🔄]'
-          : r.recurrence === 'monthly'
-          ? ' [شهري 🔄]'
-          : '';
+        let recBadge = '';
+        if (r.recurrence === 'daily') recBadge = isEnglish ? ' [daily 🔄]' : ' [يومي 🔄]';
+        else if (r.recurrence === 'weekly') recBadge = isEnglish ? ' [weekly 🔄]' : ' [أسبوعي 🔄]';
+        else if (r.recurrence === 'monthly') recBadge = isEnglish ? ' [monthly 🔄]' : ' [شهري 🔄]';
+
         const dueStr = r.dueAt
-          ? ` (الموعد: ${new Date(r.dueAt).toLocaleString('ar-EG', {
+          ? ` (${isEnglish ? 'Due' : 'الموعد'}: ${new Date(r.dueAt).toLocaleString(locale, {
               timeZone: 'Africa/Cairo',
               hour12: true,
             })})`
           : '';
-        const statusStr = r.isCompleted ? 'مكتمل ✅' : 'قيد الانتظار ⏳';
+        const statusStr = r.isCompleted ? (isEnglish ? 'Completed ✅' : 'مكتمل ✅') : (isEnglish ? 'Pending ⏳' : 'قيد الانتظار ⏳');
         return `${i + 1}. ${r.title}${recBadge}${dueStr} - ${statusStr}`;
       })
       .join('\n');
@@ -117,7 +119,7 @@ export class ListRemindersTool implements AgentTool {
       output: {
         count: reminders.length,
         reminders,
-        summary: `قائمة التذكيرات الحالية:\n${formatted}`,
+        summary: isEnglish ? `Active Reminders List:\n${formatted}` : `قائمة التذكيرات الحالية:\n${formatted}`,
       },
     };
   }

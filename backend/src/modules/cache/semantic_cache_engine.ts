@@ -70,9 +70,11 @@ export class SemanticCacheEngine {
         };
       }
 
-      // 4. Deterministic Language Detection
-      const langDetection = LocalLanguageDetector.getInstance().detect(rawText);
-      const userLanguage = langDetection.language || 'ar';
+      // 4. Deterministic Language Resolution (Use passed LanguageContext or fall back to detector)
+      const userLanguage =
+        context?.languageContext?.targetLanguage ||
+        LocalLanguageDetector.getInstance().detect(rawText).language ||
+        'ar';
 
       // 5. Production Embedding Availability Check
       // MockEmbeddingProvider is strictly for tests/CI. In production, mock vectors must NOT match.
