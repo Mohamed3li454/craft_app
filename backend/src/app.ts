@@ -7,6 +7,8 @@ import { ChatController } from './modules/chat/chat.controller';
 import { WhatsAppWebhookHandler } from './modules/whatsapp/webhook';
 import { ReminderScheduler } from './modules/reminder/reminder.scheduler';
 import { AnalyticsController } from './modules/analytics/analytics.controller';
+import { CandidateReviewController } from './modules/cache/learning/candidate_review.controller';
+import { AdminRateLimiter } from './modules/cache/learning/admin_rate_limiter';
 
 export function createApp(): Application {
   const app: Application = express();
@@ -16,7 +18,7 @@ export function createApp(): Application {
     cors({
       origin: config.corsOrigin,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Hub-Signature-256'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Hub-Signature-256', 'x-admin-token', 'x-admin-actor'],
     })
   );
 
@@ -85,6 +87,8 @@ export function createApp(): Application {
   const chatController = new ChatController();
   const whatsappHandler = new WhatsAppWebhookHandler();
   const analyticsController = new AnalyticsController();
+  const candidateReviewController = new CandidateReviewController();
+  const adminRateLimiter = new AdminRateLimiter();
 
   // 6. Flutter API Routes (/api/v1)
   app.post('/api/v1/auth/phone', chatController.loginWithPhone);
@@ -132,6 +136,17 @@ export function createApp(): Application {
   app.post('/api/admin/faq', analyticsController.createFaq);
   app.put('/api/admin/faq/:id', analyticsController.updateFaq);
   app.delete('/api/admin/faq/:id', analyticsController.deleteFaq);
+
+  // 10. Semantic Cache Admin & Review Routes (/api/admin/cache)
+  app.use('/api/admin/cache', adminRateLimiter.middleware);
+  app.get('/api/admin/cache/candidates', candidateReviewController.listCandidates);
+  app.get('/api/admin/cache/candidates/:id', candidateReviewController.getCandidate);
+  app.post('/api/admin/cache/candidates/:id/validate', candidateReviewController.validateCandidate);
+  app.post('/api/admin/cache/candidates/:id/reject', candidateReviewController.rejectCandidate);
+  app.post('/api/admin/cache/candidates/:id/promote', candidateReviewController.promoteCandidate);
+  app.get('/api/admin/cache/stats', candidateReviewController.getCacheStats);
+  app.get('/api/admin/cache/learning-stats', candidateReviewController.getLearningStats);
+  app.post('/api/admin/cache/feedback/incorrect', candidateReviewController.markIncorrect);
 
   // 4.1 Root Endpoint
   app.get('/', (_req: Request, res: Response) => {

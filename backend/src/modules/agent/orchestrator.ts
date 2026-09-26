@@ -11,6 +11,8 @@ import { parseDueAt } from '../../database/repositories/reminder.repo';
 import { MemoryRepository } from '../../database/repositories/memory.repo';
 import { UserRepository } from '../../database/repositories/user.repo';
 import { FAQCache } from '../cache/faq_cache';
+import { SemanticCacheEngine } from '../cache/semantic_cache_engine';
+import { LearningPipeline } from '../cache/learning/learning_pipeline';
 import { cleanWhatsAppText } from '../whatsapp/formatter';
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
@@ -24,6 +26,7 @@ export interface AgentMediaAttachment {
 export interface AgentRunInput {
   userId: string;
   userPhone?: string;
+  userName?: string;
   conversationId?: string;
   channel: 'flutter' | 'whatsapp';
   text: string;
@@ -464,13 +467,19 @@ export class AgentOrchestrator {
 
     const cleanUserText = (input.text || '').trim();
 
-    // 0. FAQ & Semantic Cache Check (0 tokens, latency <5ms)
+    // 0. FAQ & Semantic Cache Check (0 tokens, latency <15ms)
     if (!input.media && cleanUserText) {
-      const faqMatch = FAQCache.getInstance().match(cleanUserText);
-      if (faqMatch.matched && faqMatch.response) {
-        logger.info(`FAQ Cache hit for input "${cleanUserText}" [intent: ${faqMatch.intent}] - 0 tokens`);
+      const cacheResult = await SemanticCacheEngine.getInstance().process(cleanUserText, {
+        userId: input.userId,
+        userName: input.userName,
+        conversationId: input.conversationId,
+        channel: input.channel,
+      });
+
+      if (cacheResult.type === 'hit' && cacheResult.response) {
         const conversation = await this.chatRepo.getOrCreateConversation(input.userId, input.channel);
         const conversationId = conversation.id;
+        const modelName = cacheResult.source === 'exact' ? 'faq-cache-exact' : 'semantic-cache';
 
         await Promise.all([
           this.chatRepo.saveMessage(
@@ -483,13 +492,13 @@ export class AgentOrchestrator {
             conversationId,
             'assistant',
             'Craft',
-            faqMatch.response,
+            cacheResult.response,
             undefined,
             {
               tokensUsed: 0,
               promptTokens: 0,
               completionTokens: 0,
-              modelName: 'faq-cache',
+              modelName,
               latencyMs: Date.now() - runStartTime,
             }
           ),
@@ -499,10 +508,10 @@ export class AgentOrchestrator {
           conversationId,
           agentRunId,
           status: 'completed',
-          replyText: faqMatch.response,
+          replyText: cacheResult.response,
           toolCallsExecuted: [],
           metrics: {
-            modelUsed: 'faq-cache',
+            modelUsed: modelName,
             latencyMs: Date.now() - runStartTime,
             promptTokens: 0,
             completionTokens: 0,
@@ -1208,6 +1217,24 @@ export class AgentOrchestrator {
         toolsUsed: toolCallsExecuted.map((t) => t.toolName).join(', ') || undefined,
       }
     );
+
+    // Safe, non-blocking learning observer hook (Phase 5)
+    // Observes completed AI responses and evaluates them for candidate cache eligibility without delaying user delivery.
+    LearningPipeline.getInstance()
+      .observeRun({
+        runId: agentRunId,
+        userInput: cleanUserText,
+        replyText: finalReply,
+        toolCalls: toolCallsExecuted,
+        modelUsed: lastModelUsed,
+        provider: preferGemini ? 'gemini' : 'groq',
+        channel: input.channel,
+      })
+      .catch((learningErr) => {
+        logger.debug('LearningPipeline background observer error (safely swallowed)', {
+          error: learningErr.message,
+        });
+      });
 
     logger.info(`Agent run [${agentRunId}] completed successfully`);
     return {

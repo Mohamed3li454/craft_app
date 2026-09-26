@@ -270,6 +270,7 @@ export class WhatsAppWebhookHandler {
       const agentResult = await this.orchestrator.run({
         userId: user.id,
         userPhone: phone || user.phoneNumber || (isPhone ? senderId : undefined),
+        userName: user.name || profileName,
         channel: 'whatsapp',
         text,
         media: mediaAttachment,

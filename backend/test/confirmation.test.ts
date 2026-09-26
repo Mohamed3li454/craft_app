@@ -60,4 +60,13 @@ describe('ConfirmationService', () => {
     expect(result.success).toBe(false);
     expect(result.message).toContain('Invalid');
   });
+
+  afterAll(async () => {
+    const { DatabaseManager } = require('../src/database/connection');
+    const db = DatabaseManager.getInstance();
+    const pool = db.getPool();
+    if (pool) {
+      await pool.query("DELETE FROM users WHERE name = 'user-1'");
+    }
+  });
 });

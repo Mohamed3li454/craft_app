@@ -49,12 +49,20 @@ export interface AppConfig {
   admin: {
     secretKey: string;
   };
+  embedding: {
+    provider: string;
+    endpoint?: string;
+    apiKey?: string;
+    model?: string;
+    dimension: number;
+    timeoutMs: number;
+  };
 }
 
 export const config: AppConfig = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
-  corsOrigin: process.env.CORS_ORIGIN || '*',
+  corsOrigin: process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? '' : '*'),
   gemini: {
     apiKey:
       process.env.GEMINI_API_KEY ||
@@ -114,6 +122,14 @@ export const config: AppConfig = {
     tavilyApiKey: process.env.TAVILY_API_KEY,
   },
   admin: {
-    secretKey: process.env.ADMIN_SECRET_KEY || 'craft_admin_2026',
+    secretKey: process.env.ADMIN_SECRET_KEY || (process.env.NODE_ENV === 'production' ? '' : 'craft_admin_2026'),
+  },
+  embedding: {
+    provider: process.env.EMBEDDING_PROVIDER || 'mock',
+    endpoint: process.env.EMBEDDING_ENDPOINT,
+    apiKey: process.env.EMBEDDING_API_KEY,
+    model: process.env.EMBEDDING_MODEL,
+    dimension: parseInt(process.env.EMBEDDING_DIMENSION || '768', 10),
+    timeoutMs: parseInt(process.env.EMBEDDING_TIMEOUT_MS || '3000', 10),
   },
 };
