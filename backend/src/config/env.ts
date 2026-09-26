@@ -8,13 +8,6 @@ export interface AppConfig {
   port: number;
   nodeEnv: string;
   corsOrigin: string;
-  gemini: {
-    apiKey: string;
-    apiKeys: string[];
-    model: string;
-    fallbackModel: string;
-    isMockMode: boolean;
-  };
   groq: {
     apiKey: string;
     apiKeys: string[];
@@ -63,21 +56,6 @@ export const config: AppConfig = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   corsOrigin: process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? '' : '*'),
-  gemini: {
-    apiKey:
-      process.env.GEMINI_API_KEY ||
-      (process.env.GEMINI_API_KEYS ? process.env.GEMINI_API_KEYS.split(',')[0].trim() : ''),
-    apiKeys: (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '')
-      .split(',')
-      .map((k) => k.trim())
-      .filter(Boolean),
-    model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-    fallbackModel: process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite',
-    isMockMode:
-      process.env.GEMINI_MOCK_MODE === 'true' ||
-      (!process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEYS) ||
-      (process.env.GEMINI_API_KEY?.startsWith('your_') ?? false),
-  },
   groq: {
     apiKey:
       process.env.GROQ_API_KEY ||
@@ -90,7 +68,6 @@ export const config: AppConfig = {
     fallbackModel: process.env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-20b',
     whisperModel: process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo',
     isMockMode:
-      process.env.GEMINI_MOCK_MODE === 'true' ||
       process.env.GROQ_MOCK_MODE === 'true' ||
       (!process.env.GROQ_API_KEY && !process.env.GROQ_API_KEYS) ||
       (process.env.GROQ_API_KEY?.startsWith('your_') ?? false),

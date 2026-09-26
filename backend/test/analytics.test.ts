@@ -12,7 +12,7 @@ describe('Craft AI Analytics & Monitoring Dashboard', () => {
   const adminSecret = config.admin.secretKey;
 
   beforeAll(() => {
-    process.env.GEMINI_MOCK_MODE = 'true';
+    process.env.GROQ_MOCK_MODE = 'true';
     analyticsRepo = new AnalyticsRepository();
     chatRepo = new ChatRepository();
     orchestrator = new AgentOrchestrator();

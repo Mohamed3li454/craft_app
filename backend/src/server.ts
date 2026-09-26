@@ -8,7 +8,7 @@ const app = createApp();
 const server = app.listen(config.port, () => {
   logger.info(`Craft AI Agent Backend running on port [${config.port}]`, {
     env: config.nodeEnv,
-    mockMode: config.gemini.isMockMode,
+    mockMode: config.groq.isMockMode,
   });
 });
 

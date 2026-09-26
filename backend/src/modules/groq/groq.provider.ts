@@ -680,7 +680,7 @@ Formatting Rules:
     const cleanPrompt = userPrompt.trim();
 
     // Mock Mode support for deterministic unit tests
-    if (process.env.GEMINI_MOCK_MODE === 'true') {
+    if (config.groq.isMockMode) {
       const lower = cleanPrompt.toLowerCase();
       const needsSearch =
         lower.includes('بحث') ||

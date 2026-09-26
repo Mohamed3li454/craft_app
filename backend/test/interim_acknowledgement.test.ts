@@ -11,7 +11,7 @@ describe('Fast Intelligent Contextual Interim Acknowledgements', () => {
   let orchestrator: AgentOrchestrator;
 
   beforeAll(() => {
-    process.env.GEMINI_MOCK_MODE = 'true';
+    process.env.GROQ_MOCK_MODE = 'true';
     groqProvider = new GroqProvider();
     orchestrator = new AgentOrchestrator();
   });

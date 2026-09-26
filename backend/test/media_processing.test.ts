@@ -1,6 +1,6 @@
 import {
   processMediaAttachment,
-  formatConversationHistory,
+  formatGroqConversationHistory,
   AgentOrchestrator,
 } from '../src/modules/agent/orchestrator';
 import { WhatsAppWebhookHandler } from '../src/modules/whatsapp/webhook';
@@ -11,16 +11,13 @@ import { ChatRepository } from '../src/database/repositories/chat.repo';
 
 describe('Multimodal Vision & File Processing', () => {
   describe('processMediaAttachment', () => {
-    test('converts image buffer into Gemini inlineData part with default Arabic prompt', async () => {
+    test('converts image buffer into prompt representation with default Arabic prompt', async () => {
       const buffer = Buffer.from('fake-image-bytes');
       const result = await processMediaAttachment('', {
         buffer,
         mimeType: 'image/jpeg',
       });
 
-      expect(result.mediaPart).toBeDefined();
-      expect(result.mediaPart?.inlineData?.mimeType).toBe('image/jpeg');
-      expect(result.mediaPart?.inlineData?.data).toBe(buffer.toString('base64'));
       expect(result.effectivePrompt).toContain('حلل هذه الصورة المرفقة');
       expect(result.historyRecordText).toBe('[صورة مرفقة]');
     });
@@ -33,26 +30,22 @@ describe('Multimodal Vision & File Processing', () => {
         filename: 'sea.png',
       });
 
-      expect(result.mediaPart?.inlineData?.mimeType).toBe('image/png');
       expect(result.effectivePrompt).toContain('ايه رأيك في المنظر ده يا كرافت؟');
       expect(result.historyRecordText).toContain('ايه رأيك في المنظر ده يا كرافت؟');
     });
 
-    test('converts audio/voice note buffer into Gemini inlineData part with cleaned mimeType', async () => {
+    test('converts audio/voice note buffer into prompt representation with default prompt', async () => {
       const buffer = Buffer.from('fake-ogg-opus-audio');
       const result = await processMediaAttachment('', {
         buffer,
         mimeType: 'audio/ogg; codecs=opus',
       });
 
-      expect(result.mediaPart).toBeDefined();
-      expect(result.mediaPart?.inlineData?.mimeType).toBe('audio/ogg');
-      expect(result.mediaPart?.inlineData?.data).toBe(buffer.toString('base64'));
       expect(result.effectivePrompt).toContain('استمع إلى هذا التسجيل الصوتي');
       expect(result.historyRecordText).toBe('[تسجيل صوتي من المستخدم]');
     });
 
-    test('converts PDF buffer into Gemini inlineData part', async () => {
+    test('converts PDF buffer into prompt representation', async () => {
       const buffer = Buffer.from('%PDF-1.4-fake-pdf');
       const result = await processMediaAttachment('', {
         buffer,
@@ -60,7 +53,6 @@ describe('Multimodal Vision & File Processing', () => {
         filename: 'summary.pdf',
       });
 
-      expect(result.mediaPart?.inlineData?.mimeType).toBe('application/pdf');
       expect(result.effectivePrompt).toContain('اقرأ هذا المستند المرفق بصيغة PDF');
       expect(result.historyRecordText).toContain('summary.pdf');
     });
@@ -74,7 +66,6 @@ describe('Multimodal Vision & File Processing', () => {
         filename: 'main.dart',
       });
 
-      expect(result.mediaPart).toBeUndefined();
       expect(result.effectivePrompt).toContain('```dart');
       expect(result.effectivePrompt).toContain(dartCode);
       expect(result.effectivePrompt).toContain('شوف الكود ده');
@@ -95,26 +86,17 @@ describe('Multimodal Vision & File Processing', () => {
     });
   });
 
-  describe('formatConversationHistory with Multimodal Part', () => {
-    test('attaches mediaPart to the latest user turn in Gemini conversation', () => {
-      const mediaPart = {
-        inlineData: {
-          data: 'base64data',
-          mimeType: 'image/jpeg',
-        },
-      };
+  describe('formatGroqConversationHistory', () => {
+    test('formats recent messages and appends current input as latest user turn for Groq', () => {
+      const messages = [
+        { id: '1', conversationId: 'c1', senderRole: 'user', senderName: 'User', text: 'مرحبا', createdAt: new Date() },
+        { id: '2', conversationId: 'c1', senderRole: 'assistant', senderName: 'Craft', text: 'أهلاً بك', createdAt: new Date() },
+      ];
 
-      const contents = formatConversationHistory(
-        [{ id: '1', conversationId: 'c1', senderRole: 'user', senderName: 'User', text: 'مرحبا', createdAt: new Date() }],
-        'حلل الصورة المرفقة',
-        mediaPart
-      );
-
-      const lastTurn = contents[contents.length - 1];
+      const groqMessages = formatGroqConversationHistory(messages as any, 'حلل الصورة المرفقة');
+      const lastTurn = groqMessages[groqMessages.length - 1];
       expect(lastTurn.role).toBe('user');
-      expect(lastTurn.parts.length).toBe(2);
-      expect(lastTurn.parts[0]).toEqual(mediaPart);
-      expect((lastTurn.parts[1] as any).text).toBe('حلل الصورة المرفقة');
+      expect(lastTurn.content).toBe('حلل الصورة المرفقة');
     });
   });
 

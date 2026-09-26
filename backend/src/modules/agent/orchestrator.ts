@@ -1,7 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Content, Part } from '@google/generative-ai';
 import mammoth from 'mammoth';
-import { GeminiProvider } from '../gemini/gemini.provider';
 import { GroqProvider, GroqMessage } from '../groq/groq.provider';
 import { ToolRegistry } from '../tools/registry';
 import { ConfirmationService } from '../confirmation/confirmation.service';
@@ -34,46 +32,6 @@ export interface AgentRunInput {
   onInterimProgress?: (message: string) => Promise<void> | void;
 }
 
-export function shouldRouteToGemini(text: string, hasMedia: boolean): boolean {
-  if (hasMedia) return true;
-  if (!text) return false;
-  const lower = text.toLowerCase();
-  const heavyKeywords = [
-    'سعر',
-    'اسعار',
-    'أسعار',
-    'كام',
-    'بكام',
-    'جنيه',
-    'دولار',
-    'مواصفات',
-    'مواصفاته',
-    'مواصفاتها',
-    'ابحث',
-    'دورلي',
-    'سيرش',
-    'اخبار',
-    'أخبار',
-    'طقس',
-    'الجو',
-    'احدث',
-    'أحدث',
-    'مقارنة',
-    'قارن',
-    'فيلم',
-    'مسلسل',
-    'اغنية',
-    'أغنية',
-    'ممثل',
-    'مخرج',
-    'ذهب',
-    'عيار',
-    'بورصة',
-    'عملات',
-    'سعر الدولار',
-  ];
-  return heavyKeywords.some((kw) => lower.includes(kw));
-}
 
 export interface AgentRunOutput {
   conversationId: string;
@@ -101,9 +59,9 @@ export interface AgentRunOutput {
 }
 
 /**
- * Prepares user prompt and multimodal parts from media attachments:
- * - Images: inline base64 Part for Gemini vision
- * - PDFs: inline base64 Part with application/pdf
+ * Prepares user prompt and text from media attachments:
+ * - Images: user prompt/caption for Groq vision
+ * - PDFs: user prompt/caption (raw text parsing is not yet implemented)
  * - Word docs (.docx): extracts raw text via mammoth and embeds in prompt
  * - Code & text (.dart, .ts, .md, .txt, etc.): decodes UTF-8 and embeds in prompt
  */
@@ -112,7 +70,6 @@ export async function processMediaAttachment(
   media?: AgentMediaAttachment
 ): Promise<{
   effectivePrompt: string;
-  mediaPart?: Part;
   historyRecordText: string;
 }> {
   const cleanText = (userText || '').trim();
@@ -139,13 +96,7 @@ export async function processMediaAttachment(
       ? `${cleanText}\n(مرفق صورة مع هذا الطلب)`
       : defaultImagePrompt;
     const historyRecordText = cleanText ? `[صورة مرفقة] ${cleanText}` : '[صورة مرفقة]';
-    const mediaPart: Part = {
-      inlineData: {
-        data: media.buffer.toString('base64'),
-        mimeType: mime.startsWith('image/') ? mime : 'image/jpeg',
-      },
-    };
-    return { effectivePrompt, mediaPart, historyRecordText };
+    return { effectivePrompt, historyRecordText };
   }
 
   // 2. Audio & Voice Notes (OGG Opus from WhatsApp, MP3, WAV, AAC, M4A)
@@ -162,19 +113,7 @@ export async function processMediaAttachment(
     const historyRecordText = cleanText
       ? `[تسجيل صوتي: ${cleanText}]`
       : '[تسجيل صوتي من المستخدم]';
-
-    let finalAudioMime = cleanMime.startsWith('audio/') ? cleanMime : 'audio/ogg';
-    if (finalAudioMime === 'audio/opus') {
-      finalAudioMime = 'audio/ogg';
-    }
-
-    const mediaPart: Part = {
-      inlineData: {
-        data: media.buffer.toString('base64'),
-        mimeType: finalAudioMime,
-      },
-    };
-    return { effectivePrompt, mediaPart, historyRecordText };
+    return { effectivePrompt, historyRecordText };
   }
 
   // 3. PDF Documents
@@ -187,13 +126,7 @@ export async function processMediaAttachment(
     const historyRecordText = cleanText
       ? `[ملف PDF مرفق: ${filename || 'document.pdf'}] ${cleanText}`
       : `[ملف PDF مرفق: ${filename || 'document.pdf'}]`;
-    const mediaPart: Part = {
-      inlineData: {
-        data: media.buffer.toString('base64'),
-        mimeType: 'application/pdf',
-      },
-    };
-    return { effectivePrompt, mediaPart, historyRecordText };
+    return { effectivePrompt, historyRecordText };
   }
 
   // 3. Word Documents (.docx)
@@ -286,73 +219,6 @@ export async function processMediaAttachment(
   return { effectivePrompt, historyRecordText };
 }
 
-/**
- * Normalizes chat history into alternating Gemini turns:
- * 1. user -> model -> user -> model ... -> user
- * 2. Merges consecutive messages of the same role
- * 3. Drops leading model messages if any exist
- * 4. Guarantees latest user input is the final turn (with optional mediaPart attached)
- */
-export function formatConversationHistory(
-  messages: MessageEntity[],
-  currentInput: string,
-  mediaPart?: Part
-): Content[] {
-  const turns: Array<{ role: 'user' | 'model'; text: string }> = [];
-
-  // Limit to most recent 4 messages to optimize latency and TTFT
-  const slicedMessages = messages.slice(-4);
-
-  for (const m of slicedMessages) {
-    let text = m.text?.trim();
-    if (!text || text.includes('Called tool:') || text.startsWith('Tool [')) continue;
-    const role: 'user' | 'model' = m.senderRole === 'user' ? 'user' : 'model';
-    if (role === 'model' && text.length > 350) {
-      text = text.substring(0, 350) + '...';
-    }
-    turns.push({ role, text });
-  }
-
-  // Ensure current input is the latest user turn
-  if (turns.length > 0 && turns[turns.length - 1].role === 'user') {
-    turns[turns.length - 1].text = currentInput.trim();
-  } else {
-    turns.push({ role: 'user', text: currentInput.trim() });
-  }
-
-  // Merge consecutive turns of identical roles
-  const mergedTurns: Array<{ role: 'user' | 'model'; text: string }> = [];
-  for (const turn of turns) {
-    if (mergedTurns.length > 0 && mergedTurns[mergedTurns.length - 1].role === turn.role) {
-      mergedTurns[mergedTurns.length - 1].text += `\n${turn.text}`;
-    } else {
-      mergedTurns.push({ ...turn });
-    }
-  }
-
-  // Ensure conversation starts with user turn
-  while (mergedTurns.length > 0 && mergedTurns[0].role !== 'user') {
-    mergedTurns.shift();
-  }
-
-  if (mergedTurns.length === 0) {
-    mergedTurns.push({ role: 'user', text: currentInput.trim() });
-  }
-
-  return mergedTurns.map((t, index) => {
-    const isLastTurn = index === mergedTurns.length - 1;
-    if (isLastTurn && t.role === 'user' && mediaPart) {
-      return {
-        role: t.role,
-        parts: [mediaPart, { text: t.text }],
-      };
-    }
-    return {
-      role: t.role,
-      parts: [{ text: t.text }],
-    };
-  });
-}
 
 export function formatGroqConversationHistory(
   messages: MessageEntity[],
@@ -432,7 +298,6 @@ export function serializeToolResultForGroq(toolName: string, outputOrError: any)
 export class AgentOrchestrator {
   constructor(
     private groqProvider: GroqProvider = new GroqProvider(),
-    private geminiProvider: GeminiProvider = new GeminiProvider(),
     private toolRegistry: ToolRegistry = ToolRegistry.getInstance(),
     private confirmationService: ConfirmationService = new ConfirmationService(),
     private chatRepo: ChatRepository = new ChatRepository(),
@@ -448,7 +313,7 @@ export class AgentOrchestrator {
       hasMedia: !!input.media,
     });
 
-    let lastModelUsed = config.gemini.model;
+    let lastModelUsed = config.groq.primaryModel;
     let accumulatedPromptTokens = 0;
     let accumulatedCompletionTokens = 0;
     let accumulatedTotalTokens = 0;
@@ -640,7 +505,7 @@ export class AgentOrchestrator {
     }
 
     // 3. Process any media attachments (images, PDFs, docx, code files)
-    const { effectivePrompt, mediaPart, historyRecordText } = await processMediaAttachment(
+    const { effectivePrompt, historyRecordText } = await processMediaAttachment(
       textToProcess,
       input.media
     );
@@ -690,263 +555,6 @@ export class AgentOrchestrator {
 
     const toolCallsExecuted: AgentRunOutput['toolCallsExecuted'] = [];
     let finalReply = '';
-
-    const runGeminiLoop = async (): Promise<AgentRunOutput | null> => {
-      const contents: Content[] = formatConversationHistory(
-        recentMessages,
-        effectivePrompt,
-        mediaPart
-      );
-
-      let geminiIterations = 0;
-      while (geminiIterations < config.security.maxIterations) {
-        geminiIterations++;
-        logger.debug(`Agent Gemini ReAct iteration [${geminiIterations}/${config.security.maxIterations}]`);
-
-        const isFirstIteration = geminiIterations === 1;
-        const geminiResponse = await this.geminiProvider.generateReply(contents, isFirstIteration, memories);
-        if (geminiResponse.modelUsed) lastModelUsed = geminiResponse.modelUsed;
-        if (geminiResponse.usage) {
-          accumulatedPromptTokens += geminiResponse.usage.promptTokens;
-          accumulatedCompletionTokens += geminiResponse.usage.completionTokens;
-          accumulatedTotalTokens += geminiResponse.usage.totalTokens;
-        }
-
-        if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
-          const fc = geminiResponse.functionCalls[0];
-          const tool = this.toolRegistry.getTool(fc.name);
-
-          if (!tool) {
-            contents.push({
-              role: 'user',
-              parts: [{ text: `تنبيه: الأداة [${fc.name}] غير متوفرة، يرجى الإجابة مباشرة بدونها.` }],
-            });
-            continue;
-          }
-
-          if (tool.isSensitive) {
-            const confirmation = await this.confirmationService.createConfirmationRequest(
-              agentRunId,
-              input.userId,
-              tool.name,
-              `طلب تأكيد لتنفيذ عملية: ${tool.name}`,
-              fc.args,
-              conversationId
-            );
-
-            let promptDetails = JSON.stringify(fc.args);
-            if (tool.name === 'create_reminder') {
-              const parsedTime = parseDueAt(fc.args.time);
-              const recurrence = fc.args.recurrence || 'none';
-              let formattedTime = fc.args.time || 'قريباً';
-              if (parsedTime) {
-                formattedTime = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
-                  timeZone: 'Africa/Cairo',
-                  hour: 'numeric',
-                  minute: 'numeric',
-                  day: 'numeric',
-                  month: 'long',
-                }).format(parsedTime);
-              }
-              const recurrenceLabel = recurrence === 'daily'
-                ? ' | التكرار: يومياً (كل يوم) 🔄'
-                : recurrence === 'weekly'
-                ? ' | التكرار: أسبوعياً 🔄'
-                : recurrence === 'monthly'
-                ? ' | التكرار: شهرياً 🔄'
-                : '';
-              promptDetails = `الموضوع: "${fc.args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}${recurrenceLabel}`;
-            }
-
-            const promptNotice = `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
-- العملية: ${tool.name === 'create_reminder' ? 'إنشاء تذكير جديد' : tool.name}
-- التفاصيل: ${promptDetails}
-يرجى التأكيد باستخدام الرمز: ${confirmation.token}`;
-
-            await this.chatRepo.saveMessage(conversationId, 'assistant', 'Craft', promptNotice);
-
-            const latencyMs = Date.now() - runStartTime;
-            return {
-              conversationId,
-              agentRunId,
-              status: 'waiting_for_confirmation',
-              replyText: promptNotice,
-              toolCallsExecuted,
-              confirmationRequest: {
-                token: confirmation.token,
-                actionName: confirmation.actionName,
-                description: confirmation.description,
-                expiresAt: confirmation.expiresAt.toISOString(),
-              },
-              metrics: {
-                modelUsed: lastModelUsed,
-                latencyMs,
-                promptTokens: accumulatedPromptTokens,
-                completionTokens: accumulatedCompletionTokens,
-                totalTokens: accumulatedTotalTokens,
-              },
-            };
-          }
-
-          // Guard against repeated search queries in the same conversation turn
-          if (tool.name === 'web_search' && toolCallsExecuted.some((t) => t.toolName === 'web_search')) {
-            logger.info('Repeated web_search prevented in Gemini loop, requesting immediate finalization');
-            contents.push({
-              role: 'user',
-              parts: [
-                {
-                  text: 'تم جلب نتائج البحث في الخطوة السابقة بالفعل. صِغ ردك النهائي الشامل للمستخدم الآن فوراً باللهجة المصرية بناءً على النتائج المتاحة.',
-                },
-              ],
-            });
-            const finalGemini = await this.geminiProvider.generateReply(contents, false, memories);
-            if (finalGemini.modelUsed) lastModelUsed = finalGemini.modelUsed;
-            const text = (finalGemini.text || '').trim();
-            finalReply =
-              text && !text.startsWith('Called tool:') && !text.startsWith('Tool [')
-                ? text
-                : 'تم معالجة طلبك بنجاح.';
-            return null;
-          }
-
-          if (tool.name === 'web_search' && !interimSent) {
-            await sendInterim('ثواني هبحثلك في المصادر وأتأكدلك من الموضوع ده وأرجعلك يا باشا 🔍');
-          }
-
-          logger.info(`Executing tool [${tool.name}] via Gemini`, { args: fc.args });
-          const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
-            userId: input.userId,
-            conversationId,
-            channel: input.channel,
-          });
-
-          toolCallsExecuted.push({
-            toolName: tool.name,
-            arguments: fc.args,
-            result: toolResult.output || toolResult.error,
-          });
-
-          // Persist to tool_calls table in database for analytics & dashboard
-          this.chatRepo
-            .saveToolCall(
-              agentRunId,
-              conversationId,
-              tool.name,
-              fc.args,
-              toolResult.output || null,
-              toolResult.success ? 'success' : 'failed',
-              toolResult.error
-            )
-            .catch((err) =>
-              logger.warn('Failed to persist tool call to database', {
-                error: err.message,
-                toolName: tool.name,
-              })
-            );
-
-          // Once tool finishes execution, serialize output and synthesize immediate final response
-          const serializedResult = serializeToolResultForGroq(
-            tool.name,
-            toolResult.output || toolResult.error
-          );
-
-          contents.push({
-            role: 'user',
-            parts: [
-              {
-                text: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحذير حاسم: إياك نهائياً أن تذكر كلمات تقنية مثل "RSS" أو "محرك البحث" أو "الـ API" أو "النتائج لم تذكر". تحدث كخبير تقني مباشر ومطلع على أحدث البيانات السوقية والموزعين.\nسعر الصرف الرسمي في مصر حوالي 48 إلى 50+ جنيه لكل دولار، لا تستخدم أسعار صرف قديمة إطلاقاً.`,
-              },
-            ],
-          });
-
-          let candidateReply = '';
-          try {
-            const synthesisResponse = await this.geminiProvider.generateReply(contents, false, memories);
-            if (synthesisResponse.modelUsed) lastModelUsed = synthesisResponse.modelUsed;
-            if (synthesisResponse.usage) {
-              accumulatedPromptTokens += synthesisResponse.usage.promptTokens;
-              accumulatedCompletionTokens += synthesisResponse.usage.completionTokens;
-              accumulatedTotalTokens += synthesisResponse.usage.totalTokens;
-            }
-            candidateReply = (synthesisResponse.text || '').trim();
-          } catch (geminiSynthErr: any) {
-            logger.warn('Gemini synthesis failed, falling back to Groq LPU for instant synthesis', {
-              error: geminiSynthErr.message,
-            });
-            try {
-              const groqRes = await this.groqProvider.generateReply(
-                [
-                  ...formatGroqConversationHistory(recentMessages, effectivePrompt),
-                  {
-                    role: 'user',
-                    content: `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين باللهجة المصرية الودودة.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحذير حاسم: إياك نهائياً أن تذكر كلمات تقنية مثل "RSS" أو "محرك البحث" أو "الـ API" أو "النتائج لم تذكر". تحدث كخبير تقني مباشر ومطلع على أحدث البيانات السوقية والموزعين.\nسعر الصرف الرسمي في مصر حوالي 48 إلى 50+ جنيه لكل دولار، لا تستخدم أسعار صرف قديمة إطلاقاً.`,
-                  },
-                ],
-                false,
-                memories
-              );
-              if (groqRes.modelUsed) lastModelUsed = groqRes.modelUsed;
-              candidateReply = (groqRes.text || '').trim();
-            } catch (groqSynthErr: any) {
-              logger.error('Both Gemini and Groq synthesis failed', {
-                geminiError: geminiSynthErr.message,
-                groqError: groqSynthErr.message,
-              });
-            }
-          }
-
-          if (
-            candidateReply &&
-            !candidateReply.startsWith('Called tool:') &&
-            !candidateReply.startsWith('Tool [')
-          ) {
-            finalReply = candidateReply;
-            return null;
-          }
-
-          // Fallback finalizer if candidate reply was invalid or leaked
-          const fallbackContents = [
-            ...contents.slice(0, -1),
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `البيانات المتاحة من المصادر:\n${serializedResult}\n\nأجب عن السؤال الآن بأسلوبك الودود بالعامية المصرية مع ذكر الأرقام والأسعار فوراً.`,
-                },
-              ],
-            },
-          ];
-          try {
-            const secondAttempt = await this.geminiProvider.generateReply(fallbackContents, false, memories);
-            if (
-              secondAttempt.text &&
-              !secondAttempt.text.trim().startsWith('Called tool:') &&
-              !secondAttempt.text.trim().startsWith('Tool [')
-            ) {
-              finalReply = secondAttempt.text.trim();
-            } else {
-              finalReply = 'تم العثور على التفاصيل والأسعار المطلوبة من المصادر الرسمية، وبناءً على البيانات الحالية فإن التفاصيل متاحة لدى الموزعين المعتمدين.';
-            }
-          } catch {
-            finalReply = 'تم العثور على التفاصيل والأسعار المطلوبة من المصادر الرسمية، وبناءً على البيانات الحالية فإن التفاصيل متاحة لدى الموزعين المعتمدين.';
-          }
-          return null;
-        }
-
-        const candidateText = (geminiResponse.text || '').trim();
-        if (
-          candidateText &&
-          !candidateText.startsWith('Called tool:') &&
-          !candidateText.startsWith('Tool [')
-        ) {
-          finalReply = candidateText;
-        } else {
-          finalReply = 'تم معالجة طلبك بنجاح.';
-        }
-        return null;
-      }
-      return null;
-    };
 
     const runGroqLoop = async (): Promise<AgentRunOutput | null> => {
       const groqMessages = formatGroqConversationHistory(recentMessages, effectivePrompt);
@@ -1136,52 +744,17 @@ export class AgentOrchestrator {
       return null;
     };
 
-    // Routing Strategy:
-    // Heavy tasks (multimodal media, search, prices, specs) -> Gemini (2 keys pool)
-    // Conversational & general turns (80% of turns) -> Groq LPU (4 keys pool)
-    const isHeavy = shouldRouteToGemini(textToProcess, !!input.media);
-    const preferGemini = isHeavy || process.env.PRIMARY_LLM_PROVIDER === 'gemini';
-
-    logger.info(`Routing decision: isHeavyTask=${isHeavy}, preferGemini=${preferGemini}`);
-
-    if (preferGemini) {
-      try {
-        const earlyReturn = await runGeminiLoop();
-        if (earlyReturn) return earlyReturn;
-      } catch (geminiErr: any) {
-        logger.warn('Gemini provider failed or encountered rate limit, falling back to Groq LPU engine', {
-          error: geminiErr.message,
-        });
-        try {
-          const earlyReturn = await runGroqLoop();
-          if (earlyReturn) return earlyReturn;
-        } catch (groqFallbackErr: any) {
-          logger.error('Both Gemini and Groq engines failed during agent execution', {
-            geminiError: geminiErr.message,
-            groqError: groqFallbackErr.message,
-          });
-          finalReply = 'يا باشا أنا معاك وسامعك، حصل تهنيجة بسيطة في الاتصال بس أنا جاهز، تحب أساعدك في إيه؟ 🤝';
-        }
-      }
-    } else {
-      try {
-        const earlyReturn = await runGroqLoop();
-        if (earlyReturn) return earlyReturn;
-      } catch (groqErr: any) {
-        logger.warn('Groq LPU engine failed or encountered rate limit, falling back to Gemini engine', {
-          error: groqErr.message,
-        });
-        try {
-          const earlyReturn = await runGeminiLoop();
-          if (earlyReturn) return earlyReturn;
-        } catch (geminiFallbackErr: any) {
-          logger.error('Both Groq and Gemini engines failed during agent execution', {
-            groqError: groqErr.message,
-            geminiError: geminiFallbackErr.message,
-          });
-          finalReply = 'يا باشا أنا معاك وسامعك، حصل تهنيجة بسيطة في الاتصال بس أنا جاهز، تحب أساعدك في إيه؟ 🤝';
-        }
-      }
+    // Unified AI Execution Strategy:
+    // All tasks (conversations, search synthesis, tool calling, media) are processed via Groq infrastructure
+    // Primary model -> Fallback model cascade with automatic key rotation
+    try {
+      const earlyReturn = await runGroqLoop();
+      if (earlyReturn) return earlyReturn;
+    } catch (groqErr: any) {
+      logger.error('Groq LPU engine execution failed', {
+        error: groqErr.message,
+      });
+      finalReply = 'يا باشا أنا معاك وسامعك، حصل تهنيجة بسيطة في الاتصال بس أنا جاهز، تحب أساعدك في إيه؟ 🤝';
     }
 
     if (
@@ -1226,7 +799,7 @@ export class AgentOrchestrator {
         replyText: finalReply,
         toolCalls: toolCallsExecuted,
         modelUsed: lastModelUsed,
-        provider: preferGemini ? 'gemini' : 'groq',
+        provider: 'groq',
         channel: input.channel,
       })
       .catch((learningErr) => {
@@ -1273,91 +846,44 @@ export class AgentOrchestrator {
 
       const conv = await this.chatRepo.getOrCreateConversation(userId, 'whatsapp');
 
-      // Try GeminiProvider first (Gemini 3.6 Flash)
-      try {
-        const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-        let iterations = 0;
-        while (iterations < config.security.maxIterations) {
-          iterations++;
-          const reply = await this.geminiProvider.generateReply(contents, true, memories);
+      // Smart reminder execution exclusively via Groq
+      const groqMessages: GroqMessage[] = [{ role: 'user', content: prompt }];
+      let iterations = 0;
+      while (iterations < config.security.maxIterations) {
+        iterations++;
+        const reply = await this.groqProvider.generateReply(groqMessages, true, memories);
 
-          if (reply.functionCalls && reply.functionCalls.length > 0) {
-            const fc = reply.functionCalls[0];
-            const tool = this.toolRegistry.getTool(fc.name);
-            if (tool) {
-              const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
-                userId,
-                conversationId: conv.id,
-                channel: 'whatsapp',
-              });
-              contents.push({
+        if (reply.functionCalls && reply.functionCalls.length > 0) {
+          const fc = reply.functionCalls[0];
+          const tool = this.toolRegistry.getTool(fc.name);
+          if (tool) {
+            const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
+              userId,
+              conversationId: conv.id,
+              channel: 'whatsapp',
+            });
+            const directSynth: GroqMessage[] = [
+              { role: 'user', content: prompt },
+              {
                 role: 'user',
-                parts: [
-                  {
-                    text: `[نتيجة أداة ${tool.name}]:\n${serializeToolResultForGroq(
-                      tool.name,
-                      toolResult.output || toolResult.error
-                    )}\n\nصِغ رسالة التذكير النهائية الآن بأسلوب ودود باللهجة المصرية.`,
-                  },
-                ],
-              });
-              const reminderRes = await this.geminiProvider.generateReply(contents, false, memories);
-              if (reminderRes.text && reminderRes.text.trim()) {
-                return reminderRes.text.trim();
-              }
-              continue;
+                content: `[نتيجة أداة ${tool.name}]:\n${serializeToolResultForGroq(
+                  tool.name,
+                  toolResult.output || toolResult.error
+                )}\n\nصِغ رسالة التذكير النهائية الآن بأسلوب ودود باللهجة المصرية.`,
+              },
+            ];
+            const synthRes = await this.groqProvider.generateReply(directSynth, false, memories);
+            if (synthRes.text && synthRes.text.trim()) {
+              return synthRes.text.trim();
             }
+            break;
           }
-
-          if (reply.text && reply.text.trim()) {
-            return reply.text.trim();
-          }
-          break;
         }
-      } catch (geminiErr: any) {
-        logger.warn('Gemini failed for smart reminder, attempting Groq fallback', {
-          error: geminiErr.message,
-        });
 
-        // Groq Fallback
-        const groqMessages: GroqMessage[] = [{ role: 'user', content: prompt }];
-        let iterations = 0;
-        while (iterations < config.security.maxIterations) {
-          iterations++;
-          const reply = await this.groqProvider.generateReply(groqMessages, true, memories);
-
-          if (reply.functionCalls && reply.functionCalls.length > 0) {
-            const fc = reply.functionCalls[0];
-            const tool = this.toolRegistry.getTool(fc.name);
-            if (tool) {
-              const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
-                userId,
-                conversationId: conv.id,
-                channel: 'whatsapp',
-              });
-              const directSynth: GroqMessage[] = [
-                { role: 'user', content: prompt },
-                {
-                  role: 'user',
-                  content: `[نتيجة أداة ${tool.name}]:\n${serializeToolResultForGroq(
-                    tool.name,
-                    toolResult.output || toolResult.error
-                  )}\n\nصِغ رسالة التذكير النهائية الآن بأسلوب ودود باللهجة المصرية.`,
-                },
-              ];
-              const synthRes = await this.groqProvider.generateReply(directSynth, false, memories);
-              if (synthRes.text && synthRes.text.trim()) {
-                return synthRes.text.trim();
-              }
-              break;
-            }
-          }
-
-          if (reply.text && reply.text.trim()) {
-            return reply.text.trim();
-          }
-          break;
+        if (reply.text && reply.text.trim()) {
+          return reply.text.trim();
         }
+        break;
       }
     } catch (err: any) {
       logger.warn('Failed to generate smart reminder content, falling back to default', {

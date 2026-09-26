@@ -7,11 +7,11 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts",
-    "test": "GEMINI_MOCK_MODE=true jest --passWithNoTests --runInBand"
+    "test": "GROQ_MOCK_MODE=true jest --passWithNoTests --runInBand"
   },
   "keywords": [
     "ai-agent",
-    "gemini",
+    "groq",
     "whatsapp",
     "flutter",
     "typescript"
@@ -19,7 +19,6 @@
   "author": "Mohamed Ali",
   "license": "MIT",
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.49.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

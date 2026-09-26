@@ -49,12 +49,13 @@ describe('ToolRegistry and Builtin Tools', () => {
     expect(result.confirmationDescription).toContain('Project Review');
   });
 
-  test('generates valid Gemini function declarations', () => {
-    const declarations = registry.getGeminiFunctionDeclarations();
-    expect(declarations.length).toBeGreaterThanOrEqual(5);
+  test('generates valid OpenAI/Groq tool declarations', () => {
+    const tools = registry.getOpenAITools();
+    expect(tools.length).toBeGreaterThanOrEqual(5);
 
-    const timeDecl = declarations.find((d) => d.name === 'get_current_time');
-    expect(timeDecl).toBeDefined();
-    expect(timeDecl.parameters.type).toBe('OBJECT');
+    const timeTool = tools.find((t) => t.function.name === 'get_current_time');
+    expect(timeTool).toBeDefined();
+    expect(timeTool.type).toBe('function');
+    expect(timeTool.function.parameters.type).toBe('object');
   });
 });

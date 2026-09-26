@@ -53,7 +53,7 @@ export class WebSearchTool implements AgentTool {
     }
 
     // Deterministic mock return for CI / unit test runs
-    if (config.groq.isMockMode || process.env.GEMINI_MOCK_MODE === 'true') {
+    if (config.groq.isMockMode) {
       return {
         success: true,
         output: {

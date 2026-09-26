@@ -73,8 +73,8 @@ describe('Phase 6: Controlled Learning & Promotion', () => {
         runId,
         userInput: 'ما هي مواعيد العمل الرسمية للمتجر؟',
         replyText: 'مواعيد العمل الرسمية من الأحد إلى الخميس من 9 صباحاً حتى 5 مساءً.',
-        modelUsed: 'gemini-2.5-flash',
-        provider: 'gemini',
+        modelUsed: 'openai/gpt-oss-120b',
+        provider: 'groq',
       });
 
       const candidates = await candidateRepo.list({ limit: 10 });
@@ -91,8 +91,8 @@ describe('Phase 6: Controlled Learning & Promotion', () => {
           runId: 'evidence-obs-run-2',
           userInput: 'مواعيد العمل الرسمية للمتجر في الفرع',
           replyText: 'مواعيد العمل الرسمية من الأحد إلى الخميس من 9 صباحاً حتى 5 مساءً.',
-          modelUsed: 'gemini-2.5-flash',
-          provider: 'gemini',
+          modelUsed: 'openai/gpt-oss-120b',
+          provider: 'groq',
         });
 
         const updatedCand = await candidateRepo.findById(cand.id);

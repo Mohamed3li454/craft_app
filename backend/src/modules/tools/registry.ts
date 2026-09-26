@@ -47,29 +47,6 @@ export class ToolRegistry {
     return Array.from(this.tools.values());
   }
 
-  /**
-   * Transforms registered tools into Gemini FunctionDeclaration format
-   */
-  public getGeminiFunctionDeclarations(): any[] {
-    return this.getAllTools().map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: {
-        type: 'OBJECT',
-        properties: Object.entries(tool.parameters.properties).reduce(
-          (acc, [key, prop]) => {
-            acc[key] = {
-              type: (prop.type || 'string').toUpperCase(),
-              description: prop.description,
-            };
-            return acc;
-          },
-          {} as Record<string, any>
-        ),
-        required: tool.parameters.required || [],
-      },
-    }));
-  }
 
   /**
    * Transforms registered tools into OpenAI / Groq standard Tool format

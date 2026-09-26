@@ -461,8 +461,8 @@ describe('Phase 5: Safe Learning & Candidate Cache Pipeline', () => {
         runId,
         userInput: 'ما هي طرق الدفع المتاحة في المتجر؟',
         replyText: 'نوفر الدفع عبر البطاقات الائتمانية وفيزا وميزة والمحافظ الإلكترونية.',
-        modelUsed: 'gemini-2.5-flash',
-        provider: 'gemini',
+        modelUsed: 'openai/gpt-oss-120b',
+        provider: 'groq',
         channel: 'whatsapp',
       });
 
@@ -487,8 +487,8 @@ describe('Phase 5: Safe Learning & Candidate Cache Pipeline', () => {
         runId,
         userInput: 'يا باشا لو سمحت قولي ما هي وسائل التوصيل المعتمدة شكراً جزيلاً',
         replyText: 'نعتمد التوصيل عبر شركات الشحن السريع المعتمدة لجميع المحافظات.',
-        modelUsed: 'gemini-2.5-flash',
-        provider: 'gemini',
+        modelUsed: 'openai/gpt-oss-120b',
+        provider: 'groq',
         channel: 'whatsapp',
       });
 
@@ -510,8 +510,8 @@ describe('Phase 5: Safe Learning & Candidate Cache Pipeline', () => {
         runId,
         userInput: 'أنا اسمي أحمد، ما هي سياسة الاستبدال المعتمدة؟',
         replyText: 'يمكنك استبدال أي منتج خلال 14 يوماً من الاستلام في حالته الأصلية.',
-        modelUsed: 'gemini-2.5-flash',
-        provider: 'gemini',
+        modelUsed: 'openai/gpt-oss-120b',
+        provider: 'groq',
         channel: 'whatsapp',
       });
 
