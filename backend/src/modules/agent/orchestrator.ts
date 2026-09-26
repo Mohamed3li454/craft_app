@@ -10,7 +10,6 @@ import { MessageEntity } from '../../database/repositories/types';
 import { parseDueAt } from '../../database/repositories/reminder.repo';
 import { MemoryRepository } from '../../database/repositories/memory.repo';
 import { UserRepository } from '../../database/repositories/user.repo';
-import { FAQCache } from '../cache/faq_cache';
 import { SemanticCacheEngine } from '../cache/semantic_cache_engine';
 import { LearningPipeline } from '../cache/learning/learning_pipeline';
 import { cleanWhatsAppText } from '../whatsapp/formatter';
@@ -479,7 +478,7 @@ export class AgentOrchestrator {
       if (cacheResult.type === 'hit' && cacheResult.response) {
         const conversation = await this.chatRepo.getOrCreateConversation(input.userId, input.channel);
         const conversationId = conversation.id;
-        const modelName = cacheResult.source === 'exact' ? 'faq-cache-exact' : 'semantic-cache';
+        const modelName = 'semantic-cache';
 
         await Promise.all([
           this.chatRepo.saveMessage(

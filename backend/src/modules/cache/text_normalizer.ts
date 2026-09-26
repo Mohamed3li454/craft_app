@@ -26,8 +26,8 @@ export function collapseRepeatedChars(text: string): string {
     .replace(/\bno+\b/gi, 'no')
     .replace(/\btha+n+k+s*\b/gi, 'thanks');
 
-  // 2. Arabic letter elongation: collapse 2 or more repeated vowels/letters
-  result = result.replace(/([اويبتثجحخدذرزسشصضطظعغفقكلمنه])\1{1,}/gu, '$1');
+  // 2. Arabic letter elongation: collapse 3 or more repeated vowels/letters (preserve legitimate double letters like صمم)
+  result = result.replace(/([اويبتثجحخدذرزسشصضطظعغفقكلمنه])\1{2,}/gu, '$1');
 
   // 3. General fallback: collapse 3 or more identical characters into 1
   return result.replace(/(.)\1{2,}/gu, '$1');

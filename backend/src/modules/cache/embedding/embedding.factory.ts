@@ -42,9 +42,9 @@ export class EmbeddingFactory {
 
     if (providerType === 'generic_http') {
       const endpoint =
-        options?.endpoint ||
-        process.env.EMBEDDING_ENDPOINT ||
-        (config as any).embedding?.endpoint;
+        options?.endpoint !== undefined
+          ? options.endpoint
+          : (process.env.EMBEDDING_ENDPOINT || (config as any).embedding?.endpoint);
 
       const apiKey =
         options?.apiKey ||

@@ -2,7 +2,6 @@ import { DatabaseManager } from '../src/database/connection';
 import { SemanticCandidateRepository } from '../src/database/repositories/semantic_candidate.repo';
 import { SemanticCacheRepository } from '../src/database/repositories/semantic_cache.repo';
 import { SemanticReviewAuditRepository } from '../src/database/repositories/semantic_review_audit.repo';
-import { FAQCache } from '../src/modules/cache/faq_cache';
 import { SemanticCacheEngine } from '../src/modules/cache/semantic_cache_engine';
 import { PromotionService } from '../src/modules/cache/learning/promotion_service';
 import { CandidateReviewService } from '../src/modules/cache/learning/candidate_review.service';
@@ -23,7 +22,6 @@ describe('Phase 8: Production Hardening & Finalization', () => {
   let promotionService: PromotionService;
   let reviewService: CandidateReviewService;
   let controller: CandidateReviewController;
-  let exactCache: FAQCache;
   let cacheEngine: SemanticCacheEngine;
 
   const testCandidateIds: string[] = [];
@@ -44,9 +42,7 @@ describe('Phase 8: Production Hardening & Finalization', () => {
     reviewService = new CandidateReviewService(candidateRepo, auditRepo, promotionService, mockProvider);
     controller = new CandidateReviewController(reviewService, CacheObservability.getInstance());
 
-    exactCache = FAQCache.getInstance();
     cacheEngine = new SemanticCacheEngine(
-      exactCache,
       mockProvider,
       cacheRepo,
       TemplateEngine.getInstance(),
@@ -87,19 +83,14 @@ describe('Phase 8: Production Hardening & Finalization', () => {
         isCacheable: true,
       });
       testFaqIds.push(createdFaq.id);
-      await exactCache.reload();
 
-      // Verify that Exact Cache has the item in memory
-      const directExactMatch = exactCache.match(dynamicQuestion);
-      expect(directExactMatch.matched).toBe(true);
-
-      // BUT through SemanticCacheEngine, Safety Gate intercepts it BEFORE Exact Cache!
+      // Through SemanticCacheEngine, Safety Gate intercepts dynamic market queries before lookup!
       const engineResult = await cacheEngine.process(dynamicQuestion);
       expect(engineResult.type).toBe('miss');
       if (engineResult.type === 'miss') {
         expect(engineResult.reason).toBe('ineligible_search');
       } else {
-        throw new Error('Safety breach: Dynamic market query bypassed Safety Gate and hit Exact Cache!');
+        throw new Error('Safety breach: Dynamic market query bypassed Safety Gate!');
       }
     });
 
@@ -131,7 +122,6 @@ describe('Phase 8: Production Hardening & Finalization', () => {
       });
 
       const slowEngine = new SemanticCacheEngine(
-        exactCache,
         slowProvider,
         cacheRepo,
         TemplateEngine.getInstance(),

@@ -6,7 +6,7 @@ import { logger } from '../../core/logger';
 import { AnalyticsRepository } from '../../database/repositories/analytics.repo';
 import { UserRepository } from '../../database/repositories/user.repo';
 import { FAQRepository } from '../../database/repositories/faq.repo';
-import { FAQCache } from '../cache/faq_cache';
+import { DatabaseManager } from '../../database/connection';
 
 export class AnalyticsController {
   constructor(
@@ -244,7 +244,6 @@ export class AnalyticsController {
         response,
         matchType,
       });
-      await FAQCache.getInstance().reload();
       res.status(201).json({ success: true, item: newItem });
     } catch (err: any) {
       logger.error('Failed to create FAQ item', { error: err.message });
@@ -275,7 +274,6 @@ export class AnalyticsController {
         res.status(404).json({ success: false, error: 'FAQ item not found' });
         return;
       }
-      await FAQCache.getInstance().reload();
       res.status(200).json({ success: true, item: updated });
     } catch (err: any) {
       logger.error('Failed to update FAQ item', { error: err.message });
@@ -298,10 +296,111 @@ export class AnalyticsController {
         res.status(404).json({ success: false, error: 'FAQ item not found' });
         return;
       }
-      await FAQCache.getInstance().reload();
       res.status(200).json({ success: true, message: 'FAQ item deleted successfully' });
     } catch (err: any) {
       logger.error('Failed to delete FAQ item', { error: err.message });
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  /**
+   * GET /api/admin/semantic-cache/dashboard
+   * Aggregated Semantic Cache performance, recent events, and entry metadata.
+   */
+  public getSemanticCacheDashboard = async (req: Request, res: Response): Promise<void> => {
+    if (!this.isAuthorized(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    try {
+      const pool = DatabaseManager.getInstance().getPool();
+      if (!pool) {
+        res.status(500).json({ success: false, error: 'Database unavailable' });
+        return;
+      }
+
+      // 1. Status / Config
+      const provider = config.embedding.provider;
+      const model = config.embedding.model || 'jina-embeddings-v5-text-nano';
+      const dimension = config.embedding.dimension || 768;
+      const defaultThreshold = 0.88;
+
+      // 2. Metrics aggregations
+      const metricsRes = await pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE event_type = 'semantic_hit') as semantic_hits,
+          COUNT(*) FILTER (WHERE event_type IN ('semantic_miss', 'below_threshold', 'fallback_to_ai')) as misses,
+          COUNT(*) FILTER (WHERE event_type = 'fallback_to_ai' OR event_type LIKE 'ineligible_%') as ai_fallbacks,
+          AVG(similarity) FILTER (WHERE event_type = 'semantic_hit') as avg_similarity,
+          COUNT(*) FILTER (WHERE reason LIKE '%error%' OR reason LIKE '%unavailable%' OR event_type = 'semantic_unavailable') as embedding_errors
+        FROM semantic_cache_metrics_events;
+      `);
+
+      const mRow = metricsRes.rows[0] || {};
+      const semanticHits = parseInt(mRow.semantic_hits || '0', 10);
+      const misses = parseInt(mRow.misses || '0', 10);
+      const aiFallbacks = parseInt(mRow.ai_fallbacks || '0', 10);
+      const avgSimilarity = mRow.avg_similarity !== null && mRow.avg_similarity !== undefined
+        ? parseFloat(parseFloat(mRow.avg_similarity).toFixed(4))
+        : 0.0;
+      const embeddingErrors = parseInt(mRow.embedding_errors || '0', 10);
+      const tokensSaved = semanticHits * 250;
+      const estimatedCostSaved = parseFloat(((tokensSaved / 1000000) * 0.15).toFixed(4));
+
+      // 3. Recent Events (sanitize: no private tokens/embeddings)
+      const eventsRes = await pool.query(`
+        SELECT
+          id,
+          created_at as time,
+          event_type as event,
+          intent,
+          similarity,
+          COALESCE(threshold, 0.88) as threshold,
+          latency_ms as latency,
+          COALESCE(source, 'semantic') as source
+        FROM semantic_cache_metrics_events
+        ORDER BY created_at DESC
+        LIMIT 20;
+      `);
+
+      // 4. Cache Entries
+      const entriesRes = await pool.query(`
+        SELECT
+          id,
+          category as intent,
+          title,
+          CASE WHEN embedding IS NOT NULL THEN 'Active' ELSE 'Missing' END as embedding_status,
+          COALESCE(embedding_dimension, 768) as dimension,
+          COALESCE(confidence_threshold, 0.88) as threshold,
+          COALESCE(response_strategy, 'dynamic_template') as response_strategy,
+          updated_at
+        FROM faq_items
+        WHERE is_active = true
+        ORDER BY category;
+      `);
+
+      res.status(200).json({
+        success: true,
+        status: {
+          cacheStatus: 'Active',
+          provider,
+          model,
+          dimension,
+          threshold: defaultThreshold,
+          semanticHits,
+          misses,
+          aiFallbacks,
+          averageSimilarity: avgSimilarity,
+          tokensSaved,
+          estimatedCostSaved,
+          embeddingErrors,
+        },
+        recentEvents: eventsRes.rows,
+        entries: entriesRes.rows,
+      });
+    } catch (err: any) {
+      logger.error('Failed to retrieve semantic cache dashboard data', { error: err.message });
       res.status(500).json({ success: false, error: err.message });
     }
   };

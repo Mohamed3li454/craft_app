@@ -876,7 +876,6 @@ describe('Phase 7: Candidate Review & Production Observability', () => {
     it('executes full journey: AI generation -> evidence accumulation -> review -> validation -> promotion -> semantic cache hit!', async () => {
       const pipeline = new LearningPipeline(candidateRepo, cacheRepo, mockProvider);
       const cacheEngine = new SemanticCacheEngine(
-        undefined,
         mockProvider,
         cacheRepo,
         undefined,

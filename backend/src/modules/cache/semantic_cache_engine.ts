@@ -1,4 +1,3 @@
-import { FAQCache } from './faq_cache';
 import { normalizeMessage } from './text_normalizer';
 import { LocalLanguageDetector } from './language_detector';
 import { EmbeddingProvider } from './embedding/embedding.interface';
@@ -19,7 +18,6 @@ export class SemanticCacheEngine {
   private static instance: SemanticCacheEngine;
 
   constructor(
-    private exactCache: FAQCache = FAQCache.getInstance(),
     private embeddingProvider: EmbeddingProvider = EmbeddingFactory.getSharedProvider(),
     private repo: SemanticCacheRepository = new SemanticCacheRepository(),
     private templateEngine: TemplateEngine = TemplateEngine.getInstance(),
@@ -36,14 +34,13 @@ export class SemanticCacheEngine {
   /**
    * Main entrypoint for caching pipeline:
    * 1. Text Normalization
-   * 2. Exact Cache Lookup (First, <1ms)
-   * 3. Cache Eligibility Pre-checks (Deterministic safety rules)
-   * 4. Language Detection (Deterministic)
-   * 5. Production Embedding Availability Check
-   * 6. Semantic Vector Lookup via pgvector
-   * 7. Item Safety Rules Validation
-   * 8. Response Strategy Selection & Template Rendering
-   * 9. Safe Fallback to AI Router on any miss or error
+   * 2. Cache Eligibility Pre-checks (Deterministic safety rules)
+   * 3. Language Detection (Deterministic)
+   * 4. Production Embedding Availability Check
+   * 5. Semantic Vector Lookup via pgvector
+   * 6. Item Safety Rules Validation
+   * 7. Response Strategy Selection & Template Rendering
+   * 8. Safe Fallback to AI Router on any miss or error
    */
   public async process(rawText: string, context?: CacheContext): Promise<SemanticCacheResult> {
     const startTime = Date.now();
@@ -69,29 +66,6 @@ export class SemanticCacheEngine {
         return {
           type: 'miss',
           reason: eligibility.reason || 'ineligible',
-          latencyMs,
-        };
-      }
-
-      // 3. Exact Cache Lookup (Only queries that passed Safety Gate)
-      const exactMatch = this.exactCache.match(rawText);
-      if (exactMatch.matched && exactMatch.response) {
-        const latencyMs = Date.now() - startTime;
-        this.logEvent({
-          event: 'exact_hit',
-          source: 'exact',
-          intent: exactMatch.intent,
-          strategy: 'static',
-          latencyMs,
-        });
-
-        return {
-          type: 'hit',
-          source: 'exact',
-          response: exactMatch.response,
-          intent: exactMatch.intent,
-          strategy: 'static',
-          itemId: exactMatch.itemId,
           latencyMs,
         };
       }

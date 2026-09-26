@@ -136,6 +136,7 @@ export function createApp(): Application {
   app.post('/api/admin/faq', analyticsController.createFaq);
   app.put('/api/admin/faq/:id', analyticsController.updateFaq);
   app.delete('/api/admin/faq/:id', analyticsController.deleteFaq);
+  app.get('/api/admin/semantic-cache/dashboard', analyticsController.getSemanticCacheDashboard);
 
   // 10. Semantic Cache Admin & Review Routes (/api/admin/cache)
   app.use('/api/admin/cache', adminRateLimiter.middleware);

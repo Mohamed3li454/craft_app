@@ -7,6 +7,7 @@ import {
   EmbeddingConfigError,
   EmbeddingNetworkError,
 } from '../src/modules/cache/embedding/embedding.interface';
+import { config } from '../src/config/env';
 
 describe('Phase 2: EmbeddingProvider Abstraction & Pluggable Providers', () => {
   describe('MockEmbeddingProvider', () => {
@@ -212,8 +213,24 @@ describe('Phase 2: EmbeddingProvider Abstraction & Pluggable Providers', () => {
   });
 
   describe('EmbeddingFactory', () => {
+    const originalEnv = { ...process.env };
+    let originalConfigProvider: string;
+
     beforeEach(() => {
       EmbeddingFactory.resetSharedProvider();
+      delete process.env.EMBEDDING_PROVIDER;
+      delete process.env.EMBEDDING_ENDPOINT;
+      originalConfigProvider = (config as any).embedding?.provider;
+      if ((config as any).embedding) {
+        (config as any).embedding.provider = 'mock';
+      }
+    });
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+      if ((config as any).embedding) {
+        (config as any).embedding.provider = originalConfigProvider;
+      }
     });
 
     test('defaults to MockEmbeddingProvider when unconfigured', () => {

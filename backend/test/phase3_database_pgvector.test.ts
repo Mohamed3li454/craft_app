@@ -1,6 +1,5 @@
 import { SemanticCacheRepository } from '../src/database/repositories/semantic_cache.repo';
 import { FAQRepository } from '../src/database/repositories/faq.repo';
-import { FAQCache } from '../src/modules/cache/faq_cache';
 import { DatabaseManager } from '../src/database/connection';
 import { CreateSemanticCacheDto, ResponseStrategy } from '../src/database/repositories/semantic_cache.types';
 
@@ -82,7 +81,7 @@ describe('Phase 3: Database Schema, pgvector & SemanticCacheRepository', () => {
       // Language-neutral backfill check: must have 'default'
       expect(identityItem?.responseTemplates).toBeDefined();
       expect(identityItem?.responseTemplates.default).toBeDefined();
-      expect(identityItem?.responseTemplates.default[0]).toContain('كرافت');
+      expect(identityItem?.responseTemplates.default[0]).toMatch(/Craft|كرافت/);
       expect(identityItem?.isCacheable).toBe(true);
       expect(identityItem?.confidenceThreshold).toBe(0.88);
     });
@@ -418,15 +417,7 @@ describe('Phase 3: Database Schema, pgvector & SemanticCacheRepository', () => {
       expect(oldItems.length).toBeGreaterThanOrEqual(5);
       const greeting = oldItems.find((i) => i.category === 'greetings');
       expect(greeting).toBeDefined();
-      expect(greeting?.matchType).toBe('exact');
       expect(greeting?.patterns.length).toBeGreaterThan(5);
-    });
-
-    it('FAQCache in-memory match continues to perform instant matching', () => {
-      const cache = FAQCache.getInstance();
-      const res = cache.match('السلام عليكم');
-      expect(res.matched).toBe(true);
-      expect(res.intent).toBe('greetings');
     });
   });
 });

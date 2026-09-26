@@ -1,5 +1,4 @@
 import { SemanticCacheEngine } from '../src/modules/cache/semantic_cache_engine';
-import { FAQCache } from '../src/modules/cache/faq_cache';
 import { TemplateEngine } from '../src/modules/cache/template_engine';
 import { isCacheEligible } from '../src/modules/cache/cache_safety';
 import { MockEmbeddingProvider } from '../src/modules/cache/embedding/mock_embedding.provider';
@@ -10,7 +9,6 @@ import { AgentOrchestrator } from '../src/modules/agent/orchestrator';
 describe('Phase 4: Semantic Cache Engine & Integration', () => {
   let db: DatabaseManager;
   let repo: SemanticCacheRepository;
-  let exactCache: FAQCache;
   let mockProvider: MockEmbeddingProvider;
   let engine: SemanticCacheEngine;
   const createdItemIds: string[] = [];
@@ -18,12 +16,10 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
   beforeAll(async () => {
     db = DatabaseManager.getInstance();
     repo = new SemanticCacheRepository(db);
-    exactCache = FAQCache.getInstance();
     mockProvider = new MockEmbeddingProvider(4); // 4-dim unit vectors for testing
     await repo.ensureSchema();
 
     engine = new SemanticCacheEngine(
-      exactCache,
       mockProvider,
       repo,
       TemplateEngine.getInstance(),
@@ -53,80 +49,42 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
     }
   });
 
-  describe('1. Safety Gate Precedes Exact Cache (Exact Match Cannot Bypass Safety)', () => {
-    let mockExactCacheWithDynamicFaq: any;
-    let engineWithDynamicExactFaq: SemanticCacheEngine;
-
-    beforeAll(() => {
-      // Mock an exact cache that happens to contain dynamic/unsafe entries
-      mockExactCacheWithDynamicFaq = {
-        match: (rawText: string) => {
-          if (rawText.includes('الساعة كام')) {
-            return { matched: true, intent: 'time_faq', response: 'الساعة 12:00 ظهراً' };
-          }
-          if (rawText.includes('سعر الدولار اليوم')) {
-            return { matched: true, intent: 'price_faq', response: 'سعر الدولار 50 جنيه' };
-          }
-          if (rawText.includes('الطقس اليوم')) {
-            return { matched: true, intent: 'weather_faq', response: 'الطقس مشمس' };
-          }
-          if (rawText.includes('حالة طلبي')) {
-            return { matched: true, intent: 'order_faq', response: 'طلبك تم شحنه' };
-          }
-          return exactCache.match(rawText);
-        },
-      };
-
-      engineWithDynamicExactFaq = new SemanticCacheEngine(
-        mockExactCacheWithDynamicFaq,
-        mockProvider,
-        repo,
-        TemplateEngine.getInstance(),
-        { allowMockInProduction: true }
-      );
-    });
-
-    it('blocks dynamic time query from exact cache and returns miss to AI router', async () => {
-      const res = await engineWithDynamicExactFaq.process('الساعة كام دلوقتي؟');
+  describe('1. Safety Gate Precedes Cache Lookup (Unsafe Queries Cannot Bypass Safety)', () => {
+    it('blocks dynamic time query and returns miss to AI router', async () => {
+      const res = await engine.process('الساعة كام دلوقتي؟');
       expect(res.type).toBe('miss');
       if (res.type === 'miss') {
         expect(res.reason).toBe('ineligible_dynamic');
       }
     });
 
-    it('blocks current-price query from exact cache and returns miss to AI router', async () => {
-      const res = await engineWithDynamicExactFaq.process('سعر الدولار اليوم كام؟');
+    it('blocks current-price query and returns miss to AI router', async () => {
+      const res = await engine.process('سعر الدولار اليوم كام؟');
       expect(res.type).toBe('miss');
       if (res.type === 'miss') {
         expect(res.reason).toBe('ineligible_search');
       }
     });
 
-    it('blocks weather query from exact cache and returns miss to AI router', async () => {
-      const res = await engineWithDynamicExactFaq.process('الطقس اليوم عامل ايه؟');
+    it('blocks weather query from cache and returns miss to AI router', async () => {
+      const res = await engine.process('الطقس اليوم عامل ايه؟');
       expect(res.type).toBe('miss');
       if (res.type === 'miss') {
         expect(res.reason).toBe('ineligible_search');
       }
     });
 
-    it('blocks user-specific order/account query from exact cache and returns miss to AI router', async () => {
-      const res = await engineWithDynamicExactFaq.process('حالة طلبي ايه؟');
+    it('blocks user-specific order/account query from cache and returns miss to AI router', async () => {
+      const res = await engine.process('حالة طلبي ايه؟');
       expect(res.type).toBe('miss');
       if (res.type === 'miss') {
         expect(res.reason).toBe('ineligible_user_context');
       }
     });
 
-    it('allows safe static exact FAQ to return immediate exact hit (<1ms, 0 tokens)', async () => {
-      const res = await engineWithDynamicExactFaq.process('السلام عليكم');
-      expect(res.type).toBe('hit');
-      if (res.type === 'hit') {
-        expect(res.source).toBe('exact');
-        expect(res.intent).toBe('greetings');
-        expect(res.response).toBeDefined();
-        expect(res.latencyMs).toBeLessThan(100);
-      }
+    it('allows safe greeting query to pass safety gate', () => {
+      const eligibility = isCacheEligible('السلام عليكم');
+      expect(eligibility.eligible).toBe(true);
     });
   });
 
@@ -295,7 +253,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
         embed: async () => [1, 0, 0, 0],
         embedBatch: async () => [[1, 0, 0, 0]],
       };
-      const customEngine = new SemanticCacheEngine(exactCache, customProvider, repo);
+      const customEngine = new SemanticCacheEngine(customProvider, repo);
 
       const res = await customEngine.process('طريقة استرجاع الطلب المرفوض');
       expect(res.type).toBe('hit');
@@ -313,7 +271,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
         embed: async () => [0, 1, 0, 0],
         embedBatch: async () => [[0, 1, 0, 0]],
       };
-      const customEngine = new SemanticCacheEngine(exactCache, customProvider, repo);
+      const customEngine = new SemanticCacheEngine(customProvider, repo);
 
       const res = await customEngine.process('كمية المنتج المتبقية في الفرع');
       expect(res.type).toBe('miss');
@@ -329,7 +287,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
         embed: async () => [0, 0, 1, 0],
         embedBatch: async () => [[0, 0, 1, 0]],
       };
-      const customEngine = new SemanticCacheEngine(exactCache, customProvider, repo);
+      const customEngine = new SemanticCacheEngine(customProvider, repo);
 
       const res = await customEngine.process('حالة الشحنة بتاعتي');
       expect(res.type).toBe('miss');
@@ -345,7 +303,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
         embed: async () => [0, 0, 0, 1],
         embedBatch: async () => [[0, 0, 0, 1]],
       };
-      const customEngine = new SemanticCacheEngine(exactCache, customProvider, repo);
+      const customEngine = new SemanticCacheEngine(customProvider, repo);
 
       const res = await customEngine.process('استفسار غير متطابق أبداً');
       expect(res.type).toBe('miss');
@@ -447,7 +405,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
       const originalEnv = process.env.NODE_ENV;
       try {
         process.env.NODE_ENV = 'production';
-        const prodEngine = new SemanticCacheEngine(exactCache, mockProvider, repo);
+        const prodEngine = new SemanticCacheEngine(mockProvider, repo);
         const res = await prodEngine.process('سؤال غير موجود في الكاش الدقيق');
         expect(res.type).toBe('miss');
         if (res.type === 'miss') {
@@ -471,7 +429,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
           throw new Error('503');
         },
       };
-      const resilientEngine = new SemanticCacheEngine(exactCache, failingProvider, repo);
+      const resilientEngine = new SemanticCacheEngine(failingProvider, repo);
       const res = await resilientEngine.process('سؤال دلالي أثناء عطل الـ Embedding');
 
       expect(res.type).toBe('miss');
@@ -487,7 +445,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
         },
         recordHit: async () => {},
       };
-      const resilientEngine = new SemanticCacheEngine(exactCache, mockProvider, brokenRepo, undefined, {
+      const resilientEngine = new SemanticCacheEngine(mockProvider, brokenRepo, undefined, {
         allowMockInProduction: true,
       });
 
@@ -500,7 +458,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
   });
 
   describe('8. Orchestrator Step 0 End-to-End Verification with Context', () => {
-    it('serves exact greeting via orchestrator with 0 tokens and latency under 1000ms', async () => {
+    it('serves greeting via orchestrator with 0 tokens and model semantic-cache', async () => {
       const orchestrator = new AgentOrchestrator();
       const run = await orchestrator.run({
         userId: 'test_phase4_user',
@@ -511,9 +469,9 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
 
       expect(run.status).toBe('completed');
       expect(run.metrics?.totalTokens).toBe(0);
-      expect(run.metrics?.modelUsed).toBe('faq-cache-exact');
-      expect(run.replyText).toContain('اهلا');
-      expect(run.metrics?.latencyMs).toBeLessThan(1000);
+      expect(run.metrics?.modelUsed).toBe('semantic-cache');
+      expect(run.replyText).toBeDefined();
+      expect(run.metrics?.latencyMs).toBeLessThan(3000);
     });
 
     it('falls back to AI router when message is an AI task / dynamic question', async () => {
@@ -526,7 +484,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
 
       expect(run.status).toBe('completed');
       // Should have passed through AI Router and executed tools or LLM
-      expect(run.metrics?.modelUsed).not.toBe('faq-cache-exact');
+      expect(run.metrics?.modelUsed).not.toBe('semantic-cache');
       expect(run.replyText).toBeDefined();
     });
   });

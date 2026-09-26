@@ -111,7 +111,7 @@
         </button>
         <button onclick="switchTab('faq')" id="tab-btn-faq" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white transition-all">
           <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
-          <span>الردود السريعة (FAQ)</span>
+          <span>الـ Semantic Cache والـ FAQs</span>
         </button>
       </div>
 
@@ -140,7 +140,7 @@
       <button onclick="switchTab('conversations')" id="tab-btn-m-conversations" class="px-2 py-1 rounded-md text-slate-400">الشات</button>
       <button onclick="switchTab('users')" id="tab-btn-m-users" class="px-2 py-1 rounded-md text-slate-400">المستخدمين</button>
       <button onclick="switchTab('tools')" id="tab-btn-m-tools" class="px-2 py-1 rounded-md text-slate-400">الأدوات</button>
-      <button onclick="switchTab('faq')" id="tab-btn-m-faq" class="px-2 py-1 rounded-md text-slate-400 text-amber-400">الردود السريعة</button>
+      <button onclick="switchTab('faq')" id="tab-btn-m-faq" class="px-2 py-1 rounded-md text-slate-400 text-amber-400">Semantic Cache</button>
     </div>
   </header>
 
@@ -572,23 +572,171 @@
     <!-- ========================================== -->
     <section id="tab-content-faq" class="hidden space-y-6">
 
-      <!-- Header Banner & Action Button -->
+      <!-- 1. Semantic Cache Status KPIs & Configuration Banner -->
+      <div class="glass-card rounded-2xl p-6 space-y-5 border border-indigo-500/20">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <i data-lucide="cpu" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="text-base font-bold text-white">حالة وتكوين الـ Semantic Cache</h2>
+                <span id="semanticStatusBadge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> نشط (Active)
+                </span>
+              </div>
+              <p class="text-xs text-slate-400 mt-0.5">
+                محرك التخزين الدلالي المتقدم عبر pgvector ونماذج Jina AI لتوليد الردود التلقائية الدقيقة بدون استهلاك LLM
+              </p>
+            </div>
+          </div>
+          <button onclick="loadSemanticCacheDashboard()" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border border-slate-700">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>تحديث إحصائيات الكاش</span>
+          </button>
+        </div>
+
+        <!-- System Architecture Parameters Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-slate-400">مزود التضمين (Provider)</span>
+            <p id="scProvider" class="text-sm font-bold text-white mt-1">generic_http (Jina)</p>
+          </div>
+          <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-slate-400">الموديل (Model)</span>
+            <p id="scModel" class="text-sm font-bold text-indigo-300 mt-1 truncate" title="jina-embeddings-v5-text-nano">jina-embeddings-v5-text-nano</p>
+          </div>
+          <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-slate-400">أبعاد المتجهات (Dimension)</span>
+            <p id="scDimension" class="text-sm font-bold text-white mt-1">768-dim</p>
+          </div>
+          <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-slate-400">حد الثقة القياسي (Threshold)</span>
+            <p id="scThreshold" class="text-sm font-bold text-amber-400 mt-1">0.88</p>
+          </div>
+        </div>
+
+        <!-- Semantic Performance Metrics Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3 text-xs text-center">
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-slate-400">تطابقات دلالية (Hits)</span>
+            <p id="scHits" class="text-base font-extrabold text-emerald-400 mt-1">0</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-slate-400">عدم تطابق (Misses)</span>
+            <p id="scMisses" class="text-base font-extrabold text-slate-300 mt-1">0</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-slate-400">تحويل لـ AI (Fallbacks)</span>
+            <p id="scFallbacks" class="text-base font-extrabold text-amber-400 mt-1">0</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-slate-400">متوسط التشابه (Avg Sim)</span>
+            <p id="scAvgSim" class="text-base font-extrabold text-indigo-400 mt-1">0.00</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-slate-400">توكنز موفرة (Saved)</span>
+            <p id="scTokensSaved" class="text-base font-extrabold text-cyan-400 mt-1">0</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-slate-400">وفر التكلفة التقديري</span>
+            <p id="scCostSaved" class="text-base font-extrabold text-emerald-400 mt-1">$0.000</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-slate-400">أخطاء التضمين (Errors)</span>
+            <p id="scErrors" class="text-base font-extrabold text-rose-400 mt-1">0</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Semantic Cache Entries Table -->
+      <div class="glass-card rounded-2xl p-5 space-y-4 border border-slate-800">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <i data-lucide="database" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">مدخلات الـ Semantic Cache (Active Entries)</h3>
+              <p class="text-[11px] text-slate-400">المحتوى الدلالي والمتجهات المفهرسة المعتمدة للرد الفوري</p>
+            </div>
+          </div>
+          <span class="text-xs text-slate-400 font-mono bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800" id="scEntriesCount">5 بنود نشطة</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-right text-xs">
+            <thead class="text-slate-400 bg-slate-900/60 border-b border-slate-800">
+              <tr>
+                <th class="p-3 font-semibold">القصد (Intent)</th>
+                <th class="p-3 font-semibold">العنوان</th>
+                <th class="p-3 font-semibold">حالة الـ Embedding</th>
+                <th class="p-3 font-semibold">الأبعاد</th>
+                <th class="p-3 font-semibold">حد الثقة</th>
+                <th class="p-3 font-semibold">استراتيجية الرد</th>
+                <th class="p-3 font-semibold">آخر تحديث</th>
+              </tr>
+            </thead>
+            <tbody id="scEntriesTableBody" class="divide-y divide-slate-800/60">
+              <tr><td colspan="7" class="p-4 text-center text-slate-500">جاري التحميل...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 3. Recent Semantic Cache Events Table -->
+      <div class="glass-card rounded-2xl p-5 space-y-4 border border-slate-800">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <i data-lucide="activity" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">أحدث أحداث الـ Semantic Cache (Recent Events)</h3>
+              <p class="text-[11px] text-slate-400">سجل عمليات البحث والتقييم اللحظي للطلبات الأخيرة</p>
+            </div>
+          </div>
+          <span class="text-xs text-slate-400 font-mono bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">آخر 20 حدث</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-right text-xs">
+            <thead class="text-slate-400 bg-slate-900/60 border-b border-slate-800">
+              <tr>
+                <th class="p-3 font-semibold">الوقت (Time)</th>
+                <th class="p-3 font-semibold">الحدث (Event)</th>
+                <th class="p-3 font-semibold">القصد (Intent)</th>
+                <th class="p-3 font-semibold">نسبة التشابه</th>
+                <th class="p-3 font-semibold">حد الثقة</th>
+                <th class="p-3 font-semibold">الزمن (Latency)</th>
+                <th class="p-3 font-semibold">المصدر</th>
+              </tr>
+            </thead>
+            <tbody id="scEventsTableBody" class="divide-y divide-slate-800/60">
+              <tr><td colspan="7" class="p-4 text-center text-slate-500">جاري التحميل...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 4. Header Banner & Action Button for FAQ CRUD Manager -->
       <div class="glass-card rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-amber-500/20">
         <div>
           <div class="flex items-center gap-2">
             <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
               <i data-lucide="zap" class="w-5 h-5"></i>
             </div>
-            <h2 class="text-base font-bold text-white">إدارة الردود السريعة الفورية (Instant FAQ Cache)</h2>
+            <h2 class="text-base font-bold text-white">إدارة الردود والأنماط (FAQ Patterns & Templates)</h2>
           </div>
           <p class="text-xs text-slate-400 mt-1">
-            ردود فورية (&lt;5ms) تستهلك <strong class="text-amber-300">0 توكنز</strong> وتوفر رصيد الكوتا بالكامل للأسئلة الشائعة والمتكررة.
+            إدارة نصوص وأنماط الردود السريعة متعددة اللغات
           </p>
         </div>
 
         <button onclick="openFaqModal()" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-all">
           <i data-lucide="plus-circle" class="w-4 h-4"></i>
-          <span>إضافة رد فوري جديد</span>
+          <span>إضافة رد جديد</span>
         </button>
       </div>
 
@@ -830,7 +978,10 @@
 
       if (tabName === 'conversations') loadConversationsList();
       if (tabName === 'tools') loadToolsStats();
-      if (tabName === 'faq') loadFaqList();
+      if (tabName === 'faq') {
+        loadFaqList();
+        loadSemanticCacheDashboard();
+      }
       lucide.createIcons();
     }
 
@@ -1426,7 +1577,109 @@
         .replace(/"/g, '&quot;');
     }
 
-    // --- FAQ & INSTANT CACHE MANAGER ---
+    // --- SEMANTIC CACHE & FAQ MANAGER ---
+    async function loadSemanticCacheDashboard() {
+      const token = getStoredToken();
+      try {
+        const res = await fetch(`/api/admin/semantic-cache/dashboard?token=${encodeURIComponent(token)}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'x-admin-token': token,
+          }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.success) return;
+
+        // Render Status & KPIs
+        if (data.status) {
+          const s = data.status;
+          const scProv = document.getElementById('scProvider');
+          const scMod = document.getElementById('scModel');
+          const scDim = document.getElementById('scDimension');
+          const scThresh = document.getElementById('scThreshold');
+          const scH = document.getElementById('scHits');
+          const scM = document.getElementById('scMisses');
+          const scFb = document.getElementById('scFallbacks');
+          const scAvg = document.getElementById('scAvgSim');
+          const scTok = document.getElementById('scTokensSaved');
+          const scCost = document.getElementById('scCostSaved');
+          const scErr = document.getElementById('scErrors');
+
+          if (scProv) scProv.innerText = s.provider || 'generic_http';
+          if (scMod) scMod.innerText = s.model || 'jina-embeddings-v5-nano';
+          if (scDim) scDim.innerText = (s.dimension || 768) + '-dim';
+          if (scThresh) scThresh.innerText = (s.threshold || 0.88).toFixed(2);
+          if (scH) scH.innerText = s.semanticHits || 0;
+          if (scM) scM.innerText = s.misses || 0;
+          if (scFb) scFb.innerText = s.aiFallbacks || 0;
+          if (scAvg) scAvg.innerText = (s.averageSimilarity || 0).toFixed(3);
+          if (scTok) scTok.innerText = (s.tokensSaved || 0).toLocaleString();
+          if (scCost) scCost.innerText = '$' + (s.estimatedCostSaved || 0).toFixed(3);
+          if (scErr) scErr.innerText = s.embeddingErrors || 0;
+        }
+
+        // Render Entries Table
+        const entriesBody = document.getElementById('scEntriesTableBody');
+        const entriesCount = document.getElementById('scEntriesCount');
+        if (entriesBody && Array.isArray(data.entries)) {
+          if (entriesCount) entriesCount.innerText = `${data.entries.length} بند نشط`;
+          if (data.entries.length === 0) {
+            entriesBody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-500">لا توجد بنود نشطة</td></tr>';
+          } else {
+            entriesBody.innerHTML = data.entries.map(e => `
+              <tr class="hover:bg-slate-800/40 transition-colors">
+                <td class="p-3 font-bold text-white font-mono">${escapeHtml(e.intent || '-')}</td>
+                <td class="p-3 text-slate-300">${escapeHtml(e.title || '-')}</td>
+                <td class="p-3">
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${e.embedding_status === 'Active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}">
+                    ${escapeHtml(e.embedding_status)}
+                  </span>
+                </td>
+                <td class="p-3 text-slate-300 font-mono">${e.dimension || 768}</td>
+                <td class="p-3 text-amber-400 font-mono">${e.threshold || 0.88}</td>
+                <td class="p-3 text-slate-300 font-mono text-[11px]">${escapeHtml(e.response_strategy || 'dynamic_template')}</td>
+                <td class="p-3 text-slate-400">${e.updated_at ? new Date(e.updated_at).toLocaleString('ar-EG') : '-'}</td>
+              </tr>
+            `).join('');
+          }
+        }
+
+        // Render Events Table
+        const eventsBody = document.getElementById('scEventsTableBody');
+        if (eventsBody && Array.isArray(data.recentEvents)) {
+          if (data.recentEvents.length === 0) {
+            eventsBody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-500">لا توجد أحداث سابقة مسجلة</td></tr>';
+          } else {
+            eventsBody.innerHTML = data.recentEvents.map(ev => {
+              const eventBadgeClass = ev.event === 'semantic_hit'
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                : (ev.event === 'below_threshold' || ev.event === 'semantic_miss'
+                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                  : 'bg-slate-800 text-slate-300 border border-slate-700');
+              return `
+                <tr class="hover:bg-slate-800/40 transition-colors">
+                  <td class="p-3 text-slate-400">${ev.time ? new Date(ev.time).toLocaleTimeString('ar-EG') : '-'}</td>
+                  <td class="p-3">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${eventBadgeClass}">
+                      ${escapeHtml(ev.event || '-')}
+                    </span>
+                  </td>
+                  <td class="p-3 font-semibold text-white font-mono">${escapeHtml(ev.intent || '-')}</td>
+                  <td class="p-3 text-indigo-300 font-mono">${ev.similarity !== null && ev.similarity !== undefined ? Number(ev.similarity).toFixed(3) : '-'}</td>
+                  <td class="p-3 text-slate-400 font-mono">${ev.threshold !== null && ev.threshold !== undefined ? Number(ev.threshold).toFixed(2) : '0.88'}</td>
+                  <td class="p-3 text-slate-300 font-mono">${ev.latency || 0}ms</td>
+                  <td class="p-3 text-slate-400 font-mono">${escapeHtml(ev.source || 'semantic')}</td>
+                </tr>
+              `;
+            }).join('');
+          }
+        }
+        lucide.createIcons();
+      } catch (err) {
+        console.error('Failed to load semantic cache dashboard:', err);
+      }
+    }
 
     let cachedFaqs = [];
 
