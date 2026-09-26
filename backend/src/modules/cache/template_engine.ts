@@ -120,15 +120,22 @@ export class TemplateEngine {
     context?: CacheContext,
     userLanguage = 'ar'
   ): string {
-    const isArabic = userLanguage.startsWith('ar');
-    const defaultGreeting = isArabic ? 'يا فندم' : 'there';
-    const userName = context?.userName || defaultGreeting;
+    const userName = context?.userName?.trim() || '';
     const botName = 'كرافت (Craft)';
     const channel = context?.channel || 'whatsapp';
     const currentDate = new Date().toISOString().split('T')[0];
 
-    return template
-      .replace(/\{\{user_name\}\}/gi, userName)
+    let rendered = template;
+    if (userName) {
+      rendered = rendered.replace(/\{\{user_name\}\}/gi, userName);
+    } else {
+      rendered = rendered
+        .replace(/\s*يا\s*\{\{user_name\}\}/gi, '')
+        .replace(/,\s*\{\{user_name\}\}/gi, '')
+        .replace(/\{\{user_name\}\}\s*,?\s*/gi, '');
+    }
+
+    return rendered
       .replace(/\{\{bot_name\}\}/gi, botName)
       .replace(/\{\{channel\}\}/gi, channel)
       .replace(/\{\{language\}\}/gi, userLanguage)

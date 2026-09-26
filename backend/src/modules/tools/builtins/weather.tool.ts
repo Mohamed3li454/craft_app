@@ -21,7 +21,11 @@ export class WeatherTool implements AgentTool {
   ): Promise<ToolExecutionResult> {
     const city = (args.city || 'Cairo').trim();
 
-    // Standard curated weather data for common cities with dynamic temperature variance
+    const isEnglish = _context.languageContext?.targetLanguage === 'en';
+    const description = isEnglish
+      ? `Current weather in ${city}: clear and sunny with moderate temperature.`
+      : `حالة الطقس في ${city}: مشمس ومعتدل مع سماء صافية.`;
+
     return {
       success: true,
       output: {
@@ -30,7 +34,7 @@ export class WeatherTool implements AgentTool {
         temperatureC: 28,
         humidityPercent: 45,
         windSpeedKmh: 14,
-        description: `الطقس في ${city} مشمس ومعتدل مع سماء صافية وحرارة لطيفة.`,
+        description,
       },
     };
   }

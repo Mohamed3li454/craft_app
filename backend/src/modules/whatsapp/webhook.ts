@@ -170,7 +170,7 @@ export class WhatsAppWebhookHandler {
                       : '');
                 replyText = isEnglish
                   ? `✅ Successfully confirmed!\nReminder scheduled:\n• Topic: "${title}"\n• Time: ${formattedTime}${recurrenceLine}\nI will notify you at the scheduled time.`
-                  : `✅ تم التأكيد بنجاح!\nتم حفظ وجدولة التذكير:\n• الموضوع: "${title}"\n• الموعد: ${formattedTime}${recurrenceLine}\nسأقوم بتنبيهك في الوقت المحدد بإذن الله.`;
+                  : `✅ تم التأكيد بنجاح!\nتم حفظ وجدولة التذكير:\n• الموضوع: "${title}"\n• الموعد: ${formattedTime}${recurrenceLine}\nسيتم التنبيه في الموعد المحدد.`;
               } else {
                 replyText = isEnglish
                   ? `✅ Action [${actionName || 'Requested'}] confirmed and executed successfully!`
@@ -325,7 +325,7 @@ export class WhatsAppWebhookHandler {
       try {
         if (fromNumber) {
           const emergencyFallback =
-            'عذراً، حدث انقطاع مؤقت في الاتصال، يرجى إعادة إرسال رسالتك وسأكون جاهزاً لمساعدتك فوراً! 🤝';
+            'حدث خطأ مؤقت في الاتصال، يرجى إعادة إرسال رسالتك.';
           await this.whatsappAdapter.sendTextMessage(fromNumber, emergencyFallback);
         }
       } catch (dispatchErr: any) {

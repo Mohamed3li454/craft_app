@@ -35,13 +35,16 @@ export class SaveMemoryTool implements AgentTool {
     const category = args.category || 'general';
     await this.memoryRepo.saveFact(context.userId, fact, category);
 
+    const isEnglish = context.languageContext?.targetLanguage === 'en';
     return {
       success: true,
       output: {
         status: 'saved',
         fact,
         category,
-        message: 'تم حفظ هذه المعلومة في الذاكرة الدائمة بنجاح.',
+        message: isEnglish
+          ? 'Fact saved to long-term memory successfully.'
+          : 'تم حفظ هذه المعلومة في الذاكرة الدائمة بنجاح.',
       },
     };
   }

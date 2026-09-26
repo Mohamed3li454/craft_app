@@ -364,7 +364,7 @@ describe('Phase 4: Semantic Cache Engine & Integration', () => {
       const template = 'أهلاً بك يا {{user_name}} في منصة {{bot_name}}!';
       const res = templateEngine.render('dynamic_template', template, {});
       expect(res.success).toBe(true);
-      expect(res.text).toContain('أهلاً بك يا يا فندم في منصة كرافت (Craft)!');
+      expect(res.text).toContain('أهلاً بك في منصة كرافت (Craft)!');
     });
 
     it('strategy "contextual_template": safely replaces channel and previousIntent', () => {

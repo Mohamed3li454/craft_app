@@ -19,6 +19,11 @@ import {
   SupportedLanguage,
   ArabicDialect,
 } from '../language';
+import {
+  PersonalityEngine,
+  PersonalityContext,
+  ExplicitPersonalityPreference,
+} from '../personality';
 
 export interface AgentMediaAttachment {
   buffer: Buffer;
@@ -36,6 +41,7 @@ export interface AgentRunInput {
   mediaUrl?: string;
   media?: AgentMediaAttachment;
   onInterimProgress?: (message: string) => Promise<void> | void;
+  explicitPersonalityPreference?: ExplicitPersonalityPreference;
 }
 
 
@@ -63,6 +69,7 @@ export interface AgentRunOutput {
     totalTokens: number;
   };
   languageContext?: LanguageContext;
+  personalityContext?: PersonalityContext;
 }
 
 /**
@@ -367,8 +374,11 @@ export class AgentOrchestrator {
 
     const cleanUserText = (input.text || '').trim();
 
-    // 0. Initial Language Context resolution from input text
+    // 0. Language and Personality Context resolution
     let languageContext = LanguageIntelligenceService.getInstance().resolveContext(cleanUserText);
+    const personalityContext = PersonalityEngine.getInstance().resolve({
+      explicitPreference: input.explicitPersonalityPreference,
+    });
 
     // 0.1 FAQ & Semantic Cache Check (0 tokens, latency <15ms)
     if (!input.media && cleanUserText) {
@@ -422,6 +432,7 @@ export class AgentOrchestrator {
             totalTokens: 0,
           },
           languageContext,
+          personalityContext,
         };
       }
     }
@@ -436,8 +447,8 @@ export class AgentOrchestrator {
       const conversation = await this.chatRepo.getOrCreateConversation(input.userId, input.channel);
       const conversationId = conversation.id;
       const rateLimitReply = languageContext.targetLanguage === 'en'
-        ? 'Hello! 🌟 You have reached the daily limit of free messages (40 messages). Your balance will be fully refreshed tomorrow! If you need unlimited access, please contact support. Have a wonderful day! ✨'
-        : 'أهلاً بك! 🌟 لقد وصلت للحد الأقصى لعدد الرسائل اليومية المجانية (40 رسالة). سيتم تجديد رصيدك بالكامل مع بداية يوم جديد بإذن الله! لو محتاج مساعدة فورية أو باقة غير محدودة تقدر تتواصل مع الإدارة. نهارك سعيد! ✨';
+        ? 'You have reached the daily limit of free messages (40 messages). Your balance will be refreshed tomorrow. For unlimited access, please contact support.'
+        : 'لقد وصلت إلى الحد الأقصى للرسائل المجانية اليومية (40 رسالة). سيتجدد رصيدك غداً. للحصول على باقة غير محدودة، يمكنك التواصل مع الدعم.';
 
       await Promise.all([
         this.chatRepo.saveMessage(
@@ -476,6 +487,7 @@ export class AgentOrchestrator {
           totalTokens: 0,
         },
         languageContext,
+        personalityContext,
       };
     }
 
@@ -517,8 +529,8 @@ export class AgentOrchestrator {
       if (isAudio) {
         await sendInterim(
           isEnglish
-            ? 'Listening to your voice note, one moment please! 🎙️'
-            : 'ثواني أسمع الفويس وأرد عليك! 🎙️'
+            ? 'Processing audio note, one moment please. 🎙️'
+            : 'جاري معالجة التسجيل الصوتي، لحظة واحدة فضلاً. 🎙️'
         );
       } else if (isImg) {
         await sendInterim(
@@ -529,8 +541,8 @@ export class AgentOrchestrator {
       } else {
         await sendInterim(
           isEnglish
-            ? 'Reading the attached file, one moment please! 📄'
-            : 'لحظات، أقرأ الملف المرفق وأرجعلك بالخلاصة! 📄'
+            ? 'Reading attached file, one moment please. 📄'
+            : 'لحظات، أقرأ الملف المرفق. 📄'
         );
       }
     }
@@ -552,7 +564,7 @@ export class AgentOrchestrator {
     // Concurrent, non-blocking pre-flight intent & interim generator for text queries via Groq (~150ms)
     if (!interimSent && input.onInterimProgress && textToProcess && !input.media) {
       this.groqProvider
-        .generateInterimAcknowledgement(textToProcess, languageContext)
+        .generateInterimAcknowledgement(textToProcess, languageContext, personalityContext)
         .then(async (acknowledged) => {
           if (acknowledged && !interimSent) {
             await sendInterim(acknowledged);
@@ -656,7 +668,8 @@ export class AgentOrchestrator {
           isFirstIteration,
           memories,
           isFirstIteration ? imageAttachment : undefined,
-          languageContext
+          languageContext,
+          personalityContext
         );
         if (groqResponse.modelUsed) lastModelUsed = groqResponse.modelUsed;
         if (groqResponse.usage) {
@@ -760,6 +773,7 @@ Please confirm using code: ${confirmation.token}`
                 totalTokens: accumulatedTotalTokens,
               },
               languageContext,
+              personalityContext,
             };
           }
 
@@ -783,7 +797,8 @@ Please confirm using code: ${confirmation.token}`
               false,
               memories,
               undefined,
-              languageContext
+              languageContext,
+              personalityContext
             );
             if (finalGroq.modelUsed) lastModelUsed = finalGroq.modelUsed;
             finalReply = finalGroq.text || (isEnglish ? 'Your request was processed successfully.' : 'تم معالجة طلبك بنجاح.');
@@ -793,8 +808,8 @@ Please confirm using code: ${confirmation.token}`
           if (tool.name === 'web_search' && !interimSent) {
             await sendInterim(
               languageContext.targetLanguage === 'en'
-                ? 'Searching trusted sources to get you the latest verified details, one moment please! 🔍'
-                : 'لحظات، أبحث لك في المصادر المعتمدة وأتأكد من الموضوع ده وأرجعلك! 🔍'
+                ? 'Searching trusted sources, one moment please. 🔍'
+                : 'جاري البحث في المصادر المعتمدة، لحظة واحدة فضلاً. 🔍'
             );
           }
 
@@ -840,7 +855,7 @@ Please confirm using code: ${confirmation.token}`
           const isEnglish = languageContext.targetLanguage === 'en';
           const synthesisContent = isEnglish
             ? `[Live execution results for tool "${tool.name}" from trusted sources]:\n${serializedResult}\n\nTask for Craft AI assistant:\nBased on the data and results above, answer my question directly in fluent, natural English with clear, clean formatting.\nState the exact numbers, prices, specifications, and distributor details accurately as found above.\nCRITICAL: Never mention technical terms like "RSS", "search engine", or "the API". Speak authoritatively as a knowledgeable assistant.\nIf pricing in Egypt is discussed, the official bank exchange rate is ~48 to 50+ EGP per USD; never use obsolete rates.`
-            : `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين${languageContext.dialect === 'egyptian' ? ' باللهجة المصرية الودودة' : ' باللغة العربية'}.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ودون أي لف أو دوران.\nتحذير حاسم: إياك نهائياً أن تذكر كلمات تقنية مثل "RSS" أو "محرك البحث" أو "الـ API" أو "النتائج لم تذكر". تحدث كخبير تقني مباشر ومطلع على أحدث البيانات السوقية والموزعين.\nسعر الصرف الرسمي في مصر حوالي 48 إلى 50+ جنيه لكل دولار، لا تستخدم أسعار صرف قديمة إطلاقاً.`;
+            : `[نتائج تنفيذ الأداة ${tool.name} الحالية من المصادر المعتمدة]:\n${serializedResult}\n\nالمطلوب منك كوكيل ذكي كرافت:\nبناءً على البيانات والنتائج الموثقة أعلاه، أجب عن سؤالي فوراً وبطريقة واضحة ومنظمة ومريحة للعين${languageContext.dialect === 'egyptian' ? ' باللهجة المصرية الطبيعية والمهنية' : ' باللغة العربية'}.\nاذكر الأرقام والأسعار والمواصفات بالجنيه المصري (EGP) والدولار والموزعين كما وردت أعلاه بكل دقة ووضوح.\nتحذير حاسم: إياك نهائياً أن تذكر كلمات تقنية مثل "RSS" أو "محرك البحث" أو "الـ API" أو "النتائج لم تذكر". تحدث كخبير تقني مباشر ومطلع على أحدث البيانات السوقية والموزعين.\nسعر الصرف الرسمي في مصر حوالي 48 إلى 50+ جنيه لكل دولار، لا تستخدم أسعار صرف قديمة إطلاقاً.`;
 
           const synthesisPrompt: GroqMessage[] = [
             ...formatGroqConversationHistory(recentMessages, effectivePrompt),
@@ -855,7 +870,8 @@ Please confirm using code: ${confirmation.token}`
             false,
             memories,
             undefined,
-            languageContext
+            languageContext,
+            personalityContext
           );
           if (synthesisRes.modelUsed) lastModelUsed = synthesisRes.modelUsed;
           if (synthesisRes.usage) {
@@ -885,8 +901,8 @@ Please confirm using code: ${confirmation.token}`
         error: groqErr.message,
       });
       finalReply = languageContext.targetLanguage === 'en'
-        ? 'I am here and ready to help, but experienced a brief connection glitch. How can I assist you? 🤝'
-        : 'أنا معك وجاهز للمساعدة، حدث انقطاع بسيط في الاتصال وسأكون سعيداً بمساعدتك. كيف يمكنني خدمتك؟ 🤝';
+        ? 'A temporary connection error occurred. Please try sending your request again.'
+        : 'حدث خطأ مؤقت في الاتصال. يرجى محاولة إرسال طلبك مرة أخرى.';
     }
 
     if (
@@ -895,8 +911,8 @@ Please confirm using code: ${confirmation.token}`
       finalReply.trim().startsWith('Tool [')
     ) {
       finalReply = languageContext.targetLanguage === 'en'
-        ? 'I am here and ready to help, but experienced a brief connection glitch. How can I assist you? 🤝'
-        : 'أنا معك وجاهز للمساعدة، حدث انقطاع بسيط في الاتصال وسأكون سعيداً بمساعدتك. كيف يمكنني خدمتك؟ 🤝';
+        ? 'A temporary connection error occurred. Please try sending your request again.'
+        : 'حدث خطأ مؤقت في الاتصال. يرجى محاولة إرسال طلبك مرة أخرى.';
     }
 
     // Clean and harmonize formatting for WhatsApp and mobile viewing (remove tables, <br>, etc.)
@@ -957,6 +973,7 @@ Please confirm using code: ${confirmation.token}`
         totalTokens: accumulatedTotalTokens,
       },
       languageContext,
+      personalityContext,
     };
   }
 
@@ -967,10 +984,12 @@ Please confirm using code: ${confirmation.token}`
   public async generateSmartReminder(
     userId: string,
     reminderTitle: string,
-    languageContext?: LanguageContext
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext
   ): Promise<string> {
     try {
       const langCtx = languageContext || LanguageIntelligenceService.getInstance().resolveContext(reminderTitle);
+      const persCtx = personalityContext || PersonalityEngine.getInstance().getDefaultPersonality();
       const isEnglish = langCtx.targetLanguage === 'en';
       const memories = await this.memoryRepo.getMemories(userId);
       const prompt = isEnglish
@@ -982,9 +1001,9 @@ Task for Craft AI assistant:
    - If about news: call 'web_search' immediately to get current live news!
    - If about any other live info: call the appropriate tool.
 2. After fetching the info (or if it's a standard personal reminder like medication or meeting):
-   Formulate the reminder message in warm, friendly, clear English, starting with:
+   Formulate the reminder message in clear, well-formatted English, starting with:
    ⏰ *Reminder from Craft*:
-   Followed by well-formatted details, and finish with a warm encouraging note.`
+   Followed by well-formatted details directly.`
         : `[نظام التذكيرات الذكية]
 حان الآن موعد تذكير للمستخدم. عنوان التذكير: "${reminderTitle}".
 المطلوب منك كوكيل ذكي:
@@ -993,9 +1012,9 @@ Task for Craft AI assistant:
    - إذا كان عن أخبار (مثل: أهم أخبار نيويورك، أخبار تقنية): استدعِ أداة web_search فوراً لجلب الأخبار الحية الحالية!
    - إذا كان عن أي معلومة أخرى: استدعِ الأداة المناسبة.
 2. بعد جلب المعلومات (أو إذا كان التذكير تنبيهاً شخصياً عادياً مثل موعد دواء أو صلاة أو اجتماع):
-   صِغ رسالة التذكير بأسلوب ودود وجميل ومباشر${langCtx.dialect === 'egyptian' ? ' باللهجة المصرية' : ''}، تبدأ بـ:
+   صِغ رسالة التذكير بأسلوب واضح ومباشر${langCtx.dialect === 'egyptian' ? ' باللهجة المصرية المهنية' : ''}، تبدأ بـ:
    ⏰ *تذكير من كرافت*:
-   ثم تفاصيل التذكير والمعلومات المطلوبة بدقة وتنسيق مرتب، واختم بعبارة تشجيعية دافئة.`;
+   ثم تفاصيل التذكير والمعلومات المطلوبة بدقة وتنسيق مرتب.`;
 
       const conv = await this.chatRepo.getOrCreateConversation(userId, 'whatsapp');
 
@@ -1004,7 +1023,7 @@ Task for Craft AI assistant:
       let iterations = 0;
       while (iterations < config.security.maxIterations) {
         iterations++;
-        const reply = await this.groqProvider.generateReply(groqMessages, true, memories, undefined, langCtx);
+        const reply = await this.groqProvider.generateReply(groqMessages, true, memories, undefined, langCtx, persCtx);
 
         if (reply.functionCalls && reply.functionCalls.length > 0) {
           const fc = reply.functionCalls[0];
@@ -1024,10 +1043,10 @@ Task for Craft AI assistant:
                   tool.name,
                   toolResult.output || toolResult.error,
                   langCtx
-                )}\n\n${isEnglish ? 'Formulate the final reminder message now in warm, friendly English.' : 'صِغ رسالة التذكير النهائية الآن بأسلوب ودود.'}`,
+                )}\n\n${isEnglish ? 'Formulate the final reminder message now in clear English.' : 'صِغ رسالة التذكير النهائية الآن بأسلوب واضح ومباشر.'}`,
               },
             ];
-            const synthRes = await this.groqProvider.generateReply(directSynth, false, memories, undefined, langCtx);
+            const synthRes = await this.groqProvider.generateReply(directSynth, false, memories, undefined, langCtx, persCtx);
             if (synthRes.text && synthRes.text.trim()) {
               return synthRes.text.trim();
             }
@@ -1048,7 +1067,7 @@ Task for Craft AI assistant:
 
     const isEnglish = (languageContext?.targetLanguage || 'ar') === 'en';
     return isEnglish
-      ? `⏰ *Reminder from Craft*:\n\n📌 *Topic*: "${reminderTitle}"\n\nIt is now time for this scheduled reminder! Wishing you a great day.`
-      : `⏰ *تذكير من كرافت*:\n\n📌 *الموضوع*: "${reminderTitle}"\n\nحان الآن موعد هذا التذكير المحدد! أرجو أن تكون في أتم صحة وعافية.`;
+      ? `⏰ *Reminder from Craft*:\n\n📌 *Topic*: "${reminderTitle}"\n\nIt is now time for this scheduled reminder.`
+      : `⏰ *تذكير من كرافت*:\n\n📌 *الموضوع*: "${reminderTitle}"\n\nحان الآن موعد هذا التذكير المحدد.`;
   }
 }

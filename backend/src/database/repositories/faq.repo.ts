@@ -107,7 +107,7 @@ export const DEFAULT_FAQS: Array<Omit<FAQItem, 'id' | 'hitCount' | 'createdAt' |
       'Greetings',
     ],
     response:
-      'أهلاً بك! كيف يمكنني مساعدتك اليوم؟',
+      'أهلاً بك، أنا Craft، مساعدك الذكي.',
     matchType: 'contains',
     isActive: true,
   },
@@ -132,7 +132,7 @@ export const DEFAULT_FAQS: Array<Omit<FAQItem, 'id' | 'hitCount' | 'createdAt' |
       'Thanks for your help',
     ],
     response:
-      'العفو! سعيد بمساعدتك.',
+      'العفو.',
     matchType: 'contains',
     isActive: true,
   },

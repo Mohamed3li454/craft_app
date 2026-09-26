@@ -146,11 +146,14 @@ export class CompleteReminderTool implements AgentTool {
     args: Record<string, any>,
     context: ToolContext
   ): Promise<ToolExecutionResult> {
+    const isEnglish = context.languageContext?.targetLanguage === 'en';
     const title = args.title;
     if (!title) {
       return {
         success: false,
-        error: 'يرجى تحديد عنوان التذكير المراد إتمامه.',
+        error: isEnglish
+          ? 'Please specify the title of the reminder to complete.'
+          : 'يرجى تحديد عنوان التذكير المراد إتمامه.',
       };
     }
 
@@ -158,7 +161,9 @@ export class CompleteReminderTool implements AgentTool {
     if (!completed) {
       return {
         success: false,
-        error: `لم يتم العثور على تذكير نشط بالعنوان "${title}".`,
+        error: isEnglish
+          ? `No active reminder found with title "${title}".`
+          : `لم يتم العثور على تذكير نشط بالعنوان "${title}".`,
       };
     }
 
@@ -167,7 +172,9 @@ export class CompleteReminderTool implements AgentTool {
       output: {
         status: 'completed',
         reminder: completed,
-        message: `تم إتمام التذكير بنجاح: "${completed.title}" ✅`,
+        message: isEnglish
+          ? `Reminder completed successfully: "${completed.title}" ✅`
+          : `تم إتمام التذكير بنجاح: "${completed.title}" ✅`,
       },
     };
   }

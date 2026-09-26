@@ -5,12 +5,14 @@ import { WhatsAppWebhookHandler } from '../src/modules/whatsapp/webhook';
 import { WhatsAppAdapter } from '../src/modules/whatsapp/adapter';
 import { ChatRepository } from '../src/database/repositories/chat.repo';
 import { ConfirmationService } from '../src/modules/confirmation/confirmation.service';
+import { config } from '../src/config/env';
 
 describe('Fast Intelligent Contextual Interim Acknowledgements', () => {
   let groqProvider: GroqProvider;
   let orchestrator: AgentOrchestrator;
 
   beforeAll(() => {
+    config.groq.isMockMode = true;
     process.env.GROQ_MOCK_MODE = 'true';
     groqProvider = new GroqProvider();
     orchestrator = new AgentOrchestrator();
@@ -42,7 +44,7 @@ describe('Fast Intelligent Contextual Interim Acknowledgements', () => {
     it('returns general web search acknowledgment for research queries', async () => {
       const res = await groqProvider.generateInterimAcknowledgement('ابحث عن أحدث مواصفات آيفون 17 برو');
       expect(res).not.toBeNull();
-      expect(res).toContain('هبحثلك');
+      expect(res).toContain('البحث');
     });
   });
 
@@ -90,7 +92,7 @@ describe('Fast Intelligent Contextual Interim Acknowledgements', () => {
 
       expect(result.status).toBe('completed');
       expect(interimMessages.length).toBe(1);
-      expect(interimMessages[0]).toContain('الفويس');
+      expect(interimMessages[0]).toContain('التسجيل الصوتي');
     });
 
     it('immediately dispatches interim message when a document/code file is provided', async () => {

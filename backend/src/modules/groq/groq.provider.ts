@@ -1,6 +1,7 @@
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 import { LanguageContext } from '../language/types';
+import { PersonalityContext, buildPersonalityInstructions, PersonalityEngine } from '../personality';
 import { ToolRegistry } from '../tools/registry';
 
 export interface GroqMessage {
@@ -169,7 +170,11 @@ export class GroqProvider {
     throw lastError || new Error('All Groq API keys in pool failed or are in cooldown');
   }
 
-  public getSystemInstruction(memories?: string[], languageContext?: LanguageContext): string {
+  public getSystemInstruction(
+    memories?: string[],
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext
+  ): string {
     const now = new Date();
     const cairoFormatter = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Africa/Cairo',
@@ -191,22 +196,18 @@ export class GroqProvider {
       if (languageContext.targetLanguage === 'en') {
         toneAndLanguage = `Response Language & Style:
 - Language: English (US)
-- Tone: Warm, highly professional, direct, concise, and helpful.
 - Rule: You MUST formulate your entire response in natural, fluent English. Do NOT switch to Arabic unless explicitly requested.`;
       } else if (languageContext.targetLanguage === 'fr') {
         toneAndLanguage = `Response Language & Style:
 - Language: French
-- Tone: Warm, professional, concise, and helpful.
 - Rule: You MUST formulate your response in natural, fluent French.`;
       } else if (languageContext.targetLanguage === 'de') {
         toneAndLanguage = `Response Language & Style:
 - Language: German
-- Tone: Warm, professional, concise, and helpful.
 - Rule: You MUST formulate your response in natural, fluent German.`;
       } else if (languageContext.targetLanguage === 'es') {
         toneAndLanguage = `Response Language & Style:
 - Language: Spanish
-- Tone: Warm, professional, concise, and helpful.
 - Rule: You MUST formulate your response in natural, fluent Spanish.`;
       } else {
         // Arabic
@@ -214,34 +215,35 @@ export class GroqProvider {
           toneAndLanguage = `Response Language & Style:
 - Language: Arabic
 - Dialect: Natural, friendly, and professional Egyptian Arabic (اللهجة المصرية العامية الراقية والمهنية).
-- Tone: Warm, direct, concise, and helpful. Avoid excessive colloquial fillers like "يا باشا" or "يا هندسة".`;
+- Avoid excessive colloquial fillers like "يا باشا" or "يا هندسة".`;
         } else if (languageContext.dialect === 'gulf') {
           toneAndLanguage = `Response Language & Style:
 - Language: Arabic
-- Dialect: Gulf Arabic (اللهجة الخليجية البيضاء والمهنية).
-- Tone: Warm, respectful, concise, and helpful.`;
+- Dialect: Gulf Arabic (اللهجة الخليجية البيضاء والمهنية).`;
         } else if (languageContext.dialect === 'levantine') {
           toneAndLanguage = `Response Language & Style:
 - Language: Arabic
-- Dialect: Levantine Arabic (اللهجة الشامية المهنية).
-- Tone: Warm, concise, and helpful.`;
+- Dialect: Levantine Arabic (اللهجة الشامية المهنية).`;
         } else {
           // Modern Standard Arabic
           toneAndLanguage = `Response Language & Style:
-- Language: Modern Standard Arabic (العربية الفصحى المعاصرة السلسة والواضحة).
-- Tone: Elegant, professional, clear, concise, and helpful.`;
+- Language: Modern Standard Arabic (العربية الفصحى المعاصرة السلسة والواضحة).`;
         }
       }
     } else {
       toneAndLanguage = `Response Language & Style:
-- Language: Arabic (Modern Standard Arabic or match the user's input language).
-- Tone: Professional, warm, and concise.`;
+- Language: Arabic (Modern Standard Arabic or match the user's input language).`;
     }
+
+    const effectivePersonality = personalityContext || PersonalityEngine.getInstance().getDefaultPersonality();
+    const personalityInstructions = buildPersonalityInstructions(effectivePersonality);
 
     let instruction = `You are Craft, the personal AI assistant for the Craft ecosystem.
 User Timezone: Africa/Cairo (Egypt, UTC+3). Local Time: ${cairoNow} (Date: ${today}).
 Identity: Always introduce and refer to yourself as Craft. Never say you are ChatGPT, OpenAI, Groq, or Google.
 ${toneAndLanguage}
+
+${personalityInstructions}
 
 ### Reminders & Tasks (CRITICAL RULES):
 - ALWAYS call 'create_reminder' when the user asks to be reminded of ANYTHING — even casually worded requests like: "فكرني", "ذكرني", "اعمل لي تذكير", "ابعتلي رسالة بعد X", "remind me", "set a reminder", "alert me".
@@ -341,10 +343,11 @@ Formatting Rules:
     useTools = true,
     memories?: string[],
     imageAttachment?: { data: string; mimeType: string },
-    languageContext?: LanguageContext
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext
   ): Promise<GroqMessageResponse> {
     if (config.groq.isMockMode || !this.apiKey) {
-      const mockRes = this.generateMockResponse(messages, memories, !!imageAttachment, languageContext);
+      const mockRes = this.generateMockResponse(messages, memories, !!imageAttachment, languageContext, personalityContext);
       if (!mockRes.modelUsed) mockRes.modelUsed = this.primaryModel;
       if (!mockRes.usage) {
         mockRes.usage = { promptTokens: 30, completionTokens: 40, totalTokens: 70 };
@@ -358,7 +361,7 @@ Formatting Rules:
       try {
         logger.info(`Image detected, routing directly to Groq Vision model [${visionModel}]`);
         return await this.withTimeout(
-          this.callChat(visionModel, messages, useTools, memories, imageAttachment, languageContext),
+          this.callChat(visionModel, messages, useTools, memories, imageAttachment, languageContext, personalityContext),
           35000,
           `Groq Vision model [${visionModel}] timed out after 35s`
         );
@@ -385,7 +388,7 @@ Formatting Rules:
 
       try {
         return await this.withTimeout(
-          this.callChat(model, messages, useTools, memories, undefined, languageContext),
+          this.callChat(model, messages, useTools, memories, undefined, languageContext, personalityContext),
           25000,
           `Groq model [${model}] timed out after 25s`
         );
@@ -429,9 +432,10 @@ Formatting Rules:
     useTools: boolean,
     memories?: string[],
     imageAttachment?: { data: string; mimeType: string },
-    languageContext?: LanguageContext
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext
   ): Promise<GroqMessageResponse> {
-    const systemPrompt = this.getSystemInstruction(memories, languageContext);
+    const systemPrompt = this.getSystemInstruction(memories, languageContext, personalityContext);
 
     // Format messages for Groq / OpenAI API
     const formattedMessages: GroqMessage[] = [];
@@ -556,7 +560,8 @@ Formatting Rules:
     messages: GroqMessage[],
     memories?: string[],
     hasImage = false,
-    languageContext?: LanguageContext
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext
   ): GroqMessageResponse {
     const lastMsg = messages[messages.length - 1];
     const lastContent = typeof lastMsg?.content === 'string' ? lastMsg.content : '';
@@ -567,7 +572,10 @@ Formatting Rules:
 
     if (hasImage) {
       return {
-        text: 'لقد اطلعت على الصورة المرفقة بعناية عبر Groq Vision! إنها واضحة ومميزة، وأستطيع رؤية تفاصيلها بالكامل. كيف تحب أن أساعدك فيها؟',
+        text:
+          languageContext?.targetLanguage === 'en'
+            ? 'I have reviewed the attached image and inspected its details via Groq Vision.'
+            : 'تم الاطلاع على الصورة المرفقة وفحص تفاصيلها عبر Groq Vision.',
       };
     }
 
@@ -577,13 +585,19 @@ Formatting Rules:
       lastContent.includes('voice_note')
     ) {
       return {
-        text: 'سمعت تسجيلك الصوتي وفهمت طلبك بالكامل يا هندسة! جاهز لمساعدتك وتنفيذ ما طلبته فوراً.',
+        text:
+          languageContext?.targetLanguage === 'en'
+            ? 'I have listened to the audio recording and processed its content.'
+            : 'تم الاستماع إلى التسجيل الصوتي وفهم محتواه بالكامل.',
       };
     }
 
     if (lastContent.includes('Word') || lastContent.includes('.docx')) {
       return {
-        text: 'لقد قرأت ملف الـ Word المرفق واطلعت على محتواه النصي بالكامل بنجاح عبر Groq. جاهز لمساعدتك فيه ومناقشة تفاصيله!',
+        text:
+          languageContext?.targetLanguage === 'en'
+            ? 'The attached Word document has been read and its text content processed.'
+            : 'تمت قراءة ملف Word المرفق والاطلاع على محتواه النصي.',
       };
     }
 
@@ -593,7 +607,10 @@ Formatting Rules:
       lastContent.includes('.dart')
     ) {
       return {
-        text: 'لقد فحصت الكود البرمجي المرفق بعناية عبر Groq. الكود منظم وجاهز لمساعدتك في شرحه أو تعديله أو حل المشاكل فيه يا هندسة!',
+        text:
+          languageContext?.targetLanguage === 'en'
+            ? 'The attached code file has been examined and its structure reviewed.'
+            : 'تم فحص الكود البرمجي المرفق والاطلاع على بنيته البرمجية.',
       };
     }
 
@@ -605,11 +622,11 @@ Formatting Rules:
       if (lastMsg?.role === 'tool' || lastContent.includes('result:')) {
         if (allUserTexts.includes('weather') || allUserTexts.includes('Cairo')) {
           return {
-            text: `⏰ *تذكير من كرافت*:\n\n📌 *بخصوص حالة الطقس في القاهرة*:\nدرجة الحرارة حالياً 28°C والجو مشمس ومعتدل في القاهرة اليوم. يومك سعيد وموفق يا هندسة!`,
+            text: `⏰ *تذكير من كرافت*:\n\n📌 *بخصوص حالة الطقس في القاهرة*:\nدرجة الحرارة حالياً 28°C والجو مشمس ومعتدل في القاهرة اليوم.`,
           };
         }
         return {
-          text: `⏰ *تذكير من كرافت*:\n\n📌 حان موعد: "${reminderTopic}".\nأرجو أن تكون في أتم صحة وعافية!`,
+          text: `⏰ *تذكير من كرافت*:\n\n📌 حان موعد: "${reminderTopic}".`,
         };
       }
 
@@ -625,7 +642,7 @@ Formatting Rules:
       }
 
       return {
-        text: `⏰ *تذكير من كرافت*:\n\n📌 حان الآن موعد: "${reminderTopic}".\nأرجو أن تكون في أتم صحة وعافية، وبالتوفيق دائماً!`,
+        text: `⏰ *تذكير من كرافت*:\n\n📌 حان الآن موعد: "${reminderTopic}".`,
       };
     }
 
@@ -652,7 +669,10 @@ Formatting Rules:
     ) {
       if (hasFlutterMemory) {
         return {
-          text: 'طبعاً فاكر يا هندسة! إنت مطور تطبيقات فلاتر (Flutter Developer)، وزي ما اتفقنا إحنا زملاء عمل في نفس المجال. محتاج مساعدة في كود أو مشروع معين؟',
+          text:
+            languageContext?.targetLanguage === 'en'
+              ? 'You work as a mobile Flutter developer (Flutter Developer).'
+              : 'بالتأكيد، أنت تعمل كمطور تطبيقات فلاتر (Flutter Developer).',
         };
       }
     }
@@ -738,16 +758,16 @@ Formatting Rules:
     // Default conversational reply based on language context
     if (languageContext?.targetLanguage === 'en') {
       return {
-        text: 'Hello! I am Craft, your personal AI assistant powered by Groq. How can I assist you today?',
+        text: 'Hello, I am Craft, your personal AI assistant.',
       };
     }
     if (languageContext?.targetLanguage === 'fr') {
       return {
-        text: "Bonjour ! Je suis Craft, votre assistant IA personnel. Comment puis-je vous aider aujourd'hui ?",
+        text: 'Bonjour, je suis Craft, votre assistant IA personnel.',
       };
     }
     return {
-      text: 'أهلاً بك! أنا Craft، وكيلك الذكي الشخصي المدعوم بمحرك Groq الفائق. كيف يمكنني مساعدتك اليوم؟',
+      text: 'أهلاً بك، أنا Craft، مساعدك الذكي الشخصي.',
     };
   }
 
@@ -759,7 +779,8 @@ Formatting Rules:
    */
   public async generateInterimAcknowledgement(
     userPrompt: string,
-    languageContext?: LanguageContext
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext
   ): Promise<string | null> {
     if (!userPrompt || userPrompt.trim().length === 0) {
       return null;
@@ -791,12 +812,12 @@ Formatting Rules:
           return 'Give me a moment to search reliable sources for you.';
         }
         if (lower.includes('سعر')) {
-          return 'ثواني هشوفلك الأسعار في السوق دلوقتي وأرجعلك.';
+          return 'لحظات، جاري التحقق من الأسعار في السوق.';
         }
         if (lower.includes('موقع')) {
-          return 'هتأكدلك من المواقع المتاحة دلوقتي.';
+          return 'لحظات، جاري التحقق من المواقع المتاحة.';
         }
-        return 'ثواني هبحثلك في المصادر وأرجعلك في ثواني.';
+        return 'لحظات، جاري البحث في المصادر المعتمدة.';
       }
       return null;
     }
@@ -820,10 +841,10 @@ Formatting Rules:
           messages: [
             {
               role: 'system',
-              content: `You are Craft, a smart, lightning-fast personal AI assistant.
+              content: `You are Craft, a personal AI assistant.
 Analyze the user's message to determine if it requires web research, external lookup, live data, or checking facts/links.
-- If YES: generate an ultra-fast, natural 1-sentence acknowledgement in the SAME language and dialect as the user (e.g. Egyptian: "هتأكدلك من أقرب مكان مجاني دلوقتي يا باشا", Saudi/Gulf: "أبشر، بشوفلك أفضل لابتوب الحين وأرجعلك", Levantine: "ثواني بشوفلك الأسعار وبرجعلك", English: "Let me check that for you right away!").
-Rules: Maximum 8-10 words. Do NOT answer the question. Only acknowledge what you are about to check.
+- If YES: generate an ultra-fast, natural, calm 1-sentence acknowledgement in ${languageContext?.targetLanguage === 'en' ? 'English' : (languageContext?.dialect === 'egyptian' ? 'Egyptian Arabic' : (languageContext?.dialect === 'gulf' ? 'Gulf Arabic' : (languageContext?.dialect === 'levantine' ? 'Levantine Arabic' : 'Arabic')))}.
+Rules: Maximum 8-10 words. Concise, professional, and direct. No colloquial nicknames, no slang honorifics, no exclamation marks. Do NOT answer the question. Only acknowledge what you are about to check.
 - If NO (chit-chat, greeting, general reasoning, math, simple questions): return exactly "NONE".`,
             },
             {

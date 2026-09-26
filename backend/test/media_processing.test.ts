@@ -152,7 +152,7 @@ describe('Multimodal Vision & File Processing', () => {
 
       expect(output.status).toBe('completed');
       expect(output.replyText).toBeDefined();
-      expect(output.replyText).toContain('تسجيلك الصوتي');
+      expect(output.replyText).toMatch(/التسجيل|الصوت/);
     });
   });
 

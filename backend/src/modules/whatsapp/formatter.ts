@@ -67,11 +67,13 @@ export function convertMarkdownTablesToWhatsApp(text: string): string {
         // 📌 *الخاصية*:
         //   ▫️ *موديل 1*: قيمة 1
         //   ▫️ *موديل 2*: قيمة 2
+        const isArabicText = /[\u0600-\u06FF]/.test(text);
         const subItems: string[] = [];
         for (let i = 0; i < values.length; i++) {
           const val = values[i];
           if (!val) continue;
-          const colHeader = headers[i + 1] ? headers[i + 1].replace(/^\*+|\*+$/g, '').trim() : `خيار ${i + 1}`;
+          const fallbackCol = isArabicText ? `خيار ${i + 1}` : `Option ${i + 1}`;
+          const colHeader = headers[i + 1] ? headers[i + 1].replace(/^\*+|\*+$/g, '').trim() : fallbackCol;
           subItems.push(`  ▫️ *${colHeader}*: ${val}`);
         }
 
