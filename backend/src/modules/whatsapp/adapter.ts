@@ -1,6 +1,7 @@
 import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 import { cleanWhatsAppText, splitWhatsAppMessage } from './formatter';
+import { MetaTemplatePayload } from './types';
 
 export interface WhatsAppButton {
   id: string;
@@ -47,28 +48,35 @@ export class WhatsAppAdapter {
   private phoneNumberId?: string;
   private accessToken?: string;
 
-  constructor() {
-    this.phoneNumberId = config.whatsapp.phoneNumberId;
-    this.accessToken = config.whatsapp.accessToken;
+  constructor(phoneNumberId?: string, accessToken?: string) {
+    this.phoneNumberId = phoneNumberId;
+    this.accessToken = accessToken;
   }
 
   /**
    * Dispatches a single raw message block directly via Meta Graph API
    */
   public async sendRawTextMessage(to: string, text: string): Promise<boolean> {
-    if (!this.phoneNumberId || !this.accessToken) {
+    const effectivePhoneId = this.phoneNumberId || config.whatsapp.phoneNumberId;
+    const effectiveToken = this.accessToken || config.whatsapp.accessToken;
+
+    if (!effectivePhoneId || !effectiveToken) {
+      if (config.nodeEnv === 'production') {
+        logger.error('[WhatsApp Production Error] Missing WhatsApp credentials (WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN). Dispatch aborted.');
+        return false;
+      }
       logger.warn('[WhatsApp Mock Mode] Missing credentials, message logged instead of dispatched');
       return true;
     }
 
     const recipientPayload = buildRecipientPayload(to);
-    const url = `https://graph.facebook.com/v22.0/${this.phoneNumberId}/messages`;
+    const url = `https://graph.facebook.com/v22.0/${effectivePhoneId}/messages`;
 
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.accessToken}`,
+          Authorization: `Bearer ${effectiveToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -121,18 +129,170 @@ export class WhatsAppAdapter {
     return allSuccess;
   }
 
+  /**
+   * Dispatches an outbound proactive message (freeform text or approved Meta template)
+   * returning exact provider message ID, HTTP status, and detailed error payload.
+   *
+   * Security & Environment Safety:
+   * - If credentials are missing in production: fails closed (returns status: 0, isConfigMissing: true).
+   * - If explicit test mock mode is enabled: returns mock success with mock wamid (forbidden in production).
+   * - Never exposes credentials or authorization headers in logged errors.
+   */
+  public async dispatchProactiveMessage(
+    to: string,
+    payload: {
+      type: 'freeform' | 'template';
+      text?: string;
+      template?: MetaTemplatePayload;
+    },
+    timeoutMs = 8000
+  ): Promise<{
+    success: boolean;
+    status: number;
+    providerMessageId?: string;
+    error?: any;
+    isMock?: boolean;
+    isConfigMissing?: boolean;
+  }> {
+    if (process.env.WHATSAPP_MOCK_DISPATCH === 'true') {
+      if (config.nodeEnv === 'production') {
+        logger.error('[WhatsApp Production Error] WHATSAPP_MOCK_DISPATCH is forbidden in production. Failing closed.');
+        return {
+          success: false,
+          status: 0,
+          error: 'mock_dispatch_forbidden_in_production',
+        };
+      }
+      logger.info('[WhatsApp Mock Proactive Dispatch] Mock mode enabled, simulated provider success');
+      return {
+        success: true,
+        status: 200,
+        providerMessageId: `wamid.MOCK_${Date.now()}`,
+        isMock: true,
+      };
+    }
+
+    const effectivePhoneId =
+      this.phoneNumberId !== undefined
+        ? this.phoneNumberId
+        : process.env.WHATSAPP_PHONE_NUMBER_ID || config.whatsapp.phoneNumberId;
+    const effectiveToken =
+      this.accessToken !== undefined
+        ? this.accessToken
+        : process.env.WHATSAPP_ACCESS_TOKEN || config.whatsapp.accessToken;
+
+    if (!effectivePhoneId || !effectiveToken) {
+      logger.warn('[WhatsApp Proactive Dispatch] Missing WhatsApp credentials, failing closed');
+      return {
+        success: false,
+        status: 0,
+        error: 'configuration_missing',
+        isConfigMissing: true,
+      };
+    }
+
+    const recipientPayload = buildRecipientPayload(to);
+    const url = `https://graph.facebook.com/v22.0/${effectivePhoneId}/messages`;
+
+    let bodyPayload: any;
+    if (payload.type === 'freeform') {
+      bodyPayload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        ...recipientPayload,
+        type: 'text',
+        text: {
+          body: payload.text || '',
+        },
+      };
+    } else {
+      bodyPayload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        ...recipientPayload,
+        type: 'template',
+        template: payload.template,
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${effectiveToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(bodyPayload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      const data: any = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        return {
+          success: false,
+          status: response.status,
+          error: data,
+        };
+      }
+
+      const providerMessageId = data.messages?.[0]?.id || `wamid.GEN_${Date.now()}`;
+      return {
+        success: true,
+        status: response.status,
+        providerMessageId,
+      };
+    } catch (err: any) {
+      clearTimeout(timer);
+      return {
+        success: false,
+        status: 0,
+        error: err,
+      };
+    }
+  }
+
+  /**
+   * Helper to dispatch approved Meta templates.
+   */
+  public async sendTemplateMessage(
+    to: string,
+    template: MetaTemplatePayload
+  ): Promise<{
+    success: boolean;
+    status: number;
+    providerMessageId?: string;
+    error?: any;
+    isMock?: boolean;
+    isConfigMissing?: boolean;
+  }> {
+    return this.dispatchProactiveMessage(to, { type: 'template', template });
+  }
+
   public async sendInteractiveButtons(
     to: string,
     bodyText: string,
     buttons: WhatsAppButton[]
   ): Promise<boolean> {
-    if (!this.phoneNumberId || !this.accessToken) {
+    const effectivePhoneId = this.phoneNumberId || config.whatsapp.phoneNumberId;
+    const effectiveToken = this.accessToken || config.whatsapp.accessToken;
+
+    if (!effectivePhoneId || !effectiveToken) {
+      if (config.nodeEnv === 'production') {
+        logger.error('[WhatsApp Production Error] Missing WhatsApp credentials for interactive buttons. Aborting.');
+        return false;
+      }
       logger.warn('[WhatsApp Mock Mode] Missing credentials, interactive buttons logged instead');
       return true;
     }
 
     const recipientPayload = buildRecipientPayload(to);
-    const url = `https://graph.facebook.com/v22.0/${this.phoneNumberId}/messages`;
+    const url = `https://graph.facebook.com/v22.0/${effectivePhoneId}/messages`;
 
     // Format Meta Quick-Reply buttons (max 3 buttons, title max 20 chars, id max 256 chars)
     const formattedButtons = buttons.slice(0, 3).map((b) => ({
@@ -147,7 +307,7 @@ export class WhatsAppAdapter {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.accessToken}`,
+          Authorization: `Bearer ${effectiveToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

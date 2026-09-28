@@ -1,4 +1,5 @@
 import { MemoryRepository } from '../src/database/repositories/memory.repo';
+import { UserPreferenceRepository } from '../src/database/repositories/user_preference.repo';
 import { SaveMemoryTool } from '../src/modules/tools/builtins/memory.tool';
 import { AgentOrchestrator } from '../src/modules/agent/orchestrator';
 
@@ -24,15 +25,21 @@ describe('Long-Term Memory & User Profile Intelligence', () => {
   });
 
   test('extractAndSaveFacts automatically extracts profession and dialect', async () => {
-    const extracted1 = await memoryRepo.extractAndSaveFacts('test_user_auto', 'انا mobile dev flutter بالمناسبة يعني');
+    const testUserId = 'test_user_auto_' + Date.now();
+    const extracted1 = await memoryRepo.extractAndSaveFacts(testUserId, 'انا mobile dev flutter بالمناسبة يعني');
     expect(extracted1.length).toBeGreaterThanOrEqual(1);
 
-    const extracted2 = await memoryRepo.extractAndSaveFacts('test_user_auto', 'انت ليه بتتكلم فصحي كلمني مصري عادي');
+    const extracted2 = await memoryRepo.extractAndSaveFacts(testUserId, 'انت ليه بتتكلم فصحي كلمني مصري عادي');
     expect(extracted2.length).toBeGreaterThanOrEqual(1);
 
-    const memories = await memoryRepo.getMemories('test_user_auto');
+    const memories = await memoryRepo.getMemories(testUserId);
     expect(memories.some((m) => m.includes('Flutter'))).toBe(true);
-    expect(memories.some((m) => m.includes('المصرية'))).toBe(true);
+
+    // Phase 4.5: Language preferences are routed to user_preferences and isolated from memory_items
+    const userPrefRepo = new UserPreferenceRepository();
+    const langPref = await userPrefRepo.getLanguagePreference(testUserId);
+    expect(langPref?.dialect).toBe('egyptian');
+    expect(memories.some((m) => m.includes('المصرية'))).toBe(false);
   });
 
   test('SaveMemoryTool executes and persists fact', async () => {

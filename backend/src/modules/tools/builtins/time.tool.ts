@@ -1,9 +1,29 @@
-import { AgentTool, ToolContext, ToolExecutionResult } from '../tool.interface';
+import { z } from 'zod';
+import { AgentTool, ToolContext, ToolExecutionResult, ToolMetadata } from '../tool.interface';
 
-export class CurrentTimeTool implements AgentTool {
+const currentTimeSchema = z
+  .object({
+    timeZone: z.string().optional(),
+  })
+  .strict();
+
+export type CurrentTimeArgs = z.infer<typeof currentTimeSchema>;
+
+export class CurrentTimeTool implements AgentTool<CurrentTimeArgs> {
   public readonly name = 'get_current_time';
   public readonly description = 'Returns the current real-world date and time.';
   public readonly isSensitive = false;
+  public readonly schema = currentTimeSchema;
+  public readonly metadata: ToolMetadata = {
+    name: 'get_current_time',
+    description: 'Returns the current real-world date and time.',
+    category: 'public',
+    riskLevel: 'low',
+    requiresConfirmation: false,
+    requiresNetwork: false,
+    maxExecutionMs: 2000,
+    maxOutputChars: 500,
+  };
   public readonly parameters = {
     type: 'object' as const,
     properties: {
@@ -15,7 +35,7 @@ export class CurrentTimeTool implements AgentTool {
   };
 
   public async execute(
-    args: Record<string, any>,
+    args: CurrentTimeArgs,
     context: ToolContext
   ): Promise<ToolExecutionResult> {
     const timeZone = args.timeZone || 'Africa/Cairo';

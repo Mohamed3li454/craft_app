@@ -39,6 +39,12 @@ export interface AppConfig {
   search: {
     tavilyApiKey?: string;
   };
+  ai: {
+    primaryProvider: string;
+    fallbackProvider?: string;
+    maxProviderAttempts: number;
+    providerTimeoutMs: number;
+  };
   admin: {
     secretKey: string;
   };
@@ -68,9 +74,10 @@ export const config: AppConfig = {
     fallbackModel: process.env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-20b',
     whisperModel: process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo',
     isMockMode:
-      process.env.GROQ_MOCK_MODE === 'true' ||
-      (!process.env.GROQ_API_KEY && !process.env.GROQ_API_KEYS) ||
-      (process.env.GROQ_API_KEY?.startsWith('your_') ?? false),
+      process.env.NODE_ENV !== 'production' &&
+      (process.env.GROQ_MOCK_MODE === 'true' ||
+        (!process.env.GROQ_API_KEY && !process.env.GROQ_API_KEYS) ||
+        (process.env.GROQ_API_KEY?.startsWith('your_') ?? false)),
   },
   rateLimit: {
     dailyUserMessageLimit: parseInt(process.env.DAILY_USER_MESSAGE_LIMIT || '40', 10),
@@ -87,7 +94,7 @@ export const config: AppConfig = {
   whatsapp: {
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
     accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
-    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || 'craft_secret_verify_token_2026',
+    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || (process.env.NODE_ENV === 'production' ? '' : 'craft_secret_verify_token_2026'),
     appSecret: process.env.WHATSAPP_APP_SECRET,
   },
   security: {
@@ -97,6 +104,12 @@ export const config: AppConfig = {
   },
   search: {
     tavilyApiKey: process.env.TAVILY_API_KEY,
+  },
+  ai: {
+    primaryProvider: process.env.AI_PRIMARY_PROVIDER || 'groq',
+    fallbackProvider: process.env.AI_FALLBACK_PROVIDER || undefined,
+    maxProviderAttempts: parseInt(process.env.AI_MAX_PROVIDER_ATTEMPTS || '2', 10),
+    providerTimeoutMs: parseInt(process.env.AI_PROVIDER_TIMEOUT_MS || '30000', 10),
   },
   admin: {
     secretKey: process.env.ADMIN_SECRET_KEY || (process.env.NODE_ENV === 'production' ? '' : 'craft_admin_2026'),

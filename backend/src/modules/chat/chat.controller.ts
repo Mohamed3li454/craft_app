@@ -46,6 +46,7 @@ export class ChatController {
         channel: 'flutter',
         text: message || 'Analyze attached image',
         mediaUrl: imagePath,
+        correlationId: (req as any).correlationId,
       });
 
       res.status(200).json({
@@ -93,6 +94,7 @@ export class ChatController {
         conversationId,
         channel: 'flutter',
         text: message || '',
+        correlationId: (req as any).correlationId,
       });
 
       // Stream tool calls if any were executed

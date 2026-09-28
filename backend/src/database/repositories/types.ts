@@ -67,12 +67,33 @@ export interface ReminderEntity {
   updatedAt: Date;
 }
 
+import {
+  MemoryCategory,
+  MemorySource,
+  MemoryStatus,
+  MemoryImportance,
+  MemoryMetadata,
+  TemporalState,
+} from '../../modules/memory/types';
+
 export interface MemoryItemEntity {
   id: string;
   userId: string;
   factText: string;
-  category: string;
+  category: MemoryCategory | string;
+  status?: MemoryStatus;
+  factKey?: string;
+  source?: MemorySource;
+  confidence?: number;
+  importance?: MemoryImportance;
+  temporalState?: TemporalState;
+  validFrom?: Date | null;
+  validUntil?: Date | null;
+  metadata?: MemoryMetadata;
   createdAt: Date;
+  updatedAt?: Date;
 }
+
+export * from '../../modules/memory/types';
 
 

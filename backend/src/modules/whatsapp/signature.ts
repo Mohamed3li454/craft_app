@@ -7,6 +7,10 @@ export function verifyMetaSignature(
   signatureHeader?: string
 ): boolean {
   if (!config.whatsapp.appSecret) {
+    if (config.nodeEnv === 'production') {
+      logger.error('CRITICAL: WHATSAPP_APP_SECRET is not configured in production. Rejecting webhook request.');
+      return false;
+    }
     // If no app secret is configured during local testing, allow requests with warning
     logger.warn('WHATSAPP_APP_SECRET not configured, skipping HMAC verification');
     return true;
@@ -27,10 +31,15 @@ export function verifyMetaSignature(
   const hmac = crypto.createHmac('sha256', config.whatsapp.appSecret);
   const digest = hmac.update(rawBody).digest('hex');
 
-  const isValid = crypto.timingSafeEqual(
-    Buffer.from(signature, 'utf8'),
-    Buffer.from(digest, 'utf8')
-  );
+  const sigBuf = Buffer.from(signature, 'utf8');
+  const digestBuf = Buffer.from(digest, 'utf8');
+
+  if (sigBuf.length !== digestBuf.length) {
+    logger.warn('Invalid X-Hub-Signature-256 length in WhatsApp webhook request');
+    return false;
+  }
+
+  const isValid = crypto.timingSafeEqual(sigBuf, digestBuf);
 
   if (!isValid) {
     logger.warn('Invalid X-Hub-Signature-256 in WhatsApp webhook request');

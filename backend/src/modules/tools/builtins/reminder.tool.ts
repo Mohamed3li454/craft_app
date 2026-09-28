@@ -1,10 +1,34 @@
-import { AgentTool, ToolContext, ToolExecutionResult } from '../tool.interface';
+import { z } from 'zod';
+import { AgentTool, ToolContext, ToolExecutionResult, ToolMetadata } from '../tool.interface';
 import { ReminderRepository } from '../../../database/repositories/reminder.repo';
 
-export class CreateReminderTool implements AgentTool {
+// 1. CreateReminderTool Schema
+const createReminderSchema = z
+  .object({
+    title: z.string().min(1, 'Title cannot be empty').max(300, 'Title too long'),
+    time: z.string().min(1, 'Time cannot be empty').max(100, 'Time too long'),
+    recurrence: z.enum(['none', 'daily', 'weekly', 'monthly']).optional(),
+  })
+  .strict();
+
+export type CreateReminderArgs = z.infer<typeof createReminderSchema>;
+
+export class CreateReminderTool implements AgentTool<CreateReminderArgs> {
   public readonly name = 'create_reminder';
-  public readonly description = 'Schedules an alert or reminder for the user. Supports one-time and recurring (daily/weekly/monthly) reminders. (Requires explicit user confirmation)';
+  public readonly description =
+    'Schedules an alert or reminder for the user. Supports one-time and recurring (daily/weekly/monthly) reminders. (Requires explicit user confirmation)';
   public readonly isSensitive = true; // High-risk / sensitive action
+  public readonly schema = createReminderSchema;
+  public readonly metadata: ToolMetadata = {
+    name: 'create_reminder',
+    description: 'Schedules an alert or reminder for the user.',
+    category: 'sensitive',
+    riskLevel: 'high',
+    requiresConfirmation: true,
+    requiresNetwork: false,
+    maxExecutionMs: 4000,
+    maxOutputChars: 1000,
+  };
   public readonly parameters = {
     type: 'object' as const,
     properties: {
@@ -14,11 +38,13 @@ export class CreateReminderTool implements AgentTool {
       },
       time: {
         type: 'string',
-        description: 'When the reminder should trigger (or initial occurrence if recurring, e.g. tomorrow 10am, 2026-09-19 14:00)',
+        description:
+          'When the reminder should trigger (or initial occurrence if recurring, e.g. tomorrow 10am, 2026-09-19 14:00)',
       },
       recurrence: {
         type: 'string',
-        description: 'Recurrence frequency for repeating reminders. Options: "none" (default: one-time), "daily" (every day), "weekly" (every week), "monthly" (every month).',
+        description:
+          'Recurrence frequency for repeating reminders. Options: "none" (default: one-time), "daily" (every day), "weekly" (every week), "monthly" (every month).',
         enum: ['none', 'daily', 'weekly', 'monthly'],
       },
     },
@@ -26,7 +52,7 @@ export class CreateReminderTool implements AgentTool {
   };
 
   public async execute(
-    args: Record<string, any>,
+    args: CreateReminderArgs,
     context: ToolContext
   ): Promise<ToolExecutionResult> {
     const title = args.title || 'Untitled Reminder';
@@ -35,8 +61,20 @@ export class CreateReminderTool implements AgentTool {
     const isEnglish = context.languageContext?.targetLanguage === 'en';
 
     const recurrenceLabel = isEnglish
-      ? (recurrence === 'daily' ? ' [repeats daily 🔄]' : recurrence === 'weekly' ? ' [repeats weekly 🔄]' : recurrence === 'monthly' ? ' [repeats monthly 🔄]' : '')
-      : (recurrence === 'daily' ? ' [متكرر يومياً 🔄]' : recurrence === 'weekly' ? ' [متكرر أسبوعياً 🔄]' : recurrence === 'monthly' ? ' [متكرر شهرياً 🔄]' : '');
+      ? recurrence === 'daily'
+        ? ' [repeats daily 🔄]'
+        : recurrence === 'weekly'
+        ? ' [repeats weekly 🔄]'
+        : recurrence === 'monthly'
+        ? ' [repeats monthly 🔄]'
+        : ''
+      : recurrence === 'daily'
+      ? ' [متكرر يومياً 🔄]'
+      : recurrence === 'weekly'
+      ? ' [متكرر أسبوعياً 🔄]'
+      : recurrence === 'monthly'
+      ? ' [متكرر شهرياً 🔄]'
+      : '';
 
     const confirmationDescription = isEnglish
       ? `Do you confirm scheduling a reminder${recurrenceLabel} regarding: "${title}" at: ${time}?`
@@ -56,10 +94,30 @@ export class CreateReminderTool implements AgentTool {
   }
 }
 
-export class ListRemindersTool implements AgentTool {
+// 2. ListRemindersTool Schema
+const listRemindersSchema = z
+  .object({
+    includeCompleted: z.boolean().optional(),
+  })
+  .strict();
+
+export type ListRemindersArgs = z.infer<typeof listRemindersSchema>;
+
+export class ListRemindersTool implements AgentTool<ListRemindersArgs> {
   public readonly name = 'list_reminders';
   public readonly description = 'Lists all active, uncompleted reminders and tasks for the current user.';
   public readonly isSensitive = false;
+  public readonly schema = listRemindersSchema;
+  public readonly metadata: ToolMetadata = {
+    name: 'list_reminders',
+    description: 'Lists all active reminders and tasks for the user.',
+    category: 'authenticated',
+    riskLevel: 'low',
+    requiresConfirmation: false,
+    requiresNetwork: false,
+    maxExecutionMs: 4000,
+    maxOutputChars: 3000,
+  };
   public readonly parameters = {
     type: 'object' as const,
     properties: {
@@ -74,7 +132,7 @@ export class ListRemindersTool implements AgentTool {
   constructor(private reminderRepo: ReminderRepository = new ReminderRepository()) {}
 
   public async execute(
-    args: Record<string, any>,
+    args: ListRemindersArgs,
     context: ToolContext
   ): Promise<ToolExecutionResult> {
     const reminders = await this.reminderRepo.listByUser(
@@ -91,7 +149,9 @@ export class ListRemindersTool implements AgentTool {
         output: {
           count: 0,
           reminders: [],
-          summary: isEnglish ? 'No active reminders or tasks scheduled currently.' : 'لا توجد أي تذكيرات أو مهام مسجلة حالياً.',
+          summary: isEnglish
+            ? 'No active reminders or tasks scheduled currently.'
+            : 'لا توجد أي تذكيرات أو مهام مسجلة حالياً.',
         },
       };
     }
@@ -109,7 +169,13 @@ export class ListRemindersTool implements AgentTool {
               hour12: true,
             })})`
           : '';
-        const statusStr = r.isCompleted ? (isEnglish ? 'Completed ✅' : 'مكتمل ✅') : (isEnglish ? 'Pending ⏳' : 'قيد الانتظار ⏳');
+        const statusStr = r.isCompleted
+          ? isEnglish
+            ? 'Completed ✅'
+            : 'مكتمل ✅'
+          : isEnglish
+          ? 'Pending ⏳'
+          : 'قيد الانتظار ⏳';
         return `${i + 1}. ${r.title}${recBadge}${dueStr} - ${statusStr}`;
       })
       .join('\n');
@@ -119,16 +185,38 @@ export class ListRemindersTool implements AgentTool {
       output: {
         count: reminders.length,
         reminders,
-        summary: isEnglish ? `Active Reminders List:\n${formatted}` : `قائمة التذكيرات الحالية:\n${formatted}`,
+        summary: isEnglish
+          ? `Active Reminders List:\n${formatted}`
+          : `قائمة التذكيرات الحالية:\n${formatted}`,
       },
     };
   }
 }
 
-export class CompleteReminderTool implements AgentTool {
+// 3. CompleteReminderTool Schema
+const completeReminderSchema = z
+  .object({
+    title: z.string().min(1, 'Title cannot be empty').max(300),
+  })
+  .strict();
+
+export type CompleteReminderArgs = z.infer<typeof completeReminderSchema>;
+
+export class CompleteReminderTool implements AgentTool<CompleteReminderArgs> {
   public readonly name = 'complete_reminder';
   public readonly description = 'Marks an existing reminder or task as completed by title or ID.';
   public readonly isSensitive = false;
+  public readonly schema = completeReminderSchema;
+  public readonly metadata: ToolMetadata = {
+    name: 'complete_reminder',
+    description: 'Marks an existing reminder or task as completed.',
+    category: 'mutation',
+    riskLevel: 'medium',
+    requiresConfirmation: false,
+    requiresNetwork: false,
+    maxExecutionMs: 4000,
+    maxOutputChars: 1000,
+  };
   public readonly parameters = {
     type: 'object' as const,
     properties: {
@@ -143,7 +231,7 @@ export class CompleteReminderTool implements AgentTool {
   constructor(private reminderRepo: ReminderRepository = new ReminderRepository()) {}
 
   public async execute(
-    args: Record<string, any>,
+    args: CompleteReminderArgs,
     context: ToolContext
   ): Promise<ToolExecutionResult> {
     const isEnglish = context.languageContext?.targetLanguage === 'en';

@@ -1,4 +1,5 @@
-import { AgentTool, ToolContext, ToolExecutionResult } from '../tool.interface';
+import { z } from 'zod';
+import { AgentTool, ToolContext, ToolExecutionResult, ToolMetadata } from '../tool.interface';
 import { config } from '../../../config/env';
 import { logger } from '../../../core/logger';
 import { LanguageContext } from '../../language/types';
@@ -9,11 +10,35 @@ export interface SearchResultItem {
   url?: string;
 }
 
-export class WebSearchTool implements AgentTool {
+const searchSchema = z
+  .object({
+    query: z.string().min(1, 'Search query cannot be empty').max(500, 'Search query cannot exceed 500 characters'),
+    cursor: z.number().optional(),
+    id: z.number().optional(),
+    topn: z.number().optional(),
+  })
+  .strict();
+
+export type SearchArgs = z.infer<typeof searchSchema>;
+
+export class WebSearchTool implements AgentTool<SearchArgs> {
   public readonly name = 'web_search';
   public readonly description =
     'Searches the live web for the latest news, actual product releases, device specs, leaks, rumors, gold/currency prices, movies, TV series, actors, cultural trivia, and real-time events across all Arab countries and worldwide.';
   public readonly isSensitive = false;
+  public readonly schema = searchSchema;
+  public readonly metadata: ToolMetadata = {
+    name: 'web_search',
+    description:
+      'Searches the live web for the latest news, actual product releases, device specs, leaks, rumors, gold/currency prices, movies, TV series, actors, cultural trivia, and real-time events across all Arab countries and worldwide.',
+    category: 'external_network',
+    riskLevel: 'medium',
+    requiresConfirmation: false,
+    requiresNetwork: true,
+    maxExecutionMs: 8000,
+    maxOutputChars: 6000,
+    maxOutputTokens: 1500,
+  };
   public readonly parameters = {
     type: 'object' as const,
     properties: {
@@ -38,7 +63,7 @@ export class WebSearchTool implements AgentTool {
   };
 
   public async execute(
-    args: Record<string, any>,
+    args: SearchArgs,
     context: ToolContext
   ): Promise<ToolExecutionResult> {
     const query = (args.query || '').trim();

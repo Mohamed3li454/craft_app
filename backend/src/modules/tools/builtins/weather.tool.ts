@@ -1,9 +1,29 @@
-import { AgentTool, ToolContext, ToolExecutionResult } from '../tool.interface';
+import { z } from 'zod';
+import { AgentTool, ToolContext, ToolExecutionResult, ToolMetadata } from '../tool.interface';
 
-export class WeatherTool implements AgentTool {
+const weatherSchema = z
+  .object({
+    city: z.string().min(1).max(200),
+  })
+  .strict();
+
+export type WeatherArgs = z.infer<typeof weatherSchema>;
+
+export class WeatherTool implements AgentTool<WeatherArgs> {
   public readonly name = 'get_weather';
   public readonly description = 'Fetches current weather and forecast for a given city.';
   public readonly isSensitive = false;
+  public readonly schema = weatherSchema;
+  public readonly metadata: ToolMetadata = {
+    name: 'get_weather',
+    description: 'Fetches current weather and forecast for a given city.',
+    category: 'public',
+    riskLevel: 'low',
+    requiresConfirmation: false,
+    requiresNetwork: false,
+    maxExecutionMs: 3000,
+    maxOutputChars: 1000,
+  };
   public readonly parameters = {
     type: 'object' as const,
     properties: {
@@ -16,7 +36,7 @@ export class WeatherTool implements AgentTool {
   };
 
   public async execute(
-    args: Record<string, any>,
+    args: WeatherArgs,
     _context: ToolContext
   ): Promise<ToolExecutionResult> {
     const city = (args.city || 'Cairo').trim();

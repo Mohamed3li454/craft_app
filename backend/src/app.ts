@@ -6,9 +6,17 @@ import { logger } from './core/logger';
 import { ChatController } from './modules/chat/chat.controller';
 import { WhatsAppWebhookHandler } from './modules/whatsapp/webhook';
 import { ReminderScheduler } from './modules/reminder/reminder.scheduler';
+import { ProactiveScheduler } from './modules/proactive';
+import { WhatsAppProactiveDispatcher } from './modules/whatsapp';
 import { AnalyticsController } from './modules/analytics/analytics.controller';
 import { CandidateReviewController } from './modules/cache/learning/candidate_review.controller';
 import { AdminRateLimiter } from './modules/cache/learning/admin_rate_limiter';
+import { v4 as uuidv4 } from 'uuid';
+import {
+  TraceContextManager,
+  MetricsCollector,
+  HealthSnapshotService,
+} from './modules/observability';
 
 export function createApp(): Application {
   const app: Application = express();
@@ -21,6 +29,43 @@ export function createApp(): Application {
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Hub-Signature-256', 'x-admin-token', 'x-admin-actor'],
     })
   );
+
+  // 1.5 Correlation & Trace Context Middleware
+  app.use((req: Request, res: Response, next) => {
+    const rawCorrId =
+      (req.headers['x-correlation-id'] as string) ||
+      (req.headers['x-request-id'] as string) ||
+      `req_${uuidv4().replace(/-/g, '').slice(0, 16)}`;
+
+    const channel = req.path.startsWith('/webhooks')
+      ? 'whatsapp'
+      : req.path.startsWith('/api/v1/cron')
+      ? 'cron'
+      : 'flutter';
+
+    res.setHeader('X-Correlation-ID', rawCorrId);
+    (req as any).correlationId = rawCorrId;
+
+    const metrics = MetricsCollector.getInstance();
+    metrics.increment('craft.requests.total', 1, { channel });
+    const reqStartTime = Date.now();
+
+    res.on('finish', () => {
+      const duration = Date.now() - reqStartTime;
+      const statusTag = res.statusCode >= 400 ? 'error' : 'success';
+      metrics.observe('craft.request.latency', duration, { channel, status: statusTag });
+      if (res.statusCode >= 400) {
+        metrics.increment('craft.requests.error', 1, { channel });
+      } else {
+        metrics.increment('craft.requests.success', 1, { channel });
+      }
+    });
+
+    TraceContextManager.runWithContext(
+      TraceContextManager.createRootContext({ correlationId: rawCorrId, channel }),
+      () => next()
+    );
+  });
 
   // 2. Body Parsers with Raw Body Capture (for HMAC Signature Verification)
   app.use(
@@ -40,12 +85,14 @@ export function createApp(): Application {
 
   // 4. Health Check Endpoint
   app.get('/health', (_req: Request, res: Response) => {
-    res.status(200).json({
-      status: 'healthy',
+    const snapshot = HealthSnapshotService.getInstance().getSnapshot();
+    res.status(snapshot.status === 'unhealthy' ? 503 : 200).json({
+      status: snapshot.status,
       service: 'craft-agent-backend',
       environment: config.nodeEnv,
-      timestamp: new Date().toISOString(),
-      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: snapshot.timestamp,
+      uptimeSeconds: snapshot.uptimeSeconds,
+      snapshot,
     });
   });
 
@@ -105,23 +152,77 @@ export function createApp(): Application {
   app.get('/webhooks/whatsapp', whatsappHandler.verifyWebhook);
   app.post('/webhooks/whatsapp', whatsappHandler.handleIncoming);
 
-  // 8. Cron Dispatcher Endpoint for Scheduled Reminders
+  // 8. Cron Dispatcher Endpoints (Reminders & Proactive Actions)
   const reminderScheduler = ReminderScheduler.getInstance();
-  const handleCronReminders = async (_req: Request, res: Response): Promise<void> => {
+  const proactiveDispatcher = WhatsAppProactiveDispatcher.getInstance();
+  const proactiveScheduler = ProactiveScheduler.getInstance(proactiveDispatcher);
+
+  const handleCronReminders = async (req: Request, res: Response): Promise<void> => {
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
+      logger.warn('[Cron Auth] Unauthorized invocation of reminder cron endpoint');
+      res.status(401).json({ success: false, error: 'Unauthorized: invalid or missing cron secret' });
+      return;
+    }
+
+    let reminderResult: any = { dispatchedCount: 0, remindersDispatched: [] };
+    let proactiveResult: any = { claimedCount: 0, dispatchedIntents: [] };
+    let reminderError: string | undefined;
+    let proactiveError: string | undefined;
+
+    // Strict failure isolation: proactive failure never prevents reminder dispatch, and vice versa
     try {
-      const result = await reminderScheduler.checkAndDispatchDueReminders();
+      reminderResult = await reminderScheduler.checkAndDispatchDueReminders();
+    } catch (err: any) {
+      logger.error('Error running reminder cron job', { error: err.message });
+      reminderError = err.message;
+    }
+
+    try {
+      proactiveResult = await proactiveScheduler.checkAndProcessDueActions();
+    } catch (err: any) {
+      logger.error('Error running proactive cron job in reminder dispatcher', { error: err.message });
+      proactiveError = err.message;
+    }
+
+    if (reminderError && proactiveError) {
+      res.status(500).json({ success: false, reminderError, proactiveError });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      ...reminderResult,
+      proactive: proactiveResult,
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  const handleCronProactive = async (req: Request, res: Response): Promise<void> => {
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
+      logger.warn('[Cron Auth] Unauthorized invocation of proactive cron endpoint');
+      res.status(401).json({ success: false, error: 'Unauthorized: invalid or missing cron secret' });
+      return;
+    }
+
+    try {
+      const result = await proactiveScheduler.checkAndProcessDueActions();
       res.status(200).json({
         success: true,
         ...result,
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {
-      logger.error('Error running reminder cron job', { error: err.message });
+      logger.error('Error running dedicated proactive cron job', { error: err.message });
       res.status(500).json({ success: false, error: err.message });
     }
   };
+
   app.all('/api/v1/cron/reminders', handleCronReminders);
   app.all('/api/cron/reminders', handleCronReminders);
+  app.all('/api/v1/cron/proactive', handleCronProactive);
+  app.all('/api/cron/proactive', handleCronProactive);
 
   // 9. Analytics & Admin Dashboard Routes
   app.get('/dashboard', analyticsController.serveDashboardUI);

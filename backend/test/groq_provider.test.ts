@@ -1,5 +1,6 @@
 import { GroqProvider } from '../src/modules/groq/groq.provider';
 import { AgentOrchestrator } from '../src/modules/agent/orchestrator';
+import { config } from '../src/config/env';
 
 describe('GroqProvider & High-Speed LPU Integration', () => {
   let groqProvider: GroqProvider;
@@ -11,6 +12,13 @@ describe('GroqProvider & High-Speed LPU Integration', () => {
   });
 
   describe('GroqProvider Unit Tests', () => {
+    const originalMockMode = config.groq.isMockMode;
+    beforeAll(() => {
+      config.groq.isMockMode = true;
+    });
+    afterAll(() => {
+      config.groq.isMockMode = originalMockMode;
+    });
     test('generates text reply using primary model in mock mode', async () => {
       const response = await groqProvider.generateReply([
         { role: 'user', content: 'مرحبا يا كرافت' },

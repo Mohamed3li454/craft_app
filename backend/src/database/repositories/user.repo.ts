@@ -5,7 +5,7 @@ import { UserEntity } from './types';
 import { logger } from '../../core/logger';
 
 /**
- * Normalizes phone numbers to a standard international numeric string (e.g. 201028067432).
+ * Normalizes phone numbers to a standard international numeric string (e.g. 201000000000).
  * Handles leading +, 00, spaces, dashes, and Egyptian local 01[0125] prefixes.
  */
 export function normalizePhoneNumber(raw: string): string {
@@ -412,7 +412,7 @@ export class UserRepository {
     const cleanPhone = normalizePhoneNumber(phoneNumber || '');
 
     // 1. Check if phone is in static VIP list from environment
-    const isStaticVip = (process.env.VIP_PHONE_NUMBERS || '201028067432')
+    const isStaticVip = (process.env.VIP_PHONE_NUMBERS || '')
       .split(',')
       .map((p) => normalizePhoneNumber(p.trim()))
       .filter(Boolean)

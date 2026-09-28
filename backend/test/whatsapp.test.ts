@@ -81,6 +81,8 @@ describe('WhatsAppAdapter typing indicator', () => {
   test('sends typing indicator with status read and message_id', async () => {
     const { WhatsAppAdapter } = require('../src/modules/whatsapp/adapter');
     const adapter = new WhatsAppAdapter();
+    adapter['phoneNumberId'] = '1234567890';
+    adapter['accessToken'] = 'test-token';
 
     const mockFetch = jest.fn().mockResolvedValue({
       ok: true,

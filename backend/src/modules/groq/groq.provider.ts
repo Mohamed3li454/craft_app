@@ -2,7 +2,11 @@ import { config } from '../../config/env';
 import { logger } from '../../core/logger';
 import { LanguageContext } from '../language/types';
 import { PersonalityContext, buildPersonalityInstructions, PersonalityEngine } from '../personality';
+import { PersonalizationPolicy, buildPersonalizationPrompt } from '../personalization';
+import { AdaptiveResponsePolicy, buildAdaptiveResponsePrompt } from '../response';
+import { ProactivePolicy, buildProactivePrompt } from '../proactive';
 import { ToolRegistry } from '../tools/registry';
+import { SystemPromptBuilder } from '../ai/prompts/system_prompt';
 
 export interface GroqMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -173,102 +177,19 @@ export class GroqProvider {
   public getSystemInstruction(
     memories?: string[],
     languageContext?: LanguageContext,
-    personalityContext?: PersonalityContext
+    personalityContext?: PersonalityContext,
+    personalizationPolicy?: PersonalizationPolicy,
+    adaptiveResponsePolicy?: AdaptiveResponsePolicy,
+    proactivePolicy?: ProactivePolicy
   ): string {
-    const now = new Date();
-    const cairoFormatter = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Africa/Cairo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-    const parts = cairoFormatter.formatToParts(now);
-    const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '';
-    const cairoNow = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}+03:00`;
-    const today = `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
-
-    let toneAndLanguage = '';
-    if (languageContext) {
-      if (languageContext.targetLanguage === 'en') {
-        toneAndLanguage = `Response Language & Style:
-- Language: English (US)
-- Rule: You MUST formulate your entire response in natural, fluent English. Do NOT switch to Arabic unless explicitly requested.`;
-      } else if (languageContext.targetLanguage === 'fr') {
-        toneAndLanguage = `Response Language & Style:
-- Language: French
-- Rule: You MUST formulate your response in natural, fluent French.`;
-      } else if (languageContext.targetLanguage === 'de') {
-        toneAndLanguage = `Response Language & Style:
-- Language: German
-- Rule: You MUST formulate your response in natural, fluent German.`;
-      } else if (languageContext.targetLanguage === 'es') {
-        toneAndLanguage = `Response Language & Style:
-- Language: Spanish
-- Rule: You MUST formulate your response in natural, fluent Spanish.`;
-      } else {
-        // Arabic
-        if (languageContext.dialect === 'egyptian') {
-          toneAndLanguage = `Response Language & Style:
-- Language: Arabic
-- Dialect: Natural, friendly, and professional Egyptian Arabic (اللهجة المصرية العامية الراقية والمهنية).
-- Avoid excessive colloquial fillers like "يا باشا" or "يا هندسة".`;
-        } else if (languageContext.dialect === 'gulf') {
-          toneAndLanguage = `Response Language & Style:
-- Language: Arabic
-- Dialect: Gulf Arabic (اللهجة الخليجية البيضاء والمهنية).`;
-        } else if (languageContext.dialect === 'levantine') {
-          toneAndLanguage = `Response Language & Style:
-- Language: Arabic
-- Dialect: Levantine Arabic (اللهجة الشامية المهنية).`;
-        } else {
-          // Modern Standard Arabic
-          toneAndLanguage = `Response Language & Style:
-- Language: Modern Standard Arabic (العربية الفصحى المعاصرة السلسة والواضحة).`;
-        }
-      }
-    } else {
-      toneAndLanguage = `Response Language & Style:
-- Language: Arabic (Modern Standard Arabic or match the user's input language).`;
-    }
-
-    const effectivePersonality = personalityContext || PersonalityEngine.getInstance().getDefaultPersonality();
-    const personalityInstructions = buildPersonalityInstructions(effectivePersonality);
-
-    let instruction = `You are Craft, the personal AI assistant for the Craft ecosystem.
-User Timezone: Africa/Cairo (Egypt, UTC+3). Local Time: ${cairoNow} (Date: ${today}).
-Identity: Always introduce and refer to yourself as Craft. Never say you are ChatGPT, OpenAI, Groq, or Google.
-${toneAndLanguage}
-
-${personalityInstructions}
-
-### Reminders & Tasks (CRITICAL RULES):
-- ALWAYS call 'create_reminder' when the user asks to be reminded of ANYTHING — even casually worded requests like: "فكرني", "ذكرني", "اعمل لي تذكير", "ابعتلي رسالة بعد X", "remind me", "set a reminder", "alert me".
-- Extract the title from what they want to be reminded about, and the time from their message (e.g. "بعد دقيقة", "الساعة 10", "بكرة", "tomorrow 3pm").
-- ALWAYS call 'list_reminders' when the user asks about their tasks, to-dos, or reminder list.
-- NEVER answer reminder requests conversationally without calling the tool first.
-
-### Live Web Search & Knowledge Rules:
-- STRICT REQUIREMENT: Whenever the user asks about ANY tech products (e.g. iPhone, Samsung, Xiaomi), device prices (in Egypt, Arab countries, or globally/USD), hardware specifications, leaks, future/upcoming devices (e.g. iPhone Duo, iPhone 18, Foldables, etc.), exchange rates, gold prices, movies, songs, or recent news:
-  YOU MUST ALWAYS INVOKE THE 'web_search' TOOL! NEVER assume a device does not exist or answer from stale memory without searching!
-- Follow-up Context: When the user asks a follow-up (e.g. "سعرو كام بره مصر", "مواصفاته ايه", "بكام بالدولار"), ALWAYS look at recent conversation turns to identify the referenced product, synthesize a complete and targeted search query (e.g. "iPhone Duo global price USD" or "سعر ايفون duo بالدولار عالميا"), and call 'web_search'!
-- Egypt Currency Reality: The official bank exchange rate in Egypt is approximately ~48 to 50+ EGP per USD. NEVER state or calculate with obsolete rates like 30 or 31 EGP!
-- Anti-leak & Professionalism: NEVER mention internal technical terms like "RSS", "محرك البحث", "الـ API", "نتائج البحث لم تذكر". Speak naturally and authoritatively as Craft with concrete numbers, storage variants, and distributor quotes (e.g. Tradeline/تريدلاين، بي تك، موبايل مصر).
-
-Formatting Rules:
-- STRICT PROHIBITION: NEVER use Markdown tables (| col |). WhatsApp renders tables poorly.
-- Use clean bullet points (•) and *bold* for headings and key terms.
-- NEVER output raw HTML (<br>, <div>). Use standard clean line breaks.`;
-
-    if (memories && memories.length > 0) {
-      instruction += `\n\n### Stored User Profile:\n${memories.map((m) => `- ${m}`).join('\n')}`;
-      instruction += `\n*Priority Rule*: The active "Response Language & Style" specified above is authoritative for the current request and MUST strictly take precedence over any stored language or dialect preferences in the user profile.`;
-    }
-
-    return instruction;
+    return SystemPromptBuilder.buildSystemInstruction(
+      memories,
+      languageContext,
+      personalityContext,
+      personalizationPolicy,
+      adaptiveResponsePolicy,
+      proactivePolicy
+    );
   }
 
   /**
@@ -281,6 +202,10 @@ Formatting Rules:
     languageContext?: LanguageContext
   ): Promise<string> {
     if (config.groq.isMockMode || !this.apiKey) {
+      if (config.nodeEnv === 'production') {
+        logger.error('[Groq Production Error] Missing GROQ_API_KEY in production mode. Refusing mock audio transcription.');
+        return '';
+      }
       return 'رسالة صوتية من المستخدم (Mock Audio Transcription)';
     }
 
@@ -344,9 +269,16 @@ Formatting Rules:
     memories?: string[],
     imageAttachment?: { data: string; mimeType: string },
     languageContext?: LanguageContext,
-    personalityContext?: PersonalityContext
+    personalityContext?: PersonalityContext,
+    personalizationPolicy?: PersonalizationPolicy,
+    adaptiveResponsePolicy?: AdaptiveResponsePolicy,
+    proactivePolicy?: ProactivePolicy
   ): Promise<GroqMessageResponse> {
     if (config.groq.isMockMode || !this.apiKey) {
+      if (config.nodeEnv === 'production') {
+        logger.error('[Groq Production Error] Missing GROQ_API_KEY or mock mode attempted in production. Refusing mock response.');
+        throw new Error('GROQ_API_KEY is not configured in production environment.');
+      }
       const mockRes = this.generateMockResponse(messages, memories, !!imageAttachment, languageContext, personalityContext);
       if (!mockRes.modelUsed) mockRes.modelUsed = this.primaryModel;
       if (!mockRes.usage) {
@@ -361,7 +293,7 @@ Formatting Rules:
       try {
         logger.info(`Image detected, routing directly to Groq Vision model [${visionModel}]`);
         return await this.withTimeout(
-          this.callChat(visionModel, messages, useTools, memories, imageAttachment, languageContext, personalityContext),
+          this.callChat(visionModel, messages, useTools, memories, imageAttachment, languageContext, personalityContext, personalizationPolicy, adaptiveResponsePolicy, proactivePolicy),
           35000,
           `Groq Vision model [${visionModel}] timed out after 35s`
         );
@@ -388,7 +320,7 @@ Formatting Rules:
 
       try {
         return await this.withTimeout(
-          this.callChat(model, messages, useTools, memories, undefined, languageContext, personalityContext),
+          this.callChat(model, messages, useTools, memories, undefined, languageContext, personalityContext, personalizationPolicy, adaptiveResponsePolicy, proactivePolicy),
           25000,
           `Groq model [${model}] timed out after 25s`
         );
@@ -433,9 +365,12 @@ Formatting Rules:
     memories?: string[],
     imageAttachment?: { data: string; mimeType: string },
     languageContext?: LanguageContext,
-    personalityContext?: PersonalityContext
+    personalityContext?: PersonalityContext,
+    personalizationPolicy?: PersonalizationPolicy,
+    adaptiveResponsePolicy?: AdaptiveResponsePolicy,
+    proactivePolicy?: ProactivePolicy
   ): Promise<GroqMessageResponse> {
-    const systemPrompt = this.getSystemInstruction(memories, languageContext, personalityContext);
+    const systemPrompt = this.getSystemInstruction(memories, languageContext, personalityContext, personalizationPolicy, adaptiveResponsePolicy, proactivePolicy);
 
     // Format messages for Groq / OpenAI API
     const formattedMessages: GroqMessage[] = [];

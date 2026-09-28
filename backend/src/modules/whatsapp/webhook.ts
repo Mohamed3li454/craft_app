@@ -9,6 +9,7 @@ import { ConfirmationService } from '../confirmation/confirmation.service';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { parseDueAt } from '../../database/repositories/reminder.repo';
 import { UserRepository } from '../../database/repositories/user.repo';
+import { ProactiveReceiptHandler } from './proactive_receipt_handler';
 
 export class WhatsAppWebhookHandler {
   constructor(
@@ -17,7 +18,8 @@ export class WhatsAppWebhookHandler {
     private orchestrator: AgentOrchestrator = new AgentOrchestrator(),
     private confirmationService: ConfirmationService = new ConfirmationService(),
     private chatRepo: ChatRepository = new ChatRepository(),
-    private userRepo: UserRepository = new UserRepository()
+    private userRepo: UserRepository = new UserRepository(),
+    private receiptHandler: ProactiveReceiptHandler = ProactiveReceiptHandler.getInstance()
   ) {}
 
   /**
@@ -60,6 +62,16 @@ export class WhatsAppWebhookHandler {
       const entry = body?.entry?.[0];
       const changes = entry?.changes?.[0];
       const value = changes?.value;
+
+      // Process Meta status receipts (sent, delivered, read, failed)
+      if (value?.statuses && Array.isArray(value.statuses) && value.statuses.length > 0) {
+        try {
+          await this.receiptHandler.processStatusReceipts(value.statuses);
+        } catch (statusErr: any) {
+          logger.warn('Failed to process WhatsApp status receipts', { error: statusErr.message });
+        }
+      }
+
       const message = value?.messages?.[0];
 
       if (!message) {
@@ -286,6 +298,18 @@ export class WhatsAppWebhookHandler {
         `Received WhatsApp message: type="${messageType}", textLength=${text.length}, hasMedia=${!!mediaAttachment}, isBsuid=${!isPhone}`
       );
 
+      // Attempt attribution of inbound user response to recent proactive outreach (isolated, non-blocking)
+      if (text) {
+        this.receiptHandler.attributeUserResponse({
+          userId: user.id,
+          text,
+          messageId: eventId,
+          receivedAt: new Date(),
+        }).catch((attrErr: any) => {
+          logger.debug('Proactive response attribution check error ignored', { error: attrErr.message });
+        });
+      }
+
       // 5. Run through unified Agent Orchestrator
       const agentResult = await this.orchestrator.run({
         userId: user.id,
@@ -294,6 +318,7 @@ export class WhatsAppWebhookHandler {
         channel: 'whatsapp',
         text,
         media: mediaAttachment,
+        correlationId: eventId,
         onInterimProgress: async (interimText: string) => {
           logger.info(`Dispatching interim acknowledgment to WhatsApp user: "${interimText}"`);
           await this.whatsappAdapter.sendTextMessage(senderId, interimText);

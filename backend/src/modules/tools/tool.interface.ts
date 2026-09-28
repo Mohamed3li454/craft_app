@@ -1,36 +1,21 @@
-import { LanguageContext } from '../language/types';
+/**
+ * Tool Interfaces (Phase 8.2 Compatibility Facade)
+ *
+ * Re-exports modernized contracts while maintaining 100% backward
+ * compatibility for existing tools, tests, and consumers.
+ */
 
-export interface ToolContext {
-  userId: string;
-  conversationId: string;
-  channel: 'flutter' | 'whatsapp';
-  languageContext?: LanguageContext;
-}
+export * from './contracts/tool.types';
+export * from './contracts/error.types';
 
-export interface ToolExecutionResult {
-  success: boolean;
-  output?: any;
-  error?: string;
-  isSensitive?: boolean;
-  confirmationDescription?: string;
-}
+import {
+  AgentTool,
+  ToolExecutionContext,
+  ToolExecutionResult,
+  ToolParameterProperty,
+  ToolParametersSchema,
+} from './contracts/tool.types';
 
-export interface ToolParameterProperty {
-  type: string;
-  description: string;
-  enum?: string[];
-}
-
-export interface ToolParametersSchema {
-  type: 'object';
-  properties: Record<string, ToolParameterProperty>;
-  required?: string[];
-}
-
-export interface AgentTool {
-  name: string;
-  description: string;
-  parameters: ToolParametersSchema;
-  isSensitive: boolean; // Whether executing this tool requires explicit user confirmation
-  execute(args: Record<string, any>, context: ToolContext): Promise<ToolExecutionResult>;
-}
+// Backward-compatible alias
+export type ToolContext = ToolExecutionContext;
+export { AgentTool, ToolExecutionResult, ToolParameterProperty, ToolParametersSchema };
