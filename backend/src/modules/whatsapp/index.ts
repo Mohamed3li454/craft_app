@@ -15,3 +15,4 @@ export * from './meta_error_classifier';
 export * from './proactive_dispatcher';
 export * from './receipt_types';
 export * from './proactive_receipt_handler';
+export * from './typing_controller';

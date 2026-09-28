@@ -10,6 +10,7 @@ import { ChatRepository } from '../../database/repositories/chat.repo';
 import { parseDueAt } from '../../database/repositories/reminder.repo';
 import { UserRepository } from '../../database/repositories/user.repo';
 import { ProactiveReceiptHandler } from './proactive_receipt_handler';
+import { WhatsAppTypingController } from './typing_controller';
 
 export class WhatsAppWebhookHandler {
   constructor(
@@ -125,12 +126,14 @@ export class WhatsAppWebhookHandler {
         logger.debug('Failed to mark event processed in background', { error: err.message });
       });
 
-      // 3. Handle Interactive Button Replies (Quick-Reply Confirmations)
-      if (messageType === 'interactive' && message.interactive?.type === 'button_reply') {
-        if (typeof this.whatsappAdapter.sendTypingIndicator === 'function') {
-          this.whatsappAdapter.sendTypingIndicator(eventId).catch(() => {});
-        }
-        const buttonReply = message.interactive.button_reply;
+      // 2. Initialize and start typing indicator lifecycle (best-effort, non-blocking)
+      const typingController = new WhatsAppTypingController(this.whatsappAdapter, eventId, eventId);
+      typingController.start();
+
+      try {
+        // 3. Handle Interactive Button Replies (Quick-Reply Confirmations)
+        if (messageType === 'interactive' && message.interactive?.type === 'button_reply') {
+          const buttonReply = message.interactive.button_reply;
         const buttonId: string = buttonReply?.id || '';
         const buttonTitle: string = buttonReply?.title || '';
 
@@ -208,13 +211,6 @@ export class WhatsAppWebhookHandler {
           res.status(200).send('EVENT_RECEIVED');
           return;
         }
-      }
-
-      // Trigger typing indicator and read status immediately for responsiveness
-      if (typeof this.whatsappAdapter.sendTypingIndicator === 'function') {
-        this.whatsappAdapter.sendTypingIndicator(eventId).catch((err) => {
-          logger.debug('Failed to dispatch typing indicator', { error: err.message, eventId });
-        });
       }
 
       // 4. Extract message content and media attachments (image, document, text)
@@ -322,6 +318,7 @@ export class WhatsAppWebhookHandler {
         onInterimProgress: async (interimText: string) => {
           logger.info(`Dispatching interim acknowledgment to WhatsApp user: "${interimText}"`);
           await this.whatsappAdapter.sendTextMessage(senderId, interimText);
+          typingController.refresh();
         },
       });
 
@@ -345,6 +342,9 @@ export class WhatsAppWebhookHandler {
       }
 
       res.status(200).send('EVENT_RECEIVED');
+    } finally {
+      typingController.stop();
+    }
     } catch (err: any) {
       logger.error('Error processing WhatsApp webhook payload', { error: err.message });
       try {

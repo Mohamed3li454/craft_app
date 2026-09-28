@@ -351,7 +351,8 @@ export class WhatsAppAdapter {
   public async downloadMedia(
     mediaId: string
   ): Promise<{ buffer: Buffer; mimeType: string } | null> {
-    if (!this.accessToken) {
+    const effectiveToken = this.accessToken || config.whatsapp.accessToken;
+    if (!effectiveToken) {
       logger.warn('[WhatsApp Mock Mode] Missing access token for media download', { mediaId });
       return null;
     }
@@ -359,7 +360,7 @@ export class WhatsAppAdapter {
     try {
       // 1. Get media retrieval URL from Meta Graph API
       const metaRes = await fetch(`https://graph.facebook.com/v22.0/${mediaId}`, {
-        headers: { Authorization: `Bearer ${this.accessToken}` },
+        headers: { Authorization: `Bearer ${effectiveToken}` },
       });
 
       if (!metaRes.ok) {
@@ -382,7 +383,7 @@ export class WhatsAppAdapter {
       // 2. Download the binary stream with Bearer auth
       const fileRes = await fetch(downloadUrl, {
         headers: {
-          Authorization: `Bearer ${this.accessToken}`,
+          Authorization: `Bearer ${effectiveToken}`,
           'User-Agent': 'Craft-Backend/1.0',
         },
       });
@@ -414,18 +415,25 @@ export class WhatsAppAdapter {
   public async sendTypingIndicator(messageId: string): Promise<boolean> {
     if (!messageId) return false;
 
-    if (!this.phoneNumberId || !this.accessToken) {
+    const effectivePhoneId = this.phoneNumberId || config.whatsapp.phoneNumberId;
+    const effectiveToken = this.accessToken || config.whatsapp.accessToken;
+
+    if (!effectivePhoneId || !effectiveToken) {
+      if (config.nodeEnv === 'production') {
+        logger.error('[WhatsApp Production Error] Missing WhatsApp credentials (WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN) for typing indicator. Dispatch aborted.', { messageId });
+        return false;
+      }
       logger.debug('[WhatsApp Mock Mode] Missing credentials, typing indicator skipped', { messageId });
-      return true;
+      return false;
     }
 
-    const url = `https://graph.facebook.com/v22.0/${this.phoneNumberId}/messages`;
+    const url = `https://graph.facebook.com/v22.0/${effectivePhoneId}/messages`;
 
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.accessToken}`,
+          Authorization: `Bearer ${effectiveToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -443,13 +451,14 @@ export class WhatsAppAdapter {
         logger.debug('Meta typing indicator API returned non-200, attempting read status fallback', {
           status: response.status,
           error: errorData,
+          messageId,
         });
 
         // Fallback: If typing_indicator is rejected by the Graph version/tier, mark as read only
         await fetch(url, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${this.accessToken}`,
+            Authorization: `Bearer ${effectiveToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
