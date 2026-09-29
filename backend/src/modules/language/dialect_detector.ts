@@ -76,6 +76,29 @@ const EGYPTIAN_RULES: DialectRule[] = [
   { pattern: 'فينك', weight: 1.2, tag: 'eg_lex_feenak' },
   { pattern: 'حاجه', weight: 0.8, tag: 'eg_lex_haga' },
 
+  // Conversational follow-ups and Egyptian imperative/comparative markers (weight 1.5 - 2.5)
+  { pattern: 'قارنلي', weight: 2.0, tag: 'eg_followup_qarenly' },
+  { pattern: 'وريني', weight: 2.0, tag: 'eg_followup_wareeny' },
+  { pattern: 'هاتلي', weight: 2.0, tag: 'eg_followup_hatly' },
+  { pattern: 'قولي', weight: 1.5, tag: 'eg_followup_ouly' },
+  { pattern: 'اختصرهولي', weight: 2.5, tag: 'eg_followup_ekhtaserhouly' },
+  { pattern: 'لخصهولي', weight: 2.5, tag: 'eg_followup_lakhashouly' },
+  { pattern: 'فهمهالي', weight: 2.5, tag: 'eg_followup_fahemhaly' },
+  { pattern: 'اشرحهالي', weight: 2.5, tag: 'eg_followup_eshrahhaly' },
+  { pattern: 'اعملها', weight: 1.5, tag: 'eg_followup_eaamelha' },
+  { pattern: 'اعمليها', weight: 1.5, tag: 'eg_followup_eaameliha' },
+  { pattern: 'كملها', weight: 1.5, tag: 'eg_followup_kamelha' },
+  { pattern: 'خليها', weight: 1.5, tag: 'eg_followup_khaleeha' },
+  { pattern: 'خليلي', weight: 1.5, tag: 'eg_followup_khaleely' },
+  { pattern: 'ممكن كده', weight: 2.0, tag: 'eg_phrase_momken_keda' },
+  { pattern: 'طيب كده', weight: 2.0, tag: 'eg_phrase_tayeb_keda' },
+  { pattern: 'ايه رايك', weight: 2.0, tag: 'eg_phrase_eh_raayak' },
+  { pattern: 'ايه الفرق', weight: 2.0, tag: 'eg_phrase_eh_elfarq' },
+  { pattern: 'انهي', weight: 1.5, tag: 'eg_lex_anhy' },
+  { pattern: 'بتفرق', weight: 1.5, tag: 'eg_morph_betefreq' },
+  { pattern: 'ينفع', weight: 1.5, tag: 'eg_lex_yenfaa' },
+  { pattern: 'فاهمني', weight: 1.5, tag: 'eg_lex_fahemny' },
+
   // Morphological future prefix هـ (e.g. هعمل, هنشوف, هروح)
   { pattern: /(?:^|\s)ه(?:عمل|نعمل|شوف|نشوف|روح|نروح|قول|نقول|كتب|نكتب|فهم|نفهم|بعت|نبعت)(?:\s|$)/, weight: 2.0, tag: 'eg_morph_future_ha' },
 

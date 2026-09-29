@@ -57,6 +57,16 @@ export interface DialectSignal {
   evidenceTags: string[]; // low-cardinality, privacy-safe tokens e.g. ['eg_lexical', 'eg_future_ha'], NEVER raw text or PII!
 }
 
+export interface RecentLanguageStyleSignal {
+  language?: SupportedLanguage;
+  dialect?: ArabicDialect;
+  dialectConfidence?: number;
+  register?: Register;
+  verbosity?: Verbosity;
+  tone?: ResponseTone;
+  confidence: number;
+}
+
 export interface CodeSwitchingInfo {
   isCodeSwitching: boolean;
   primaryLanguage: SupportedLanguage;

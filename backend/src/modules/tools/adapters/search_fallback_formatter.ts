@@ -26,6 +26,7 @@ export interface NormalizedSearchItem {
   snippet: string;
   url?: string;
   sourceDomain?: string;
+  sourceName?: string;
   publishedDate?: string;
 }
 
@@ -59,8 +60,9 @@ export class SearchFallbackFormatter {
       const item = selected[i];
       const cleanTitle = this.sanitizeText(item.title, MAX_TITLE_LENGTH);
       const cleanSnippet = this.sanitizeText(item.snippet, MAX_SNIPPET_LENGTH);
-      const domain = this.extractDomain(item.url, item.sourceDomain);
-      const cleanUrl = this.sanitizeUrl(item.url);
+      const isGoogleRedirect = this.isGoogleNewsRedirectUrl(item.url);
+      const cleanUrl = isGoogleRedirect ? undefined : this.sanitizeUrl(item.url);
+      const domain = this.extractDomain(item.url, item.sourceDomain, item.sourceName, item.title);
 
       let block = `${i + 1}. *${cleanTitle}*`;
       if (domain) {
@@ -126,6 +128,7 @@ export class SearchFallbackFormatter {
       const snippet = String(rawItem.snippet || rawItem.description || rawItem.body || '').trim();
       const url = typeof rawItem.url === 'string' ? rawItem.url.trim() : undefined;
       const sourceDomain = typeof rawItem.sourceDomain === 'string' ? rawItem.sourceDomain : undefined;
+      const sourceName = typeof rawItem.sourceName === 'string' ? rawItem.sourceName : undefined;
 
       // Filter out empty or generic placeholder items
       if (!title && !snippet) continue;
@@ -138,11 +141,25 @@ export class SearchFallbackFormatter {
         snippet,
         url,
         sourceDomain,
+        sourceName,
         publishedDate: rawItem.publishedDate || rawItem.pubDate,
       });
     }
 
     return normalized;
+  }
+
+  /**
+   * Detects whether a URL is a Google News redirect token (news.google.com/rss/articles/...)
+   */
+  public static isGoogleNewsRedirectUrl(url?: string): boolean {
+    if (!url) return false;
+    return (
+      /^https?:\/\/news\.google\.com/i.test(url) ||
+      /^https?:\/\/news\.google\.co\.[a-z]{2}/i.test(url) ||
+      url.includes('news.google.com/rss/articles/') ||
+      url.includes('news.google.com/articles/')
+    );
   }
 
   private static sanitizeText(text: string, maxLength: number): string {
@@ -161,12 +178,33 @@ export class SearchFallbackFormatter {
     return cleaned;
   }
 
-  private static extractDomain(url?: string, explicitDomain?: string): string | undefined {
-    if (explicitDomain) return explicitDomain;
+  private static extractDomain(
+    url?: string,
+    explicitDomain?: string,
+    sourceName?: string,
+    title?: string
+  ): string | undefined {
+    if (explicitDomain && explicitDomain !== 'news.google.com') return explicitDomain;
+    if (sourceName && sourceName !== 'Google News') return sourceName;
+
+    // Check if title has publisher suffix, e.g. "iPhone 16 - The Verge"
+    if (title && title.includes(' - ')) {
+      const parts = title.split(' - ');
+      if (parts.length > 1) {
+        const potential = parts[parts.length - 1].trim();
+        if (potential && potential !== 'Google News' && potential.length <= 35) {
+          return potential;
+        }
+      }
+    }
+
     if (!url) return undefined;
     try {
       const u = new URL(url);
       const host = u.hostname.replace(/^www\./, '');
+      if (host === 'news.google.com') {
+        return undefined;
+      }
       return host || undefined;
     } catch {
       return undefined;

@@ -45,6 +45,57 @@ export class ClarificationGate {
     /^(?:same\s+thing)$/i,
   ];
 
+  // Underspecified action commands that require a concrete actionable antecedent or clarification
+  private static readonly UNDERSPECIFIED_ACTION_PATTERNS = [
+    /^(?:اعمل(?:ها|ه|هم|لي|ليا)?)$/i,
+    /^(?:اعملي(?:ها|ه)?)$/i,
+    /^(?:نفذ(?:ها|ه|هم)?)$/i,
+    /^(?:نفذ\s+(?:ده|دا|دي|كده))$/i,
+    /^(?:اعمل\s+(?:ده|دا|دي|كده))$/i,
+    /^(?:كمل(?:ها|ه)?)$/i,
+    /^(?:كمل)$/i,
+    /^(?:اختصر(?:ها|ه)?)$/i,
+    /^(?:لخص(?:ها|ه)?)$/i,
+    /^(?:عدل(?:ها|ه)?)$/i,
+    /^(?:صلح(?:ها|ه)?)$/i,
+    /^(?:اكتب(?:ها|ه)?)$/i,
+    /^(?:طبق(?:ها|ه)?)$/i,
+    /^(?:do\s+it)$/i,
+    /^(?:execute\s+it)$/i,
+    /^(?:implement\s+it)$/i,
+    /^(?:continue)$/i,
+    /^(?:apply\s+it)$/i,
+  ];
+
+  /**
+   * Determines if the previous turn contains an explicit, singular actionable proposal/question
+   * that can directly anchor an underspecified action command like "اعملها".
+   */
+  private static hasConcreteActionableAntecedent(
+    recentMessages: readonly ConversationMessage[]
+  ): boolean {
+    if (!recentMessages || recentMessages.length === 0) return false;
+
+    // Find the last assistant message
+    const lastAssistant = [...recentMessages].reverse().find((m) => m.role === 'assistant');
+    if (!lastAssistant || !lastAssistant.text) return false;
+
+    const norm = normalize(lastAssistant.text);
+
+    // Explicit offers/questions by the assistant proposing an actionable next step
+    const actionableOffers = [
+      /تحب\s+(?:اعملك|اكتبلك|اجيبلك|اشرحلك|الخصلك|اوضحلك|نعمل)/i,
+      /هل\s+تريد\s+(?:مني\s+)?(?:ان\s+)?(?:اكتب|انشئ|اقوم|اعمل|الخص)/i,
+      /لو\s+تحب\s+(?:اعمل|اكتب|انفذ)/i,
+      /ممكن\s+(?:اعملك|اكتبلك)/i,
+      /would\s+you\s+like\s+me\s+to\s+(?:create|write|implement|summarize|compare)/i,
+      /shall\s+i\s+(?:create|write|implement|summarize|compare)/i,
+      /do\s+you\s+want\s+me\s+to/i,
+    ];
+
+    return actionableOffers.some((p) => p.test(norm));
+  }
+
   /**
    * Evaluates if a clarification question is required.
    */
@@ -67,10 +118,26 @@ export class ClarificationGate {
     const isEnriched = conversationState.contextualizedQuery.includes('الموضوع السياقي') ||
       conversationState.contextualizedQuery.includes('Contextual Topic');
 
-    // Rule 1: Context-Resolvable Follow-up Protection
+    // Rule 1: Underspecified Action Intent Gate
+    // If the user says "اعملها", "نفذها", "كمل", etc.
+    const isUnderspecifiedAction = this.UNDERSPECIFIED_ACTION_PATTERNS.some((p) => p.test(norm));
+    if (isUnderspecifiedAction) {
+      const hasConcreteAction = this.hasConcreteActionableAntecedent(recentMessages);
+      if (!hasConcreteAction) {
+        return {
+          required: true,
+          reason: 'ambiguous_referent',
+          targetedAspect: 'action_intent',
+          suggestedClarification: 'تقصد أعمل إيه بالظبط؟ تحب مثلاً أكتبلك كود عملي، ولا أعمل جدول مقارنة، ولا توضيح خطوة بخطوة؟',
+          suggestedOptions: ['كود عملي يوضح الفكرة', 'جدول مقارنة تفصيلي', 'خطوات التطبيق خطوة بخطوة'],
+        };
+      }
+    }
+
+    // Rule 1.5: Context-Resolvable Follow-up Protection
     // If Phase 5 successfully resolved the referent via contextualizedQuery or prior turns,
     // NEVER interrupt the user with clarification!
-    if (conversationState.isFollowUp && (hasPriorAntecedent || isEnriched)) {
+    if (!isUnderspecifiedAction && conversationState.isFollowUp && (hasPriorAntecedent || isEnriched)) {
       return { required: false };
     }
 

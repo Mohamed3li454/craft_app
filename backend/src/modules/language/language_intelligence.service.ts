@@ -7,9 +7,11 @@ import {
   CodeSwitchingInfo,
   DialectSignal,
   LanguageContext,
+  RecentLanguageStyleSignal,
   RecentMessageInput,
   Register,
   ResolutionOptions,
+  ResolutionSource,
   ResponseTone,
   SupportedLanguage,
   Verbosity,
@@ -101,10 +103,13 @@ export class LanguageIntelligenceService {
     // Conversation State, or Stored Preference) to prevent aggressive switching.
     if (isShortNeutral) {
       // Try Tier 3 (Recent History)
-      const recentLang = this.resolveFromRecentHistory(options.recentMessages);
+      const historySignal = this.resolveStyleFromRecentHistory(options.recentMessages);
+      const recentLang = historySignal?.language || this.resolveFromRecentHistory(options.recentMessages);
       if (recentLang) {
         return this.buildContext({
           targetLanguage: recentLang,
+          dialect: recentLang === 'ar' ? historySignal?.dialect : undefined,
+          dialectConfidence: historySignal?.dialectConfidence,
           confidence: 0.85,
           source: 'recent_history',
           explicitInstruction: explicit?.detected ? explicit : undefined,
@@ -120,6 +125,8 @@ export class LanguageIntelligenceService {
       if (options.conversationLanguage) {
         return this.buildContext({
           targetLanguage: options.conversationLanguage,
+          dialect: options.conversationLanguage === 'ar' ? historySignal?.dialect : undefined,
+          dialectConfidence: historySignal?.dialectConfidence,
           confidence: 0.80,
           source: 'conversation_state',
           explicitInstruction: explicit?.detected ? explicit : undefined,
@@ -159,15 +166,36 @@ export class LanguageIntelligenceService {
         const resolution = this.resolveCurrentMessageLanguage(rawText, charStats);
 
         if (resolution) {
+          // Check recent history for dialect and style continuity
+          const historySignal = this.resolveStyleFromRecentHistory(options.recentMessages);
+
+          let effectiveDialect = resolution.dialect;
+          let effectiveDialectConfidence = resolution.dialectSignal?.confidence;
+          let resolutionSource: ResolutionSource = 'current_message';
+
+          // Conversational Continuity for Dialect:
+          // If current message is Arabic, but doesn't have its own high-confidence dialect,
+          // and recent history has an established dialect (e.g. Egyptian), persist it!
+          if (
+            resolution.language === 'ar' &&
+            !effectiveDialect &&
+            historySignal?.dialect &&
+            (historySignal.dialectConfidence ?? 0) >= 0.70
+          ) {
+            effectiveDialect = historySignal.dialect;
+            effectiveDialectConfidence = historySignal.dialectConfidence;
+            resolutionSource = 'recent_history';
+          }
+
           // If detection is reliable with confidence >= 0.70
           if (resolution.confidence >= 0.70) {
             return this.buildContext({
               targetLanguage: resolution.language,
-              dialect: resolution.dialect,
+              dialect: effectiveDialect,
               dialectSignal: resolution.dialectSignal,
-              dialectConfidence: resolution.dialectSignal?.confidence,
+              dialectConfidence: effectiveDialectConfidence,
               confidence: resolution.confidence,
-              source: 'current_message',
+              source: resolutionSource,
               explicitInstruction: explicit?.detected ? explicit : undefined,
               register: styleAnalysis.register,
               verbosity: styleAnalysis.verbosity,
@@ -183,6 +211,8 @@ export class LanguageIntelligenceService {
           if (recentLang) {
             return this.buildContext({
               targetLanguage: recentLang,
+              dialect: recentLang === 'ar' ? (effectiveDialect || historySignal?.dialect) : undefined,
+              dialectConfidence: effectiveDialectConfidence || historySignal?.dialectConfidence,
               confidence: 0.82,
               source: 'recent_history',
               explicitInstruction: explicit?.detected ? explicit : undefined,
@@ -197,6 +227,8 @@ export class LanguageIntelligenceService {
           if (options.conversationLanguage) {
             return this.buildContext({
               targetLanguage: options.conversationLanguage,
+              dialect: options.conversationLanguage === 'ar' ? (effectiveDialect || historySignal?.dialect) : undefined,
+              dialectConfidence: effectiveDialectConfidence || historySignal?.dialectConfidence,
               confidence: 0.78,
               source: 'conversation_state',
               explicitInstruction: explicit?.detected ? explicit : undefined,
@@ -211,11 +243,11 @@ export class LanguageIntelligenceService {
           // Otherwise return the detected language
           return this.buildContext({
             targetLanguage: resolution.language,
-            dialect: resolution.dialect,
+            dialect: effectiveDialect,
             dialectSignal: resolution.dialectSignal,
-            dialectConfidence: resolution.dialectSignal?.confidence,
+            dialectConfidence: effectiveDialectConfidence,
             confidence: resolution.confidence,
-            source: 'current_message',
+            source: resolutionSource,
             explicitInstruction: explicit?.detected ? explicit : undefined,
             register: styleAnalysis.register,
             verbosity: styleAnalysis.verbosity,
@@ -230,10 +262,13 @@ export class LanguageIntelligenceService {
     // =========================================================================
     // TIER 3: Recent conversation language
     // =========================================================================
-    const recentLang = this.resolveFromRecentHistory(options.recentMessages);
+    const historySignal = this.resolveStyleFromRecentHistory(options.recentMessages);
+    const recentLang = historySignal?.language || this.resolveFromRecentHistory(options.recentMessages);
     if (recentLang) {
       return this.buildContext({
         targetLanguage: recentLang,
+        dialect: recentLang === 'ar' ? historySignal?.dialect : undefined,
+        dialectConfidence: historySignal?.dialectConfidence,
         confidence: 0.85,
         source: 'recent_history',
         explicitInstruction: explicit?.detected ? explicit : undefined,
@@ -436,11 +471,11 @@ export class LanguageIntelligenceService {
   }
 
   /**
-   * Analyzes recent message history and extracts the dominant language
+   * Analyzes recent message history and extracts the dominant language, dialect, and style
    */
-  private resolveFromRecentHistory(
+  public resolveStyleFromRecentHistory(
     recentMessages?: RecentMessageInput[]
-  ): SupportedLanguage | null {
+  ): RecentLanguageStyleSignal | null {
     if (!recentMessages || recentMessages.length === 0) {
       return null;
     }
@@ -454,25 +489,49 @@ export class LanguageIntelligenceService {
       es: 0,
       de: 0,
     };
+    const dialectVotes: Record<ArabicDialect, number> = {
+      egyptian: 0,
+      msa: 0,
+      gulf: 0,
+      levantine: 0,
+      maghrebi: 0,
+      iraqi: 0,
+      sudanese: 0,
+      unknown: 0,
+      egyptian_ar: 0,
+      gulf_ar: 0,
+      levantine_ar: 0,
+      maghrebi_ar: 0,
+      iraqi_ar: 0,
+      sudanese_ar: 0,
+      msa_ar: 0,
+    };
 
     let totalVotes = 0;
+    let totalDialectVotes = 0;
 
     for (let i = 0; i < window.length; i++) {
       const item = window[i];
       let msgLang: SupportedLanguage | null = null;
+      let textContent = '';
+      let isUserTurn = true;
 
       if (typeof item === 'string') {
+        textContent = item;
         const det = LocalLanguageDetector.getInstance().detect(item);
         msgLang = this.toSupportedLanguage(det.language);
       } else if (item && typeof item === 'object') {
+        if (item.role && item.role !== 'user') {
+          isUserTurn = false;
+        }
         if (item.language && this.toSupportedLanguage(item.language)) {
           msgLang = item.language;
-        } else {
-          const content = item.text || item.content || '';
-          if (content.trim()) {
-            const det = LocalLanguageDetector.getInstance().detect(content);
-            msgLang = this.toSupportedLanguage(det.language);
-          }
+        }
+        const content = item.text || item.content || '';
+        textContent = content;
+        if (!msgLang && content.trim()) {
+          const det = LocalLanguageDetector.getInstance().detect(content);
+          msgLang = this.toSupportedLanguage(det.language);
         }
       }
 
@@ -481,6 +540,20 @@ export class LanguageIntelligenceService {
         const weight = 1 + i * 0.25;
         votes[msgLang] += weight;
         totalVotes += weight;
+
+        // On Arabic turns, accumulate dialect evidence (higher weight for user turns)
+        if (msgLang === 'ar' && textContent.trim()) {
+          const dialectSignal = DialectDetector.detect(textContent);
+          if (
+            dialectSignal.confidence >= 0.50 &&
+            dialectSignal.dialect !== 'unknown' &&
+            dialectSignal.dialect !== 'msa'
+          ) {
+            const dWeight = (isUserTurn ? 1.5 : 1.0) * (1 + i * 0.25) * dialectSignal.confidence;
+            dialectVotes[dialectSignal.dialect] += dWeight;
+            totalDialectVotes += dWeight;
+          }
+        }
       }
     }
 
@@ -499,11 +572,41 @@ export class LanguageIntelligenceService {
     }
 
     // Require at least 40% dominance
-    if (dominantLang && maxWeight / totalVotes >= 0.40) {
-      return dominantLang;
+    if (!dominantLang || maxWeight / totalVotes < 0.40) {
+      return null;
     }
 
-    return null;
+    let dominantDialect: ArabicDialect | undefined;
+    let maxDialectWeight = 0;
+
+    for (const [dialect, dWeight] of Object.entries(dialectVotes)) {
+      if (dWeight > maxDialectWeight) {
+        maxDialectWeight = dWeight;
+        dominantDialect = dialect as ArabicDialect;
+      }
+    }
+
+    const dialectConfidence =
+      dominantDialect && totalDialectVotes > 0
+        ? Math.min(0.95, Number((0.70 + (maxDialectWeight / totalDialectVotes) * 0.25).toFixed(2)))
+        : undefined;
+
+    return {
+      language: dominantLang,
+      dialect: dominantDialect,
+      dialectConfidence,
+      confidence: Number((maxWeight / totalVotes).toFixed(2)),
+    };
+  }
+
+  /**
+   * Analyzes recent message history and extracts the dominant language
+   */
+  private resolveFromRecentHistory(
+    recentMessages?: RecentMessageInput[]
+  ): SupportedLanguage | null {
+    const signal = this.resolveStyleFromRecentHistory(recentMessages);
+    return signal?.language || null;
   }
 
   /**

@@ -723,16 +723,21 @@ export class GroqProvider {
 
     const cleanPrompt = userPrompt.trim();
 
-    // Mock Mode support for deterministic unit tests
-    if (config.groq.isMockMode) {
+    // Mock Mode support for deterministic unit tests or when no apiKey is configured
+    if (config.groq.isMockMode || !this.apiKey) {
       const lower = cleanPrompt.toLowerCase();
+      const hasPriceKeyword =
+        lower.includes('سعر') ||
+        lower.includes('اسعار') ||
+        lower.includes('أسعار') ||
+        lower.includes('price') ||
+        lower.includes('cost');
+
       const needsSearch =
         lower.includes('بحث') ||
         lower.includes('ابحث') ||
         lower.includes('دور') ||
-        lower.includes('سعر') ||
-        lower.includes('price') ||
-        lower.includes('cost') ||
+        hasPriceKeyword ||
         lower.includes('موقع') ||
         lower.includes('أخبار') ||
         lower.includes('اخبار') ||
@@ -741,12 +746,21 @@ export class GroqProvider {
 
       if (needsSearch) {
         if (languageContext?.targetLanguage === 'en') {
-          if (lower.includes('price') || lower.includes('cost') || lower.includes('سعر')) {
+          if (hasPriceKeyword) {
             return 'Give me a moment to check current market prices.';
           }
           return 'Give me a moment to search reliable sources for you.';
         }
-        if (lower.includes('سعر')) {
+        if (languageContext?.dialect === 'egyptian') {
+          if (hasPriceKeyword) {
+            return 'هشوفلك الأسعار في السوق وأرجعلك على طول.';
+          }
+          if (lower.includes('موقع')) {
+            return 'هشوفلك المواقع المتاحة وأرجعلك.';
+          }
+          return 'هشوف أحدث المصادر وأرجعلك.';
+        }
+        if (hasPriceKeyword) {
           return 'لحظات، جاري التحقق من الأسعار في السوق.';
         }
         if (lower.includes('موقع')) {
