@@ -977,7 +977,12 @@ describe('Phase 7.3 — Proactive Persistence & Scheduler Test Suite', () => {
       const reminderScheduler = new ReminderScheduler();
       const spyReminderDispatch = jest
         .spyOn(reminderScheduler, 'checkAndDispatchDueReminders')
-        .mockResolvedValue({ dispatchedCount: 2, remindersDispatched: ['Reminder 1', 'Reminder 2'] });
+        .mockResolvedValue({
+          dispatchedCount: 2,
+          remindersDispatched: ['Reminder 1', 'Reminder 2'],
+          skippedCount: 0,
+          failedCount: 0,
+        });
 
       // Simulate Cron handler failure isolation pattern from app.ts
       let reminderError: string | null = null;

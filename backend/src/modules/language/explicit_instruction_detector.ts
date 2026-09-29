@@ -3,6 +3,9 @@ import {
   InstructionScope,
   SupportedLanguage,
   ArabicDialect,
+  Register,
+  Verbosity,
+  ResponseTone,
 } from './types';
 
 /**
@@ -76,7 +79,7 @@ const EXPLICIT_RULES: ExplicitPattern[] = [
   },
   {
     lang: 'en',
-    regex: /\b(?:speak|talk|reply|answer|respond|write)\s+(?:in\s+)?english\b/i,
+    regex: /\b(?:speak|talk|reply|answer|respond|write)\s+(?:in\s+)?(?:[a-z]+\s+)?english\b/i,
   },
   {
     lang: 'en',
@@ -103,7 +106,7 @@ const EXPLICIT_RULES: ExplicitPattern[] = [
   {
     lang: 'ar',
     dialect: 'egyptian',
-    regex: /(?:كلمني|اتكلم|تكلم|خليك|رد|اكتب|جاوب|خلي\s+كلامك)\s+(?:معايا\s+|معي\s+)?(?:بالمصري|مصري|بالعاميه\s+المصريه|عاميه\s+مصريه|عربي\s+مصري)/i,
+    regex: /(?:كلمني|اتكلم|تكلم|خليك|رد|اكتب|جاوب|خلي\s+كلامك)\s+(?:.+?\s+)?(?:بالمصري|مصري|بالعاميه\s+المصريه|عاميه\s+مصريه|عربي\s+مصري)/i,
   },
   {
     lang: 'ar',
@@ -118,7 +121,7 @@ const EXPLICIT_RULES: ExplicitPattern[] = [
   {
     lang: 'ar',
     dialect: 'egyptian',
-    regex: /(?:ممكن|عايز|عاوز|حابب|ياريت)\s+(?:تكلمني|ترد|تتكلم|تجاوب)?\s*(?:بالمصري|عاميه\s+مصريه)/i,
+    regex: /(?:ممكن|عايز|عاوز|حابب|ياريت)\s+(?:.+?\s+)?(?:بالمصري|عاميه\s+مصريه|عربي\s+مصري)/i,
   },
   {
     lang: 'ar',
@@ -135,7 +138,7 @@ const EXPLICIT_RULES: ExplicitPattern[] = [
   {
     lang: 'ar',
     dialect: 'msa',
-    regex: /(?:كلمني|اتكلم|تكلم|خليك|رد|اكتب|جاوب)\s+(?:معايا\s+|معي\s+)?(?:بالفصحي|فصحي|عربي\s+فصيح|باللغه\s+العربيه\s+الفصحي|العربيه\s+الفصحي)/i,
+    regex: /(?:كلمني|اتكلم|تكلم|خليك|رد|اكتب|جاوب)\s+(?:.+?\s+)?(?:بالفصحي|فصحي|عربي\s+فصيح|باللغه\s+العربيه\s+الفصحي|العربيه\s+الفصحي)/i,
   },
   {
     lang: 'ar',
@@ -150,7 +153,7 @@ const EXPLICIT_RULES: ExplicitPattern[] = [
   {
     lang: 'ar',
     dialect: 'msa',
-    regex: /(?:ممكن|عايز|عاوز|حابب|ياريت)\s+(?:تكلمني|ترد|تتكلم|تجاوب)?\s*(?:بالفصحي|عربي\s+فصيح)/i,
+    regex: /(?:ممكن|عايز|عاوز|حابب|ياريت)\s+(?:.+?\s+)?(?:بالفصحي|عربي\s+فصيح)/i,
   },
   {
     lang: 'ar',
@@ -167,7 +170,7 @@ const EXPLICIT_RULES: ExplicitPattern[] = [
   {
     lang: 'ar',
     dialect: 'gulf',
-    regex: /(?:كلمني|اتكلم|تكلم|خليك|رد|اكتب|جاوب)\s+(?:معايا\s+|معي\s+)?(?:بالخليجي|خليجي|باللهجه\s+الخليجيه)/i,
+    regex: /(?:كلمني|اتكلم|تكلم|خليك|رد|اكتب|جاوب)\s+(?:.+?\s+)?(?:بالخليجي|خليجي|باللهجه\s+الخليجيه)/i,
   },
   {
     lang: 'ar',
@@ -189,7 +192,7 @@ const EXPLICIT_RULES: ExplicitPattern[] = [
   {
     lang: 'ar',
     dialect: 'levantine',
-    regex: /(?:كلمني|اتكلم|تكلم|خليك|رد|اكتب|جاوب)\s+(?:معايا\s+|معي\s+)?(?:بالشامي|شامي|باللهجه\s+الشاميه|لبناني|سوري)/i,
+    regex: /(?:كلمني|اتكلم|تكلم|خليك|رد|اكتب|جاوب)\s+(?:.+?\s+)?(?:بالشامي|شامي|باللهجه\s+الشاميه|لبناني|سوري)/i,
   },
   {
     lang: 'ar',
@@ -205,6 +208,36 @@ const EXPLICIT_RULES: ExplicitPattern[] = [
     lang: 'ar',
     dialect: 'levantine',
     regex: /\b(?:speak|talk|reply)\s+(?:in\s+)?(?:levantine|shami)(?:\s+arabic)?\b/i,
+  },
+
+  // 5.5. Generic Arabic Rules (matches after specific dialect rules)
+  {
+    lang: 'ar',
+    regex: /(?:كلمني|اتكلم|تكلم|خليك|رد|اكتب|جاوب|خلي\s+كلامك)\s+(?:معايا\s+|معي\s+)?(?:بالعربي|عربي|باللغه\s+العربيه|لغه\s+عربيه)/i,
+  },
+  {
+    lang: 'ar',
+    regex: /^(?:بالعربي|عربي|باللغه\s+العربيه|لغه\s+عربيه)$/i,
+  },
+  {
+    lang: 'ar',
+    regex: /(?:بالعربي|عربي|باللغه\s+العربيه)\s*(?:لو\s+سمحت|من\s+فضلك|بليز|please)/i,
+  },
+  {
+    lang: 'ar',
+    regex: /(?:ممكن|عايز|عاوز|حابب|ياريت|اريد)\s+(?:.+?\s+)?(?:بالعربي|باللغه\s+العربيه)/i,
+  },
+  {
+    lang: 'ar',
+    regex: /\b(?:speak|talk|reply|answer|respond|write)\s+(?:in\s+)?arabic\b/i,
+  },
+  {
+    lang: 'ar',
+    regex: /\barabic\s+(?:please|pls)\b/i,
+  },
+  {
+    lang: 'ar',
+    regex: /\bin\s+arabic(?:\s+please)?\b/i,
   },
 
   // 6. French Rules
@@ -286,10 +319,110 @@ const EXPLICIT_RULES: ExplicitPattern[] = [
   },
 ];
 
+interface ExplicitRegisterPattern {
+  register: Register;
+  regex: RegExp;
+}
+
+const EXPLICIT_REGISTER_RULES: ExplicitRegisterPattern[] = [
+  {
+    register: 'formal',
+    regex: /(?:خليك|اتكلم|تكلم|رد|خلي\s+كلامك|جاوب)\s+(?:معايا\s+|معي\s+)?(?:بشكل\s+)?رسمي/i,
+  },
+  {
+    register: 'formal',
+    regex: /^(?:رسمي|بشكل\s+رسمي)$/i,
+  },
+  {
+    register: 'formal',
+    regex: /\b(?:keep\s+it\s+|be\s+|speak\s+|answer\s+in\s+)?formal(?:\s+tone|\s+english|\s+arabic)?\b/i,
+  },
+  {
+    register: 'casual',
+    regex: /(?:خليك|اتكلم|تكلم|خلي\s+كلامك)\s+(?:معايا\s+|معي\s+)?(?:casual|عامي|براحتك)/i,
+  },
+  {
+    register: 'casual',
+    regex: /^(?:casual|عامي)$/i,
+  },
+  {
+    register: 'casual',
+    regex: /\b(?:keep\s+it\s+|be\s+)?casual\b/i,
+  },
+  {
+    register: 'professional',
+    regex: /(?:خليك|اتكلم|تكلم|رد)\s+(?:معايا\s+|معي\s+)?(?:مهني|احترافي|professional)/i,
+  },
+  {
+    register: 'professional',
+    regex: /^(?:مهني|احترافي|professional)$/i,
+  },
+  {
+    register: 'professional',
+    regex: /\b(?:keep\s+it\s+|be\s+)?professional\b/i,
+  },
+];
+
+interface ExplicitVerbosityPattern {
+  verbosity: Verbosity;
+  regex: RegExp;
+}
+
+const EXPLICIT_VERBOSITY_RULES: ExplicitVerbosityPattern[] = [
+  {
+    verbosity: 'concise',
+    regex: /(?:ممكن\s+)?(?:تختصر|اختصر|بالمختصر|مختصر|في\s+سطرين|باختصار|بدون\s+تطويل|علي\s+السريع)/i,
+  },
+  {
+    verbosity: 'concise',
+    regex: /^(?:اختصر|بالمختصر|باختصار|مختصر|ملخص)$/i,
+  },
+  {
+    verbosity: 'concise',
+    regex: /\b(?:be\s+concise|keep\s+it\s+(?:short|concise)|briefly|in\s+two\s+lines)\b/i,
+  },
+  {
+    verbosity: 'detailed',
+    regex: /(?:اشرح|وضح|فهمني)\s+(?:بالتفصيل|خطوه\s+خطوه|مفصل)/i,
+  },
+  {
+    verbosity: 'detailed',
+    regex: /^(?:بالتفصيل|شرح\s+مفصل|بالتفصيل\s+الممل)$/i,
+  },
+  {
+    verbosity: 'detailed',
+    regex: /\b(?:explain\s+in\s+detail|step\s+by\s+step|elaborate|deep\s+dive)\b/i,
+  },
+];
+
+interface ExplicitTonePattern {
+  tone: ResponseTone;
+  regex: RegExp;
+}
+
+const EXPLICIT_TONE_RULES: ExplicitTonePattern[] = [
+  {
+    tone: 'direct',
+    regex: /(?:خليك\s+مباشر|جاوب\s+مباشره|جاوب\s+علي\s+طول)/i,
+  },
+  {
+    tone: 'direct',
+    regex: /\b(?:be\s+direct|direct\s+answer)\b/i,
+  },
+  {
+    tone: 'warm',
+    regex: /(?:خليك\s+ودود|خليك\s+لطيف)/i,
+  },
+  {
+    tone: 'warm',
+    regex: /\b(?:be\s+warm|be\s+friendly)\b/i,
+  },
+];
+
 export class ExplicitInstructionDetector {
   /**
    * Evaluates whether the incoming user message contains an explicit request
-   * to communicate in a specific language or dialect.
+   * to communicate in a specific language, dialect, register, verbosity, or tone.
    */
   public static detect(text: string): ExplicitInstructionInfo {
     if (!text || !text.trim()) {
@@ -310,18 +443,73 @@ export class ExplicitInstructionDetector {
       }
     }
 
-    // Match rules
+    let requestedLanguage: SupportedLanguage | undefined;
+    let requestedDialect: ArabicDialect | undefined;
+    let requestedRegister: Register | undefined;
+    let requestedVerbosity: Verbosity | undefined;
+    let requestedTone: ResponseTone | undefined;
+    const triggers: string[] = [];
+
+    // 1. Match language & dialect rules
     for (const rule of EXPLICIT_RULES) {
       const match = normalized.match(rule.regex);
       if (match) {
-        return {
-          detected: true,
-          requestedLanguage: rule.lang,
-          requestedDialect: rule.dialect,
-          rawTrigger: match[0],
-          scope,
-        };
+        requestedLanguage = rule.lang;
+        if (rule.dialect) {
+          requestedDialect = rule.dialect;
+        }
+        triggers.push(match[0]);
+        break;
       }
+    }
+
+    // 2. Match register rules
+    for (const rule of EXPLICIT_REGISTER_RULES) {
+      const match = normalized.match(rule.regex);
+      if (match) {
+        requestedRegister = rule.register;
+        triggers.push(match[0]);
+        break;
+      }
+    }
+
+    // 3. Match verbosity rules
+    for (const rule of EXPLICIT_VERBOSITY_RULES) {
+      const match = normalized.match(rule.regex);
+      if (match) {
+        requestedVerbosity = rule.verbosity;
+        triggers.push(match[0]);
+        break;
+      }
+    }
+
+    // 4. Match tone rules
+    for (const rule of EXPLICIT_TONE_RULES) {
+      const match = normalized.match(rule.regex);
+      if (match) {
+        requestedTone = rule.tone;
+        triggers.push(match[0]);
+        break;
+      }
+    }
+
+    if (
+      requestedLanguage ||
+      requestedDialect ||
+      requestedRegister ||
+      requestedVerbosity ||
+      requestedTone
+    ) {
+      return {
+        detected: true,
+        requestedLanguage,
+        requestedDialect,
+        requestedRegister,
+        requestedVerbosity,
+        requestedTone,
+        rawTrigger: triggers.join(', '),
+        scope,
+      };
     }
 
     return { detected: false };

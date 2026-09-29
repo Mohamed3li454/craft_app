@@ -18,6 +18,7 @@ const ALLOWED_TAG_KEYS = new Set([
   'stage',
   'strategy',
   'candidateType',
+  'intent',
 ]);
 
 const FORBIDDEN_TAG_KEYS = new Set([

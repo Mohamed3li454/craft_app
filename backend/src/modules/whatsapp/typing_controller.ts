@@ -58,15 +58,24 @@ export class WhatsAppTypingController {
   public refresh(): void {
     if (!this.messageId || this.stopped) return;
 
-    this.adapter
-      .sendTypingIndicator(this.messageId)
-      .catch((err: any) => {
-        logger.debug('[WhatsApp Typing] Failed to dispatch typing indicator', {
-          error: err?.message,
-          messageId: this.messageId,
-          correlationId: this.correlationId,
+    try {
+      if (typeof this.adapter?.sendTypingIndicator !== 'function') {
+        return;
+      }
+      this.adapter
+        .sendTypingIndicator(this.messageId)
+        .catch((err: any) => {
+          logger.debug('[WhatsApp Typing] Failed to dispatch typing indicator', {
+            error: err?.message,
+            messageId: this.messageId,
+            correlationId: this.correlationId,
+          });
         });
+    } catch (err: any) {
+      logger.debug('[WhatsApp Typing] Synchronous typing error ignored', {
+        error: err?.message,
       });
+    }
   }
 
   /**

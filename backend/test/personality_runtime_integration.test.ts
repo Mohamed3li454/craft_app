@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import { AgentOrchestrator, AgentRunInput } from '../src/modules/agent/orchestrator';
 import { GroqProvider } from '../src/modules/groq/groq.provider';
 import {
@@ -145,17 +146,17 @@ describe('Phase 3.3-A: Personality Runtime Integration', () => {
   describe('Test 5 — Strict Independence between Language and Personality', () => {
     it('maintains identical personality context across English, Arabic, and French requests', async () => {
       const enInput: AgentRunInput = {
-        userId: 'personality_lang_user_en',
+        userId: uuidv4(),
         channel: 'flutter',
         text: 'What is cloud computing?',
       };
       const arInput: AgentRunInput = {
-        userId: 'personality_lang_user_ar',
+        userId: uuidv4(),
         channel: 'flutter',
         text: 'ما هي الحوسبة السحابية؟',
       };
       const frInput: AgentRunInput = {
-        userId: 'personality_lang_user_fr',
+        userId: uuidv4(),
         channel: 'flutter',
         text: "Qu'est-ce que l'informatique en nuage ?",
       };

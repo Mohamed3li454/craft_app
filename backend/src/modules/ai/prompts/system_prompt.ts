@@ -56,28 +56,87 @@ export class SystemPromptBuilder {
 - Rule: You MUST formulate your response in natural, fluent Spanish.`;
       } else {
         // Arabic
-        if (languageContext.dialect === 'egyptian') {
+        const cleanDialect = languageContext.dialect ? languageContext.dialect.replace(/_ar$/, '') : undefined;
+        if (cleanDialect === 'egyptian') {
           toneAndLanguage = `Response Language & Style:
 - Language: Arabic
 - Dialect: Natural, friendly, and professional Egyptian Arabic (اللهجة المصرية العامية الراقية والمهنية).
 - Avoid excessive colloquial fillers like "يا باشا" or "يا هندسة".`;
-        } else if (languageContext.dialect === 'gulf') {
+        } else if (cleanDialect === 'gulf') {
           toneAndLanguage = `Response Language & Style:
 - Language: Arabic
 - Dialect: Gulf Arabic (اللهجة الخليجية البيضاء والمهنية).`;
-        } else if (languageContext.dialect === 'levantine') {
+        } else if (cleanDialect === 'levantine') {
           toneAndLanguage = `Response Language & Style:
 - Language: Arabic
 - Dialect: Levantine Arabic (اللهجة الشامية المهنية).`;
+        } else if (cleanDialect === 'maghrebi') {
+          toneAndLanguage = `Response Language & Style:
+- Language: Arabic
+- Dialect: Maghrebi Arabic (اللهجة المغاربية المهنية السلسة).`;
+        } else if (cleanDialect === 'iraqi') {
+          toneAndLanguage = `Response Language & Style:
+- Language: Arabic
+- Dialect: Iraqi Arabic (اللهجة العراقية المهنية السلسة).`;
+        } else if (cleanDialect === 'sudanese') {
+          toneAndLanguage = `Response Language & Style:
+- Language: Arabic
+- Dialect: Sudanese Arabic (اللهجة السودانية المهنية السلسة).`;
         } else {
           // Modern Standard Arabic
           toneAndLanguage = `Response Language & Style:
 - Language: Modern Standard Arabic (العربية الفصحى المعاصرة السلسة والواضحة).`;
         }
       }
+
+      // Adaptive Register
+      if (languageContext.register) {
+        if (languageContext.register === 'casual') {
+          toneAndLanguage += `\n- Register: Casual & Conversational (عامي سلس ومريح وغير متكلف).`;
+        } else if (languageContext.register === 'formal') {
+          toneAndLanguage += `\n- Register: Formal & Authoritative (أسلوب فصيح رسمي ووقور).`;
+        } else if (languageContext.register === 'professional') {
+          toneAndLanguage += `\n- Register: Professional & Courteous (أسلوب مهني احترافي واضح ومحترم).`;
+        }
+      }
+
+      // Adaptive Verbosity
+      if (languageContext.verbosity) {
+        if (languageContext.verbosity === 'concise') {
+          toneAndLanguage += `\n- Verbosity: Concise & Direct. Keep answers brief, crisp, and to the point without filler or long preamble.`;
+        } else if (languageContext.verbosity === 'detailed') {
+          toneAndLanguage += `\n- Verbosity: Detailed & Comprehensive. Provide thorough explanations, step-by-step guidance, and edge cases.`;
+        }
+      }
+
+      // Adaptive Response Tone
+      if (languageContext.tone) {
+        if (languageContext.tone === 'direct') {
+          toneAndLanguage += `\n- Tone: Direct & Focused. Deliver answers straight to the point.`;
+        } else if (languageContext.tone === 'warm') {
+          toneAndLanguage += `\n- Tone: Warm, cordial, and encouraging.`;
+        } else if (languageContext.tone === 'supportive') {
+          toneAndLanguage += `\n- Tone: Supportive, empathetic, and patient. Help the user calmly troubleshoot.`;
+        } else if (languageContext.tone === 'technical') {
+          toneAndLanguage += `\n- Tone: Deeply technical, rigorous, and precise.`;
+        }
+      }
+
+      // Technical Terminology Preservation (CRITICAL CLAUSE)
+      if (languageContext.targetLanguage === 'ar' || languageContext.codeSwitching?.preserveTechnicalTerms) {
+        const termsList = languageContext.codeSwitching?.preservedTerms?.length
+          ? languageContext.codeSwitching.preservedTerms.join(', ')
+          : undefined;
+
+        toneAndLanguage += `\n- Technical Terminology Preservation (STRICT):
+  * NEVER translate core technical identifiers, framework constructs, package names, programming languages, CLI commands, or file names into Arabic.
+  * Always preserve technical terms, frameworks, libraries, APIs, and tools in English${termsList ? ` (including: ${termsList})` : ''}.
+  * Keep all code blocks, class names, function names, and CLI commands strictly untranslated.`;
+      }
     } else {
       toneAndLanguage = `Response Language & Style:
-- Language: Arabic (Modern Standard Arabic or match the user's input language).`;
+- Language: Arabic (Modern Standard Arabic or match the user's input language).
+- Technical Terminology Preservation: Keep all programming terms, frameworks, and identifiers in English.`;
     }
 
     const effectivePersonality = personalityContext || PersonalityEngine.getInstance().getDefaultPersonality();

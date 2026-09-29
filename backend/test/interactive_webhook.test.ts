@@ -188,11 +188,23 @@ describe('WhatsApp Interactive Buttons & Confirmation Webhook', () => {
       status: () => ({ send: () => {} }),
       headersSent: false,
     };
+    const mockToken = 'token_interactive_456';
+    jest.spyOn(orchestrator, 'run').mockResolvedValueOnce({
+      replyText: 'هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:\n- العملية: إنشاء تذكير جديد',
+      status: 'waiting_for_confirmation',
+      confirmationRequest: {
+        token: mockToken,
+        actionName: 'create_reminder',
+      },
+      languageContext: { targetLanguage: 'ar' } as any,
+    } as any);
 
     await handler.handleIncoming(req, res);
 
     // Should call sendInteractiveButtons with Approve & Reject buttons
     expect(mockAdapter.sendInteractiveButtons).toHaveBeenCalledTimes(1);
+    const promptArg = (mockAdapter.sendInteractiveButtons as jest.Mock).mock.calls[0][1];
+    expect(promptArg).not.toContain(mockToken);
     const buttonsArg = (mockAdapter.sendInteractiveButtons as jest.Mock).mock.calls[0][2];
     expect(buttonsArg.length).toBe(2);
     expect(buttonsArg[0].id).toContain('conf_approve_');

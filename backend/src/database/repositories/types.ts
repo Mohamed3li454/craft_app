@@ -56,6 +56,19 @@ export interface WebhookEventEntity {
   receivedAt: Date;
 }
 
+export type ReminderState =
+  | 'scheduled'
+  | 'due'
+  | 'claimed'
+  | 'sending'
+  | 'sent'
+  | 'delivered'
+  | 'read'
+  | 'retry_pending'
+  | 'failed'
+  | 'dead_letter'
+  | 'cancelled';
+
 export interface ReminderEntity {
   id: string;
   userId: string;
@@ -63,6 +76,11 @@ export interface ReminderEntity {
   dueAt?: Date | null;
   recurrence?: 'none' | 'daily' | 'weekly' | 'monthly' | string;
   isCompleted: boolean;
+  state: ReminderState;
+  attempts: number;
+  lockedUntil?: Date | null;
+  lastError?: string | null;
+  wamid?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

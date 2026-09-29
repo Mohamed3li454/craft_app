@@ -1,11 +1,18 @@
 import { LocalLanguageDetector } from '../cache/language_detector';
 import { ExplicitInstructionDetector } from './explicit_instruction_detector';
+import { DialectDetector } from './dialect_detector';
+import { StyleDetector } from './style_detector';
 import {
   ArabicDialect,
+  CodeSwitchingInfo,
+  DialectSignal,
   LanguageContext,
   RecentMessageInput,
+  Register,
   ResolutionOptions,
+  ResponseTone,
   SupportedLanguage,
+  Verbosity,
 } from './types';
 
 // Common neutral conversational acknowledgement / short punctuation tokens
@@ -22,28 +29,11 @@ const SHORT_NEUTRAL_TOKENS = new Set([
   'حلو', 'كويس', 'يا هلا', 'صباح الخير', 'مساء الخير',
 ]);
 
-// Arabic dialect tokens for exact boundary checking
-const EGYPTIAN_DIALECT_TOKENS = [
-  'ازيك', 'عامل ايه', 'عاملين ايه', 'عاوز', 'عايز', 'دلوقتي', 'كده', 'ايه ده',
-  'فينك', 'معلش', 'بتاع', 'بتاعة', 'بتاعت', 'يا باشا', 'يا هندسه', 'يا فندم',
-  'مش كده', 'عشان', 'اكتر', 'برضه', 'خالص', 'انهارده', 'النهارده'
-];
-
-const GULF_DIALECT_TOKENS = [
-  'شلونك', 'شلونكم', 'وشلونك', 'ايش فيك', 'وش فيك', 'وينك', 'ابي', 'ابغي', 'ابغى',
-  'شنو', 'وايد', 'الحين', 'تكفي', 'تكفى', 'يا الغالي', 'عساك بخير'
-];
-
-const LEVANTINE_DIALECT_TOKENS = [
-  'كيفك', 'كيفكن', 'شو في', 'شو الاخبار', 'بدي', 'هيك', 'هلق', 'منيح', 'منيحه',
-  'كتير', 'عم احكي', 'يا زلمه', 'شو بدك'
-];
-
 // Key carrier stopwords used in code-switching analysis
 const ARABIC_CARRIER_TOKENS = new Set([
   'انا', 'محتاج', 'ممكن', 'شرح', 'عندي', 'بتاع', 'بتاعة', 'بتاعت', 'في', 'من', 'على',
   'عن', 'مع', 'ده', 'دي', 'ازاي', 'عايز', 'عاوز', 'ليه', 'عشان', 'علشان', 'كود', 'تطبيق',
-  'خطأ', 'مشكلة', 'سؤال', 'هو', 'هي', 'لو', 'هل', 'اللي', 'الي'
+  'خطأ', 'مشكلة', 'سؤال', 'هو', 'هي', 'لو', 'هل', 'اللي', 'الي', 'اعمل', 'بص'
 ]);
 
 const ENGLISH_CARRIER_TOKENS = new Set([
@@ -79,20 +69,27 @@ export class LanguageIntelligenceService {
   ): LanguageContext {
     const rawText = message ? message.trim() : '';
 
+    // Style analysis and Explicit Instruction Detection upfront
+    const explicit = rawText.length > 0 ? ExplicitInstructionDetector.detect(rawText) : undefined;
+    const styleAnalysis = StyleDetector.analyze(rawText);
+
     // =========================================================================
     // TIER 1: Explicit user language instruction
     // =========================================================================
-    if (rawText.length > 0) {
-      const explicit = ExplicitInstructionDetector.detect(rawText);
-      if (explicit.detected && explicit.requestedLanguage) {
-        return this.buildContext({
-          targetLanguage: explicit.requestedLanguage,
-          dialect: explicit.requestedDialect,
-          confidence: 0.98,
-          source: 'explicit_instruction',
-          explicitInstruction: explicit,
-        });
-      }
+    if (explicit && explicit.detected && explicit.requestedLanguage) {
+      return this.buildContext({
+        targetLanguage: explicit.requestedLanguage,
+        dialect: explicit.requestedDialect,
+        dialectConfidence: explicit.requestedDialect ? 0.98 : undefined,
+        register: explicit.requestedRegister || styleAnalysis.register,
+        verbosity: explicit.requestedVerbosity || styleAnalysis.verbosity,
+        tone: explicit.requestedTone || styleAnalysis.tone,
+        codeSwitching: styleAnalysis.codeSwitching,
+        confidence: 0.98,
+        source: 'explicit_instruction',
+        explicitInstruction: explicit,
+        rawText,
+      });
     }
 
     // =========================================================================
@@ -110,6 +107,12 @@ export class LanguageIntelligenceService {
           targetLanguage: recentLang,
           confidence: 0.85,
           source: 'recent_history',
+          explicitInstruction: explicit?.detected ? explicit : undefined,
+          register: styleAnalysis.register,
+          verbosity: styleAnalysis.verbosity,
+          tone: styleAnalysis.tone,
+          codeSwitching: styleAnalysis.codeSwitching,
+          rawText,
         });
       }
 
@@ -119,6 +122,12 @@ export class LanguageIntelligenceService {
           targetLanguage: options.conversationLanguage,
           confidence: 0.80,
           source: 'conversation_state',
+          explicitInstruction: explicit?.detected ? explicit : undefined,
+          register: styleAnalysis.register,
+          verbosity: styleAnalysis.verbosity,
+          tone: styleAnalysis.tone,
+          codeSwitching: styleAnalysis.codeSwitching,
+          rawText,
         });
       }
 
@@ -129,6 +138,12 @@ export class LanguageIntelligenceService {
           dialect: options.storedPreference.dialect,
           confidence: 0.75,
           source: 'stored_preference',
+          explicitInstruction: explicit?.detected ? explicit : undefined,
+          register: styleAnalysis.register,
+          verbosity: styleAnalysis.verbosity,
+          tone: styleAnalysis.tone,
+          codeSwitching: styleAnalysis.codeSwitching,
+          rawText,
         });
       }
     }
@@ -149,8 +164,16 @@ export class LanguageIntelligenceService {
             return this.buildContext({
               targetLanguage: resolution.language,
               dialect: resolution.dialect,
+              dialectSignal: resolution.dialectSignal,
+              dialectConfidence: resolution.dialectSignal?.confidence,
               confidence: resolution.confidence,
               source: 'current_message',
+              explicitInstruction: explicit?.detected ? explicit : undefined,
+              register: styleAnalysis.register,
+              verbosity: styleAnalysis.verbosity,
+              tone: styleAnalysis.tone,
+              codeSwitching: styleAnalysis.codeSwitching,
+              rawText,
             });
           }
 
@@ -162,6 +185,12 @@ export class LanguageIntelligenceService {
               targetLanguage: recentLang,
               confidence: 0.82,
               source: 'recent_history',
+              explicitInstruction: explicit?.detected ? explicit : undefined,
+              register: styleAnalysis.register,
+              verbosity: styleAnalysis.verbosity,
+              tone: styleAnalysis.tone,
+              codeSwitching: styleAnalysis.codeSwitching,
+              rawText,
             });
           }
 
@@ -170,6 +199,12 @@ export class LanguageIntelligenceService {
               targetLanguage: options.conversationLanguage,
               confidence: 0.78,
               source: 'conversation_state',
+              explicitInstruction: explicit?.detected ? explicit : undefined,
+              register: styleAnalysis.register,
+              verbosity: styleAnalysis.verbosity,
+              tone: styleAnalysis.tone,
+              codeSwitching: styleAnalysis.codeSwitching,
+              rawText,
             });
           }
 
@@ -177,8 +212,16 @@ export class LanguageIntelligenceService {
           return this.buildContext({
             targetLanguage: resolution.language,
             dialect: resolution.dialect,
+            dialectSignal: resolution.dialectSignal,
+            dialectConfidence: resolution.dialectSignal?.confidence,
             confidence: resolution.confidence,
             source: 'current_message',
+            explicitInstruction: explicit?.detected ? explicit : undefined,
+            register: styleAnalysis.register,
+            verbosity: styleAnalysis.verbosity,
+            tone: styleAnalysis.tone,
+            codeSwitching: styleAnalysis.codeSwitching,
+            rawText,
           });
         }
       }
@@ -193,6 +236,12 @@ export class LanguageIntelligenceService {
         targetLanguage: recentLang,
         confidence: 0.85,
         source: 'recent_history',
+        explicitInstruction: explicit?.detected ? explicit : undefined,
+        register: styleAnalysis.register,
+        verbosity: styleAnalysis.verbosity,
+        tone: styleAnalysis.tone,
+        codeSwitching: styleAnalysis.codeSwitching,
+        rawText,
       });
     }
 
@@ -204,6 +253,12 @@ export class LanguageIntelligenceService {
         targetLanguage: options.conversationLanguage,
         confidence: 0.80,
         source: 'conversation_state',
+        explicitInstruction: explicit?.detected ? explicit : undefined,
+        register: styleAnalysis.register,
+        verbosity: styleAnalysis.verbosity,
+        tone: styleAnalysis.tone,
+        codeSwitching: styleAnalysis.codeSwitching,
+        rawText,
       });
     }
 
@@ -216,6 +271,12 @@ export class LanguageIntelligenceService {
         dialect: options.storedPreference.dialect,
         confidence: 0.75,
         source: 'stored_preference',
+        explicitInstruction: explicit?.detected ? explicit : undefined,
+        register: styleAnalysis.register,
+        verbosity: styleAnalysis.verbosity,
+        tone: styleAnalysis.tone,
+        codeSwitching: styleAnalysis.codeSwitching,
+        rawText,
       });
     }
 
@@ -230,6 +291,12 @@ export class LanguageIntelligenceService {
       dialect: fallbackDialect,
       confidence: 0.50,
       source: 'neutral_fallback',
+      explicitInstruction: explicit?.detected ? explicit : undefined,
+      register: styleAnalysis.register,
+      verbosity: styleAnalysis.verbosity,
+      tone: styleAnalysis.tone,
+      codeSwitching: styleAnalysis.codeSwitching,
+      rawText,
     });
   }
 
@@ -239,7 +306,12 @@ export class LanguageIntelligenceService {
   private resolveCurrentMessageLanguage(
     text: string,
     charStats: { arabic: number; latin: number; totalAlpha: number }
-  ): { language: SupportedLanguage; dialect?: ArabicDialect; confidence: number } | null {
+  ): {
+    language: SupportedLanguage;
+    dialect?: ArabicDialect;
+    dialectSignal?: DialectSignal;
+    confidence: number;
+  } | null {
     const { arabic, latin, totalAlpha } = charStats;
 
     // Both scripts are present: Mixed Language / Code-switching
@@ -267,9 +339,14 @@ export class LanguageIntelligenceService {
 
       // If Arabic carrier words clearly dominate, it's Arabic with tech terms
       if (arabicCarrierScore > englishCarrierScore) {
+        const dialectSignal = DialectDetector.detect(text);
+        const dialect = dialectSignal.confidence >= 0.50 && dialectSignal.dialect !== 'unknown' && dialectSignal.dialect !== 'msa'
+          ? dialectSignal.dialect
+          : undefined;
         return {
           language: 'ar',
-          dialect: this.detectArabicDialect(text),
+          dialect,
+          dialectSignal,
           confidence: 0.85,
         };
       }
@@ -288,9 +365,18 @@ export class LanguageIntelligenceService {
       if (mixRatio >= 0.35 && normalizedWords.length <= 3) {
         // Borderline confidence to allow Tier 3/4 resolution
         const preliminaryLang = arabic >= latin ? 'ar' : 'en';
+        let dialect: ArabicDialect | undefined;
+        let dialectSignal: DialectSignal | undefined;
+        if (preliminaryLang === 'ar') {
+          dialectSignal = DialectDetector.detect(text);
+          dialect = dialectSignal.confidence >= 0.50 && dialectSignal.dialect !== 'unknown' && dialectSignal.dialect !== 'msa'
+            ? dialectSignal.dialect
+            : undefined;
+        }
         return {
           language: preliminaryLang,
-          dialect: preliminaryLang === 'ar' ? this.detectArabicDialect(text) : undefined,
+          dialect,
+          dialectSignal,
           confidence: 0.55,
         };
       }
@@ -302,12 +388,17 @@ export class LanguageIntelligenceService {
 
     if (supported) {
       let dialect: ArabicDialect | undefined;
+      let dialectSignal: DialectSignal | undefined;
       if (supported === 'ar') {
-        dialect = this.detectArabicDialect(text);
+        dialectSignal = DialectDetector.detect(text);
+        if (dialectSignal.confidence >= 0.50 && dialectSignal.dialect !== 'unknown' && dialectSignal.dialect !== 'msa') {
+          dialect = dialectSignal.dialect;
+        }
       }
       return {
         language: supported,
         dialect,
+        dialectSignal,
         confidence: detection.confidence,
       };
     }
@@ -416,41 +507,11 @@ export class LanguageIntelligenceService {
   }
 
   /**
-   * Detects Arabic dialects from lexical tokens using padded boundary matching
+   * Detects Arabic dialects from lexical tokens using DialectDetector
    */
-  private detectArabicDialect(text: string): ArabicDialect | undefined {
-    if (!text) return undefined;
-
-    const normalized = text
-      .toLowerCase()
-      .replace(/[أإآ]/g, 'ا')
-      .replace(/ة/g, 'ه')
-      .replace(/ى/g, 'ي')
-      .replace(/[.,/#!$%^&*;:{}=\-_`~()?"'؟،!]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    const padded = ` ${normalized} `;
-
-    for (const token of EGYPTIAN_DIALECT_TOKENS) {
-      if (padded.includes(` ${token} `)) {
-        return 'egyptian';
-      }
-    }
-
-    for (const token of GULF_DIALECT_TOKENS) {
-      if (padded.includes(` ${token} `)) {
-        return 'gulf';
-      }
-    }
-
-    for (const token of LEVANTINE_DIALECT_TOKENS) {
-      if (padded.includes(` ${token} `)) {
-        return 'levantine';
-      }
-    }
-
-    return undefined;
+  public detectArabicDialect(text: string): ArabicDialect | undefined {
+    const signal = DialectDetector.detect(text);
+    return signal.confidence >= 0.50 && signal.dialect !== 'unknown' && signal.dialect !== 'msa' ? signal.dialect : undefined;
   }
 
   /**
@@ -492,28 +553,91 @@ export class LanguageIntelligenceService {
   }
 
   /**
-   * Constructs the LanguageContext object with locale and textDirection
+   * Constructs the LanguageContext object with locale, textDirection,
+   * dialectSignal, register, verbosity, and tone.
    */
   private buildContext(params: {
     targetLanguage: SupportedLanguage;
     dialect?: ArabicDialect;
+    dialectSignal?: DialectSignal;
+    dialectConfidence?: number;
+    register?: Register;
+    verbosity?: Verbosity;
+    tone?: ResponseTone;
+    codeSwitching?: CodeSwitchingInfo;
     confidence: number;
     source: LanguageContext['source'];
     explicitInstruction?: LanguageContext['explicitInstruction'];
+    rawText?: string;
   }): LanguageContext {
-    const { targetLanguage, dialect, confidence, source, explicitInstruction } = params;
+    const {
+      targetLanguage,
+      dialect,
+      dialectSignal: inputDialectSignal,
+      dialectConfidence,
+      register,
+      verbosity,
+      tone,
+      codeSwitching,
+      confidence,
+      source,
+      explicitInstruction,
+      rawText,
+    } = params;
+
+    // Determine dialect signal if not explicitly provided
+    let dialectSignal = inputDialectSignal;
+    if (!dialectSignal && targetLanguage === 'ar') {
+      if (rawText) {
+        dialectSignal = DialectDetector.detect(rawText);
+      } else if (dialect) {
+        dialectSignal = {
+          dialect,
+          confidence: dialectConfidence ?? 0.85,
+          confidenceBucket: (dialectConfidence ?? 0.85) >= 0.75 ? 'high' : 'medium',
+          evidenceTags: ['inferred_from_context'],
+        };
+      }
+    }
+
+    let finalDialect = dialect;
+    if (
+      !finalDialect &&
+      dialectSignal &&
+      dialectSignal.confidence >= 0.50 &&
+      dialectSignal.dialect !== 'unknown' &&
+      dialectSignal.dialect !== 'msa'
+    ) {
+      finalDialect = dialectSignal.dialect;
+    }
+    if (explicitInstruction?.requestedDialect === 'msa') {
+      finalDialect = 'msa';
+    }
+    const finalDialectConfidence = dialectConfidence ?? dialectSignal?.confidence;
+
+    // Effective register, verbosity, and tone (Explicit instructions override detected style)
+    const effectiveRegister: Register = explicitInstruction?.requestedRegister || register || 'neutral';
+    const effectiveVerbosity: Verbosity = explicitInstruction?.requestedVerbosity || verbosity || 'balanced';
+    const effectiveTone: ResponseTone = explicitInstruction?.requestedTone || tone || 'professional';
 
     let locale: string;
     let textDirection: 'ltr' | 'rtl';
 
     if (targetLanguage === 'ar') {
       textDirection = 'rtl';
-      if (dialect === 'egyptian') {
+      const cleanDialect = finalDialect ? finalDialect.replace(/_ar$/, '') : undefined;
+      if (cleanDialect === 'egyptian') {
         locale = 'ar-EG';
-      } else if (dialect === 'gulf') {
+      } else if (cleanDialect === 'gulf') {
         locale = 'ar-SA';
-      } else if (dialect === 'levantine') {
+      } else if (cleanDialect === 'levantine') {
         locale = 'ar-LB';
+      } else if (cleanDialect === 'maghrebi') {
+        locale = 'ar-MA';
+      } else if (cleanDialect === 'iraqi') {
+        locale = 'ar-IQ';
+      } else if (cleanDialect === 'sudanese') {
+        locale = 'ar-SD';
       } else {
         locale = 'ar'; // Neutral Standard Arabic
       }
@@ -539,7 +663,14 @@ export class LanguageIntelligenceService {
 
     return {
       targetLanguage,
-      dialect,
+      language: targetLanguage,
+      dialect: finalDialect,
+      dialectSignal,
+      dialectConfidence: finalDialectConfidence,
+      register: effectiveRegister,
+      verbosity: effectiveVerbosity,
+      tone: effectiveTone,
+      codeSwitching,
       confidence: Number(confidence.toFixed(2)),
       source,
       explicitInstruction,

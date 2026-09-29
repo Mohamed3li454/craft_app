@@ -461,7 +461,7 @@ describe('Phase 8.2: Tool Intelligence & Safety Lifecycle', () => {
       expect(notice).toContain('إنشاء تذكير جديد');
       expect(notice).toContain('مراجعة الميزانية');
       expect(notice).toContain('أسبوعياً 🔄');
-      expect(notice).toContain('CONF-9876');
+      expect(notice).not.toContain('CONF-9876');
     });
 
     it('formats English confirmation notice for generic sensitive tool', () => {
@@ -475,7 +475,7 @@ describe('Phase 8.2: Tool Intelligence & Safety Lifecycle', () => {
 
       expect(notice).toContain('This action requires your confirmation to proceed');
       expect(notice).toContain('system_reboot');
-      expect(notice).toContain('TOKEN-1234');
+      expect(notice).not.toContain('TOKEN-1234');
     });
 
     it('builds direct synthesis prompt for web_search without technical leaking', () => {

@@ -298,9 +298,16 @@ describe('Phase 8.4: Multi-Provider AI Abstraction & Resilient Routing', () => {
   // =========================================================================
   describe('Circuit Breaker Mechanics', () => {
     let cb: CircuitBreaker;
+    let simulatedTime: number;
 
     beforeEach(() => {
+      simulatedTime = 1_000_000;
+      jest.spyOn(Date, 'now').mockImplementation(() => simulatedTime);
       cb = new CircuitBreaker('test-provider', { failureThreshold: 3, cooldownMs: 100 });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
     });
 
     it('Scenario 19: Circuit breaker starts in closed state and allows execution', () => {
@@ -343,25 +350,25 @@ describe('Phase 8.4: Multi-Provider AI Abstraction & Resilient Routing', () => {
       ).rejects.toThrow('circuit breaker is OPEN');
     });
 
-    it('Scenario 23: After cooldown period, circuit breaker transitions to half-open allowing a probe request', async () => {
+    it('Scenario 23: After cooldown period, circuit breaker transitions to half-open allowing a probe request', () => {
       cb.recordFailure(true);
       cb.recordFailure(true);
       cb.recordFailure(true);
       expect(cb.getState()).toBe('open');
 
-      // Wait for cooldown (100ms)
-      await new Promise((r) => setTimeout(r, 110));
+      // Advance controlled clock past cooldown (100ms)
+      simulatedTime += 150;
 
       expect(cb.getState()).toBe('half-open');
       expect(cb.canExecute()).toBe(true);
       expect(cb.getHealth().status).toBe('degraded');
     });
 
-    it('Scenario 24: Successful probe in half-open state recovers circuit breaker back to closed', async () => {
+    it('Scenario 24: Successful probe in half-open state recovers circuit breaker back to closed', () => {
       cb.recordFailure(true);
       cb.recordFailure(true);
       cb.recordFailure(true);
-      await new Promise((r) => setTimeout(r, 110));
+      simulatedTime += 150;
 
       expect(cb.getState()).toBe('half-open');
       cb.recordSuccess();
@@ -371,11 +378,11 @@ describe('Phase 8.4: Multi-Provider AI Abstraction & Resilient Routing', () => {
       expect(cb.getHealth().status).toBe('healthy');
     });
 
-    it('Scenario 25: Failed probe in half-open state trips circuit breaker back to open', async () => {
+    it('Scenario 25: Failed probe in half-open state trips circuit breaker back to open', () => {
       cb.recordFailure(true);
       cb.recordFailure(true);
       cb.recordFailure(true);
-      await new Promise((r) => setTimeout(r, 110));
+      simulatedTime += 150;
 
       expect(cb.getState()).toBe('half-open');
       cb.recordFailure(true);

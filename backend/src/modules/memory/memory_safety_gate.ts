@@ -137,7 +137,7 @@ export class MemorySafetyGate {
       // English: "my password is ...", "the password is ...", "password: ...", "passcode is ...", "old password was ..."
       /\b(?:my\s+|the\s+)?(?:old\s+|new\s+)?(?:password|passwd|passcode|secret_key|client_secret|app_secret)\s*(?:is|are|was|=|:)\s*\S+/i.test(text) ||
       // Arabic: "كلمة السر بتاعتي ...", "الباسورد بتاعي ...", "كلمة المرور هي ...", "باسوردي هو ...", "باسورد قديم: ..."
-      /(?:كلمة المرور|كلمة السر|الباسورد|باسورد|الرقم السري|رمز المرور|المفتاح السري|باسوردي)\s*(?:الخاصة بي|بتاعتي|بتاعي|حقي|تبعنا|القديم|الجديد|قديم|جديد)?\s*(?:هي|هو|كان|is|:|=|:)\s*\S+/i.test(text) ||
+      /(?:كلمة المرور|كلمة السر|الباسورد|باسورد|الرقم السري|رمز المرور|المفتاح السري|باسوردي)\s*(?:الخاصة\s+(?:به|بها|بي|بهم)|بتاعت[^\s]+|بتاع[^\s]+|حقي|تبعنا|القديم|الجديد|قديم|جديد)?\s*(?:هي|هو|كان|is|:|=|:)\s*\S+/i.test(text) ||
       /\b(?:password|passwd|passcode)\s*[:=]\s*\S+/i.test(text)
     ) {
       return true;

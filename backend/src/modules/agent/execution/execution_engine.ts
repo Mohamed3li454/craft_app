@@ -12,6 +12,8 @@
 import { logger } from '../../../core/logger';
 import { GroqProvider, GroqMessage } from '../../groq/groq.provider';
 import { ToolResultFormatter } from '../../tools/adapters/tool_result_formatter';
+import { SearchFallbackFormatter } from '../../tools/adapters/search_fallback_formatter';
+import { redactSecrets } from '../../tools/contracts/error.types';
 import {
   AIRouter,
   AIMessage,
@@ -19,6 +21,7 @@ import {
   SystemPromptBuilder,
   ProviderRegistry,
   GroqAIProvider,
+  AIProviderError,
 } from '../../ai';
 import {
   AgentExecutionState,
@@ -411,9 +414,52 @@ export class ExecutionEngine {
       const text = typeof synthesisRes.message.content === 'string'
         ? synthesisRes.message.content.trim()
         : '';
-      return text;
+
+      if (text.length > 0) {
+        return text;
+      }
+
+      throw new AIProviderError({
+        providerId: (synthesisRes as any)?.providerId || 'groq',
+        category: 'malformed_response',
+        message: 'Synthesis model returned empty response content',
+        retryable: false,
+      });
     } catch (err: any) {
-      logger.error('Failed to generate final synthesis in ExecutionEngine', { error: err.message });
+      const category = err instanceof AIProviderError ? err.category : (err?.category || 'unknown');
+      const providerId = err instanceof AIProviderError ? err.providerId : (err?.providerId || 'groq');
+
+      logger.warn('AI Router synthesis failed in ExecutionEngine, evaluating fallback recovery', {
+        category,
+        providerId,
+        error: redactSecrets(err?.message || 'Unknown synthesis failure'),
+      });
+
+      // Zero-Loss Requirement: Check if state contains successful web_search results
+      const searchStep = [...state.steps]
+        .reverse()
+        .find((s) => s.toolName === 'web_search' && s.status === 'succeeded');
+
+      if (searchStep && (searchStep.result || searchStep.serializedResult)) {
+        MetricsCollector.getInstance().increment('craft.search.deterministic_fallback_invoked', 1, {
+          reason: category,
+          provider: providerId,
+        });
+
+        const fallbackReply = SearchFallbackFormatter.format(
+          searchStep.result || searchStep.serializedResult,
+          context.languageContext
+        );
+
+        if (fallbackReply && fallbackReply.trim().length > 0) {
+          logger.info('Successfully generated deterministic search fallback reply after synthesis failure');
+          return fallbackReply;
+        }
+      }
+
+      logger.error('Failed to generate final synthesis in ExecutionEngine and no search fallback available', {
+        error: redactSecrets(err?.message || 'Unknown error'),
+      });
       return isEnglish
         ? 'Your request was processed, but an error occurred while summarizing the results.'
         : 'تمت معالجة طلبك، ولكن حدث خطأ أثناء تلخيص النتائج النهائية.';

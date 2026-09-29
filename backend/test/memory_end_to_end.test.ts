@@ -9,6 +9,7 @@
  * Uses deterministic test-only seams with zero network calls and zero real AI API calls.
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import { AgentOrchestrator } from '../src/modules/agent/orchestrator';
 import { MemoryRepository } from '../src/database/repositories/memory.repo';
 import { UserPreferenceRepository } from '../src/database/repositories/user_preference.repo';
@@ -18,6 +19,9 @@ import { PersonalityContext } from '../src/modules/personality';
 import { MemorySafetyGate } from '../src/modules/memory/memory_safety_gate';
 import { MemoryCandidateExtractor } from '../src/modules/memory/memory_extractor';
 import { SemanticCacheEngine } from '../src/modules/cache/semantic_cache_engine';
+import { SystemPromptBuilder } from '../src/modules/ai';
+import { ProviderRegistry } from '../src/modules/ai/provider_registry';
+import { GroqAIProvider } from '../src/modules/ai/providers/groq/provider';
 
 /**
  * Deterministic Test-Only Seam for GroqProvider.
@@ -36,6 +40,23 @@ class TestGroqProvider extends GroqProvider {
     this.callCount = 0;
   }
 
+  public override generateMockResponse(
+    messages: GroqMessage[],
+    memories?: string[],
+    hasImage = false,
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext
+  ): GroqMessageResponse {
+    this.callCount++;
+    return super.generateMockResponse(
+      messages,
+      memories,
+      hasImage,
+      languageContext,
+      personalityContext
+    );
+  }
+
   public override async generateReply(
     messages: GroqMessage[],
     useTools = true,
@@ -44,7 +65,6 @@ class TestGroqProvider extends GroqProvider {
     languageContext?: LanguageContext,
     personalityContext?: PersonalityContext
   ): Promise<GroqMessageResponse> {
-    this.callCount++;
     this.lastCapturedMemories = memories ? [...memories] : undefined;
     this.lastCapturedMessages = [...messages];
     this.lastCapturedSystemPrompt = this.getSystemInstruction(
@@ -90,13 +110,28 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
       undefined,
       userPrefRepo
     );
+
+    ProviderRegistry.getInstance().registerProvider(new GroqAIProvider(testGroqProvider));
+
+    const origBuild = SystemPromptBuilder.buildSystemInstruction;
+    jest.spyOn(SystemPromptBuilder, 'buildSystemInstruction').mockImplementation((memories, langCtx, persCtx, ...rest) => {
+      const prompt = origBuild.call(SystemPromptBuilder, memories, langCtx, persCtx, ...rest);
+      testGroqProvider.lastCapturedMemories = memories && memories.length > 0 ? [...memories] : undefined;
+      testGroqProvider.lastCapturedSystemPrompt = prompt;
+      return prompt;
+    });
+  });
+
+  afterEach(() => {
+    ProviderRegistry.getInstance().registerProvider(new GroqAIProvider());
+    jest.restoreAllMocks();
   });
 
   // =========================================================================
   // 1. Scenario A — Safe Persistent Memory Flow
   // =========================================================================
   test('1. Scenario A: safe extraction -> storage -> selective retrieval -> prompt insertion', async () => {
-    const userId = 'user_e2e_scen_a_' + Date.now();
+    const userId = uuidv4();
 
     // 1. User introduces himself as a Flutter developer
     const run1 = await orchestrator.run({
@@ -147,7 +182,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 2. Scenario B — Language Preference Isolation
   // =========================================================================
   test('2. Scenario B: language preference is routed to user_preferences and never memory_items', async () => {
-    const userId = 'user_e2e_scen_b_lang_' + Date.now();
+    const userId = uuidv4();
 
     const run = await orchestrator.run({
       userId,
@@ -182,7 +217,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 3. Scenario B — Personality Preference Isolation
   // =========================================================================
   test('3. Scenario B: personality preference is routed to user_preferences and never memory_items', async () => {
-    const userId = 'user_e2e_scen_b_pers_' + Date.now();
+    const userId = uuidv4();
 
     const run = await orchestrator.run({
       userId,
@@ -216,7 +251,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 4. Scenario C — Sensitive Secrets Blocked End-to-End
   // =========================================================================
   test('4. Scenario C: sensitive passwords, API keys, and OTPs are blocked from storage and prompt', async () => {
-    const userId = 'user_e2e_scen_c_sec_' + Date.now();
+    const userId = uuidv4();
 
     // Attempt to inject password
     await orchestrator.run({
@@ -254,7 +289,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 5. Scenario C — Health and Medical Data Blocked End-to-End
   // =========================================================================
   test('5. Scenario C: health and medical data are blocked by safety gate and never reach prompt', async () => {
-    const userId = 'user_e2e_scen_c_health_' + Date.now();
+    const userId = uuidv4();
 
     await orchestrator.run({
       userId,
@@ -281,7 +316,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 6. Scenario D — Conflict Resolution End-to-End
   // =========================================================================
   test('6. Scenario D: conflict resolution marks old fact superseded and only active fact reaches prompt', async () => {
-    const userId = 'user_e2e_scen_d_' + Date.now();
+    const userId = uuidv4();
 
     // 1. Save initial mobile framework preference
     await memoryRepo.saveFact(
@@ -329,7 +364,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 7. Scenario E — Deduplication End-to-End
   // =========================================================================
   test('7. Scenario E: exact and semantic duplicates are prevented from creating extra rows', async () => {
-    const userId = 'user_e2e_scen_e_' + Date.now();
+    const userId = uuidv4();
 
     // Exact insertion
     await memoryRepo.saveFact(userId, 'المستخدم يعمل كمطور Flutter', 'profession');
@@ -346,7 +381,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 8. Scenario F — Lifecycle End-to-End (Active vs Superseded vs Expired)
   // =========================================================================
   test('8. Scenario F: active memories are eligible, superseded and expired are strictly excluded', async () => {
-    const userId = 'user_e2e_scen_f_' + Date.now();
+    const userId = uuidv4();
 
     // Active fact
     await memoryRepo.saveFact(userId, 'المستخدم يفضل لغة Dart', 'technical_preference');
@@ -397,7 +432,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 9. Scenario G — Irrelevant Memory Exclusion
   // =========================================================================
   test('9. Scenario G: irrelevant active memories are strictly excluded from prompt', async () => {
-    const userId = 'user_e2e_scen_g_' + Date.now();
+    const userId = uuidv4();
 
     await memoryRepo.saveFact(userId, 'المستخدم يعمل كمطور Flutter', 'profession');
     await memoryRepo.saveFact(userId, 'المستخدم يعيش في القاهرة', 'stable_fact');
@@ -423,7 +458,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 10. Scenario G — Generic "تطبيق" False-Positive Prevention
   // =========================================================================
   test('10. Scenario G: generic "تطبيق" without technical anchor does NOT select profession memory', async () => {
-    const userId = 'user_e2e_generic_app_' + Date.now();
+    const userId = uuidv4();
 
     await memoryRepo.saveFact(userId, 'المستخدم يعمل كمطور Flutter', 'profession');
 
@@ -446,7 +481,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 11. Scenario G — Technical "Flutter" & Programming Anchors Retrieval
   // =========================================================================
   test('11. Scenario G: explicit technical anchors successfully select relevant memory', async () => {
-    const userId = 'user_e2e_tech_anchors_' + Date.now();
+    const userId = uuidv4();
 
     await memoryRepo.saveFact(userId, 'المستخدم يعمل كمطور Flutter', 'profession');
 
@@ -475,7 +510,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 12. Zero-Memory Prompt Path Verification
   // =========================================================================
   test('12. Zero-Memory Path: final AI prompt completely omits Stored User Profile section', async () => {
-    const userId = 'user_e2e_zero_mem_' + Date.now();
+    const userId = uuidv4();
 
     testGroqProvider.resetCapture();
 
@@ -495,7 +530,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 13. Final Prompt Contains Selected Memories Only
   // =========================================================================
   test('13. Final Prompt: contains strictly the selected memories and none of the unselected candidates', async () => {
-    const userId = 'user_e2e_selected_only_' + Date.now();
+    const userId = uuidv4();
 
     // Seed 5 active memories
     await memoryRepo.saveFact(userId, 'المستخدم يعمل كمطور Flutter', 'profession');
@@ -528,7 +563,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 14. Superseded and Expired Memory NEVER Reaches Prompt
   // =========================================================================
   test('14. Superseded and Expired memories NEVER reach the final AI prompt under any circumstance', async () => {
-    const userId = 'user_e2e_never_reach_' + Date.now();
+    const userId = uuidv4();
 
     // 1. Superseded item
     const item1 = await memoryRepo.saveFact(userId, 'المستخدم مبرمج بايثون سابقاً', 'profession');
@@ -561,7 +596,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 15. Semantic Cache Interaction
   // =========================================================================
   test('15. Semantic Cache Interaction: cache hit returns immediately without invoking LLM or AI generation', async () => {
-    const userId = 'user_e2e_cache_' + Date.now();
+    const userId = uuidv4();
 
     // Seed a memory to ensure presence
     await memoryRepo.saveFact(userId, 'المستخدم يعمل كمطور Flutter', 'profession');
@@ -601,7 +636,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 16. Language Interaction Priority
   // =========================================================================
   test('16. Language Interaction Priority: stored Arabic preference does not override explicit English message', async () => {
-    const userId = 'user_e2e_lang_prio_' + Date.now();
+    const userId = uuidv4();
 
     // Store Arabic preference
     await userPrefRepo.setLanguagePreference(userId, {
@@ -628,7 +663,7 @@ describe('Phase 4.7: End-to-End Memory Architecture Verification', () => {
   // 17. Security Defense-in-Depth Audit
   // =========================================================================
   test('17. Security Audit: passwords, credit cards, tokens, CVVs, IBANs, and health data fail at all levels', async () => {
-    const userId = 'user_e2e_sec_audit_' + Date.now();
+    const userId = uuidv4();
     const safetyGate = MemorySafetyGate.getInstance();
     const extractor = MemoryCandidateExtractor.getInstance();
 

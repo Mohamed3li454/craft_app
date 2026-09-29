@@ -6,8 +6,39 @@
  */
 
 export type SupportedLanguage = 'ar' | 'en' | 'fr' | 'es' | 'de';
+export type LanguageCode = SupportedLanguage | 'it' | 'pt' | 'tr' | 'other';
 
-export type ArabicDialect = 'egyptian' | 'msa' | 'gulf' | 'levantine';
+export type Dialect =
+  | 'egyptian_ar'
+  | 'gulf_ar'
+  | 'levantine_ar'
+  | 'maghrebi_ar'
+  | 'iraqi_ar'
+  | 'sudanese_ar'
+  | 'msa_ar'
+  | 'msa'
+  | 'unknown';
+
+export type ArabicDialect =
+  | 'egyptian'
+  | 'msa'
+  | 'gulf'
+  | 'levantine'
+  | 'maghrebi'
+  | 'iraqi'
+  | 'sudanese'
+  | 'unknown'
+  | 'egyptian_ar'
+  | 'gulf_ar'
+  | 'levantine_ar'
+  | 'maghrebi_ar'
+  | 'iraqi_ar'
+  | 'sudanese_ar'
+  | 'msa_ar';
+
+export type Register = 'casual' | 'neutral' | 'professional' | 'formal';
+export type Verbosity = 'concise' | 'balanced' | 'detailed';
+export type ResponseTone = 'direct' | 'warm' | 'professional' | 'supportive' | 'technical';
 
 export type ResolutionSource =
   | 'explicit_instruction' // Tier 1: Direct user command (e.g., "كلمني بالإنجليزي", "Speak English")
@@ -19,17 +50,42 @@ export type ResolutionSource =
 
 export type InstructionScope = 'turn' | 'persistent';
 
+export interface DialectSignal {
+  dialect: ArabicDialect;
+  confidence: number;
+  confidenceBucket: 'high' | 'medium' | 'low';
+  evidenceTags: string[]; // low-cardinality, privacy-safe tokens e.g. ['eg_lexical', 'eg_future_ha'], NEVER raw text or PII!
+}
+
+export interface CodeSwitchingInfo {
+  isCodeSwitching: boolean;
+  primaryLanguage: SupportedLanguage;
+  secondaryLanguage?: SupportedLanguage;
+  preservedTerms?: string[];
+  preserveTechnicalTerms: boolean;
+}
+
 export interface ExplicitInstructionInfo {
   detected: boolean;
   requestedLanguage?: SupportedLanguage;
   requestedDialect?: ArabicDialect;
+  requestedRegister?: Register;
+  requestedVerbosity?: Verbosity;
+  requestedTone?: ResponseTone;
   rawTrigger?: string;
   scope?: InstructionScope; // 'turn' = only for this single turn ("في الرسالة دي بس"), 'persistent' = for conversation
 }
 
 export interface LanguageContext {
   targetLanguage: SupportedLanguage;
+  language?: SupportedLanguage; // convenient alias for targetLanguage
   dialect?: ArabicDialect;
+  dialectSignal?: DialectSignal;
+  dialectConfidence?: number;
+  register?: Register;
+  verbosity?: Verbosity;
+  tone?: ResponseTone;
+  codeSwitching?: CodeSwitchingInfo;
   confidence: number;
   source: ResolutionSource;
   explicitInstruction?: ExplicitInstructionInfo;
@@ -75,3 +131,28 @@ export interface ResolutionOptions {
     dialect?: ArabicDialect;
   };
 }
+
+/**
+ * Normalizes an Arabic dialect string to a canonical legacy code ('egyptian', 'gulf', etc.)
+ */
+export function toCanonicalDialect(dialect?: ArabicDialect | string): ArabicDialect | undefined {
+  if (!dialect) return undefined;
+  const clean = dialect.toLowerCase().replace(/_ar$/, '').trim();
+  if (['egyptian', 'msa', 'gulf', 'levantine', 'maghrebi', 'iraqi', 'sudanese', 'unknown'].includes(clean)) {
+    return clean as ArabicDialect;
+  }
+  return undefined;
+}
+
+/**
+ * Normalizes an Arabic dialect string to the expanded Dialect format with `_ar` suffix
+ */
+export function toDialectCode(dialect?: ArabicDialect | string): Dialect | undefined {
+  if (!dialect) return undefined;
+  const canonical = toCanonicalDialect(dialect);
+  if (!canonical || canonical === 'unknown' || canonical === 'msa') {
+    return canonical as Dialect;
+  }
+  return `${canonical}_ar` as Dialect;
+}
+

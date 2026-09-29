@@ -7,10 +7,12 @@
 
 import { LanguageContext } from '../../language/types';
 import { parseDueAt } from '../../../database/repositories/reminder.repo';
+import { SearchFallbackFormatter } from './search_fallback_formatter';
 
 export class ToolResultFormatter {
   /**
    * Formats the prompt notice displayed to the user when a sensitive tool requires confirmation.
+   * Note: The internal confirmation token is NEVER rendered in user-facing text.
    */
   public static formatConfirmationNotice(
     toolName: string,
@@ -19,7 +21,7 @@ export class ToolResultFormatter {
     languageContext?: LanguageContext
   ): string {
     const isEnglish = languageContext?.targetLanguage === 'en';
-    let promptDetails = JSON.stringify(args);
+    let promptDetails = '';
 
     if (toolName === 'create_reminder') {
       const parsedTime = parseDueAt(args.time);
@@ -58,17 +60,40 @@ export class ToolResultFormatter {
       promptDetails = isEnglish
         ? `Title: "${args.title || 'Untitled'}" | Time: ${formattedTime}${recurrenceLabel}`
         : `الموضوع: "${args.title || 'بدون عنوان'}" | الموعد: ${formattedTime}${recurrenceLabel}`;
+    } else {
+      const INTERNAL_KEYS = new Set([
+        'token', 'confirmationtoken', 'internalid', 'id', 'uuid', 'secret',
+        'key', 'apikey', 'userid', 'conversationid', 'agentrunid', '_score', 'timestamp'
+      ]);
+      const safeEntries = Object.entries(args || {}).filter(
+        ([k, v]) => !INTERNAL_KEYS.has(k.toLowerCase()) && v !== undefined && v !== null
+      );
+      promptDetails = safeEntries.length > 0
+        ? safeEntries.map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' | ')
+        : (isEnglish ? 'Standard operation' : 'إجراء قياسي');
     }
+
+    const actionLabel = toolName === 'create_reminder'
+      ? (isEnglish ? 'Create new reminder' : 'إنشاء تذكير جديد')
+      : toolName;
 
     return isEnglish
       ? `This action requires your confirmation to proceed:
-- Action: ${toolName === 'create_reminder' ? 'Create new reminder' : toolName}
-- Details: ${promptDetails}
-Please confirm using code: ${confirmationToken}`
+- Action: ${actionLabel}
+- Details: ${promptDetails}`
       : `هذا الإجراء يتطلب تأكيدك الصريح للمتابعة:
-- العملية: ${toolName === 'create_reminder' ? 'إنشاء تذكير جديد' : toolName}
-- التفاصيل: ${promptDetails}
-يرجى التأكيد باستخدام الرمز: ${confirmationToken}`;
+- العملية: ${actionLabel}
+- التفاصيل: ${promptDetails}`;
+  }
+
+  /**
+   * Formats raw search execution results into a clean, deterministic WhatsApp fallback response.
+   */
+  public static formatDeterministicSearchFallback(
+    rawResult: any,
+    languageContext?: LanguageContext
+  ): string {
+    return SearchFallbackFormatter.format(rawResult, languageContext);
   }
 
   /**

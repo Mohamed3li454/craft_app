@@ -3,11 +3,32 @@ import { AgentTool, ToolContext, ToolExecutionResult, ToolMetadata } from '../to
 import { config } from '../../../config/env';
 import { logger } from '../../../core/logger';
 import { LanguageContext } from '../../language/types';
+import { MetricsCollector } from '../../observability/metrics';
+import {
+  NormalizedSearchResult,
+  SearchIntent,
+  SearchQueryPlan,
+} from '../search/search.types';
+import { SearchIntentClassifier } from '../search/search_intent_classifier';
+import { SearchQueryPlanner } from '../search/search_query_planner';
+import { SearchDeduplicator } from '../search/search_deduplicator';
+import { SearchRanker } from '../search/search_ranker';
+import { SearchRefiner } from '../search/search_refiner';
 
 export interface SearchResultItem {
   title: string;
   snippet: string;
   url?: string;
+  sourceDomain?: string;
+  sourceName?: string;
+  publishedAt?: string;
+  publishedTimestamp?: number;
+  relevanceScore?: number;
+  freshnessScore?: number;
+  sourceQualityScore?: number;
+  entityMatchScore?: number;
+  finalScore?: number;
+  isHistoricalProtected?: boolean;
 }
 
 const searchSchema = z
@@ -66,22 +87,34 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
     args: SearchArgs,
     context: ToolContext
   ): Promise<ToolExecutionResult> {
-    const query = (args.query || '').trim();
-    if (!query) {
+    const rawQuery = (args.query || '').trim();
+    if (!rawQuery) {
       return { success: false, error: 'Empty search query' };
     }
+
+    const startTime = Date.now();
+
+    // 1. Deterministic Query Planning & Intent Classification (Phase 9.3)
+    const plan = SearchQueryPlanner.plan(rawQuery, context?.languageContext);
+
+    // Emit low-cardinality telemetry
+    MetricsCollector.getInstance().increment('craft.search.intent', 1, { intent: plan.intent });
 
     // Deterministic mock return for CI / unit test runs
     if (config.groq.isMockMode) {
       return {
         success: true,
         output: {
-          query,
+          query: rawQuery,
+          intent: plan.intent,
           results: [
             {
-              title: `أحدث التفاصيل والأخبار المؤكدة بخصوص: ${query}`,
-              snippet: `نتائج بحث حية توضح المواصفات والتسريبات الحالية لـ ${query}.`,
+              title: `أحدث التفاصيل والأخبار المؤكدة بخصوص: ${rawQuery}`,
+              snippet: `نتائج بحث حية توضح المواصفات والتسريبات الحالية لـ ${rawQuery}.`,
               url: 'https://news.google.com',
+              sourceDomain: 'news.google.com',
+              relevanceScore: 0.95,
+              finalScore: 0.92,
             },
           ],
         },
@@ -89,20 +122,27 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
     }
 
     try {
-      logger.info(`Executing live web search for: "${query}"`);
+      logger.info(
+        `Executing Search Intelligence V2 for: "${rawQuery}" [Intent: ${plan.intent}, Preferred: ${plan.preferredProvider}, Geo: ${plan.geoTargeting}]`
+      );
 
-      // 1. If Tavily API Key is configured, try Tavily first
+      // 2. If Tavily API Key is configured, try Tavily first
       if (config.search?.tavilyApiKey) {
         try {
-          const tavilyResults = await this.searchTavily(query, config.search.tavilyApiKey);
+          const tavilyResults = await this.searchTavily(plan.plannedQuery, config.search.tavilyApiKey);
           if (tavilyResults.length > 0) {
-            logger.info(`Tavily live search returned [${tavilyResults.length}] results for "${query}"`);
+            MetricsCollector.getInstance().increment('craft.search.provider', 1, { provider: 'tavily' });
+            logger.info(`Tavily live search returned [${tavilyResults.length}] results for "${plan.plannedQuery}"`);
+            const normalized = this.toNormalizedResults(tavilyResults);
+            const deduped = SearchDeduplicator.deduplicate(normalized);
+            const ranked = SearchRanker.rank(deduped, plan.plannedQuery, plan.intent);
             return {
               success: true,
               output: {
-                query,
+                query: rawQuery,
+                intent: plan.intent,
                 source: 'tavily',
-                results: tavilyResults,
+                results: ranked.slice(0, 8),
               },
             };
           }
@@ -111,78 +151,175 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
         }
       }
 
-      // 2. Multi-Engine Fusion: Run DuckDuckGo HTML + DuckDuckGo Lite + Google News concurrently
-      const [ddgHtmlRes, ddgLiteRes, googleNewsRes] = await Promise.allSettled([
-        this.searchDuckDuckGoHtml(query, 8, context?.languageContext),
-        this.searchDuckDuckGoLite(query, 5, context?.languageContext),
-        this.searchGoogleNews(query, 5, context?.languageContext),
-      ]);
+      // 3. Multi-Engine Execution with Intent-Driven Provider Routing (Phase 9.3)
+      let initialResults = await this.executeProviderRouting(plan, context?.languageContext);
+      let normalized = this.toNormalizedResults(initialResults);
+      let deduped = SearchDeduplicator.deduplicate(normalized);
+      let ranked = SearchRanker.rank(deduped, plan.plannedQuery, plan.intent);
 
-      const ddgHtmlResults = ddgHtmlRes.status === 'fulfilled' ? ddgHtmlRes.value : [];
-      const ddgLiteResults = ddgLiteRes.status === 'fulfilled' ? ddgLiteRes.value : [];
-      const googleNewsResults = googleNewsRes.status === 'fulfilled' ? googleNewsRes.value : [];
+      // 4. Bounded 1-Shot Search Refinement (Phase 9.3)
+      const refinementDecision = SearchRefiner.evaluate(ranked, plan, false);
+      if (refinementDecision.shouldRefine && refinementDecision.refinementQuery) {
+        MetricsCollector.getInstance().increment('craft.search.refinement_used', 1, { status: 'true' });
+        logger.info(
+          `Triggering search refinement for intent [${plan.intent}] with query "${refinementDecision.refinementQuery}" (reason: ${refinementDecision.reason})`
+        );
 
-      const combined: SearchResultItem[] = [];
-      const seenTitles = new Set<string>();
+        const refinedPlan: SearchQueryPlan = {
+          ...plan,
+          plannedQuery: refinementDecision.refinementQuery,
+        };
 
-      // Prioritize DuckDuckGo HTML and Lite results as they contain detailed paragraphs with real prices & specs
-      const allResults = [...ddgHtmlResults, ...ddgLiteResults, ...googleNewsResults];
-
-      // Sort: results with informative snippets (containing actual numbers, prices, or length > 50 chars) first
-      allResults.sort((a, b) => {
-        const aHasSnippet = a.snippet && a.snippet.length > 50 && !a.snippet.startsWith('تاريخ الخبر');
-        const bHasSnippet = b.snippet && b.snippet.length > 50 && !b.snippet.startsWith('تاريخ الخبر');
-        if (aHasSnippet && !bHasSnippet) return -1;
-        if (!aHasSnippet && bHasSnippet) return 1;
-        return 0;
-      });
-
-      for (const item of allResults) {
-        const normalized = item.title.toLowerCase().trim();
-        if (!seenTitles.has(normalized)) {
-          seenTitles.add(normalized);
-          combined.push(item);
-        }
+        const supplementalResults = await this.executeProviderRouting(refinedPlan, context?.languageContext);
+        const supplementalNormalized = this.toNormalizedResults(supplementalResults);
+        const merged = SearchDeduplicator.deduplicate([...ranked, ...supplementalNormalized]);
+        ranked = SearchRanker.rank(merged, plan.plannedQuery, plan.intent);
       }
 
-      if (combined.length > 0) {
+      const executionLatencyMs = Date.now() - startTime;
+      MetricsCollector.getInstance().observe('craft.search.execution_ms', executionLatencyMs);
+
+      // 5. Successful Ranked Output
+      if (ranked.length > 0) {
         logger.info(
-          `Live web search returned [${combined.length}] results (DDG HTML: ${ddgHtmlResults.length}, DDG Lite: ${ddgLiteResults.length}, GoogleNews: ${googleNewsResults.length}) for "${query}"`
+          `Search Intelligence returned [${ranked.length}] ranked results for "${rawQuery}" [Intent: ${plan.intent}] in ${executionLatencyMs}ms`
         );
         return {
           success: true,
           output: {
-            query,
+            query: rawQuery,
+            intent: plan.intent,
             source: 'live_web',
-            results: combined.slice(0, 8),
+            results: ranked.slice(0, 8),
           },
         };
       }
 
-      // 3. Graceful fallback if search engines returned no data
+      // 6. Graceful fallback if search engines returned no data
+      MetricsCollector.getInstance().increment('craft.search.fallback_used', 1);
       return {
         success: true,
         output: {
-          query,
+          query: rawQuery,
+          intent: plan.intent,
           results: [
             {
-              title: `نتائج عامة حول ${query}`,
-              snippet: `تم البحث عن ${query} عبر محركات البحث، يرجى الاستعانة بأحدث الأخبار الموثوقة المنشورة في المواقع الرسمية.`,
+              title: `نتائج عامة حول ${rawQuery}`,
+              snippet: `تم البحث عن ${rawQuery} عبر محركات البحث، يرجى الاستعانة بأحدث الأخبار الموثوقة المنشورة في المواقع الرسمية.`,
             },
           ],
         },
       };
     } catch (err: any) {
-      logger.error('Live web search encountered an error', { error: err.message, query });
+      logger.error('Live web search encountered an error', { error: err.message, query: rawQuery });
+      MetricsCollector.getInstance().increment('craft.search.fallback_used', 1);
       return {
         success: true,
         output: {
-          query,
+          query: rawQuery,
+          intent: plan.intent,
           error: 'تعذر الاتصال بمحرك البحث مؤقتاً، يرجى الاستعانة بالمعلومات العامة المتاحة.',
           results: [],
         },
       };
     }
+  }
+
+  /**
+   * Routes query execution to providers based on the classified SearchIntent.
+   *
+   * Historical Query Invariant:
+   * Google News RSS is NEVER routed as primary for historical_fact queries.
+   */
+  private async executeProviderRouting(
+    plan: SearchQueryPlan,
+    languageContext?: LanguageContext
+  ): Promise<SearchResultItem[]> {
+    const q = plan.plannedQuery;
+
+    switch (plan.intent) {
+      case 'breaking_news': {
+        // Breaking news prioritizes Google News RSS, supplemented by DuckDuckGo HTML
+        MetricsCollector.getInstance().increment('craft.search.provider', 1, { provider: 'google_news' });
+        const [googleRes, ddgRes] = await Promise.allSettled([
+          this.searchGoogleNews(q, 8, languageContext),
+          this.searchDuckDuckGoHtml(q, 4, languageContext),
+        ]);
+        const gResults = googleRes.status === 'fulfilled' ? googleRes.value : [];
+        const dResults = ddgRes.status === 'fulfilled' ? ddgRes.value : [];
+        return [...gResults, ...dResults];
+      }
+
+      case 'historical_fact': {
+        // Historical query protection: Google News is NEVER primary!
+        MetricsCollector.getInstance().increment('craft.search.provider', 1, { provider: 'duckduckgo' });
+        const [ddgHtmlRes, ddgLiteRes] = await Promise.allSettled([
+          this.searchDuckDuckGoHtml(q, 8, languageContext),
+          this.searchDuckDuckGoLite(q, 5, languageContext),
+        ]);
+        const htmlResults = ddgHtmlRes.status === 'fulfilled' ? ddgHtmlRes.value : [];
+        const liteResults = ddgLiteRes.status === 'fulfilled' ? ddgLiteRes.value : [];
+        const combined = [...htmlResults, ...liteResults];
+
+        // Only if DuckDuckGo completely failed and returned 0 results, fall back to Google News
+        if (combined.length === 0) {
+          const gNewsRes = await this.searchGoogleNews(q, 3, languageContext);
+          return gNewsRes;
+        }
+        return combined;
+      }
+
+      case 'technical_docs':
+      case 'evergreen_knowledge': {
+        // Tech docs & conceptual knowledge prioritize general web sources with rich code/text blocks
+        MetricsCollector.getInstance().increment('craft.search.provider', 1, { provider: 'duckduckgo' });
+        const [ddgHtmlRes, ddgLiteRes] = await Promise.allSettled([
+          this.searchDuckDuckGoHtml(q, 8, languageContext),
+          this.searchDuckDuckGoLite(q, 5, languageContext),
+        ]);
+        const htmlResults = ddgHtmlRes.status === 'fulfilled' ? ddgHtmlRes.value : [];
+        const liteResults = ddgLiteRes.status === 'fulfilled' ? ddgLiteRes.value : [];
+        return [...htmlResults, ...liteResults];
+      }
+
+      case 'technical_release':
+      case 'latest_product':
+      case 'general_web':
+      default: {
+        // Multi-engine fusion: DDG HTML + DDG Lite + Google News
+        MetricsCollector.getInstance().increment('craft.search.provider', 1, { provider: 'multi_engine' });
+        const [ddgHtmlRes, ddgLiteRes, googleNewsRes] = await Promise.allSettled([
+          this.searchDuckDuckGoHtml(q, 6, languageContext),
+          this.searchDuckDuckGoLite(q, 4, languageContext),
+          this.searchGoogleNews(q, 4, languageContext),
+        ]);
+        const htmlResults = ddgHtmlRes.status === 'fulfilled' ? ddgHtmlRes.value : [];
+        const liteResults = ddgLiteRes.status === 'fulfilled' ? ddgLiteRes.value : [];
+        const newsResults = googleNewsRes.status === 'fulfilled' ? googleNewsRes.value : [];
+        return [...htmlResults, ...liteResults, ...newsResults];
+      }
+    }
+  }
+
+  /**
+   * Converts raw search items into internal NormalizedSearchResult representation.
+   */
+  private toNormalizedResults(items: SearchResultItem[]): NormalizedSearchResult[] {
+    return items.map((item) => ({
+      title: item.title,
+      url: item.url || '',
+      snippet: item.snippet,
+      publishedAt: item.publishedAt,
+      publishedTimestamp: item.publishedTimestamp,
+      sourceName: item.sourceName,
+      sourceDomain: item.sourceDomain || SearchDeduplicator.extractDomain(item.url),
+      relevanceScore: item.relevanceScore,
+      freshnessScore: item.freshnessScore,
+      sourceQualityScore: item.sourceQualityScore,
+      entityMatchScore: item.entityMatchScore,
+      finalScore: item.finalScore,
+      isHistoricalProtected: item.isHistoricalProtected,
+    }));
   }
 
   /**
@@ -306,7 +443,7 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
   }
 
   public parseGoogleNewsRss(xml: string, maxResults: number): SearchResultItem[] {
-    const itemRegex = /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<\/item>/g;
+    const itemRegex = /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>(?:[\s\S]*?<source\s+url="([^"]*)">([\s\S]*?)<\/source>)?[\s\S]*?<\/item>/g;
     const results: SearchResultItem[] = [];
 
     let match: RegExpExecArray | null;
@@ -314,6 +451,8 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
       const rawTitle = match[1] || '';
       const rawLink = match[2] || '';
       const pubDate = match[3] || '';
+      const sourceUrl = match[4] || '';
+      const sourceNameRaw = match[5] || '';
 
       const cleanTitle = rawTitle
         .replace(/&quot;/g, '"')
@@ -325,10 +464,40 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
         .trim();
 
       if (cleanTitle) {
+        // Extract source name and domain
+        let sourceName = sourceNameRaw.trim();
+        let sourceDomain: string | undefined;
+
+        if (sourceUrl) {
+          sourceDomain = SearchDeduplicator.extractDomain(sourceUrl);
+        }
+
+        // If source name not in <source>, check title suffix (e.g. "... - Reuters")
+        if (!sourceName && cleanTitle.includes(' - ')) {
+          const parts = cleanTitle.split(' - ');
+          if (parts.length > 1) {
+            sourceName = parts[parts.length - 1].trim();
+          }
+        }
+
+        let publishedTimestamp: number | undefined;
+        let publishedIso: string | undefined;
+        if (pubDate) {
+          const parsed = Date.parse(pubDate);
+          if (!isNaN(parsed)) {
+            publishedTimestamp = parsed;
+            publishedIso = new Date(parsed).toISOString();
+          }
+        }
+
         results.push({
           title: cleanTitle,
-          snippet: cleanTitle,
+          snippet: pubDate ? `${cleanTitle} (${pubDate})` : cleanTitle,
           url: rawLink.trim(),
+          sourceName: sourceName || undefined,
+          sourceDomain: sourceDomain || 'news.google.com',
+          publishedAt: publishedIso || pubDate || undefined,
+          publishedTimestamp,
         });
       }
     }
@@ -367,11 +536,18 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
 
       clearTimeout(timeout);
 
-      if (!response.ok) {
+      // DuckDuckGo anti-bot / HTTP 202 resilience
+      if (!response.ok || response.status === 202) {
+        logger.warn('DuckDuckGo HTML returned non-200 or HTTP 202 Accepted without body', { status: response.status });
         return [];
       }
 
       const html = await response.text();
+      if (!html || html.length < 200 || html.includes('challenge-form') || html.includes('captcha')) {
+        logger.warn('DuckDuckGo HTML returned empty or bot challenge response');
+        return [];
+      }
+
       return this.parseDuckDuckGoHtml(html, maxResults);
     } catch {
       clearTimeout(timeout);
@@ -405,6 +581,7 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
             title,
             snippet,
             url: rawUrl,
+            sourceDomain: SearchDeduplicator.extractDomain(rawUrl),
           });
         }
       }
@@ -413,6 +590,9 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
     return results;
   }
 
+  /**
+   * DuckDuckGo Lite Search
+   */
   public async searchDuckDuckGoLite(
     query: string,
     maxResults = 5,
@@ -443,11 +623,18 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
 
       clearTimeout(timeout);
 
-      if (!response.ok) {
+      // DuckDuckGo anti-bot / HTTP 202 resilience
+      if (!response.ok || response.status === 202) {
+        logger.warn('DuckDuckGo Lite returned non-200 or HTTP 202 Accepted without body', { status: response.status });
         return [];
       }
 
       const html = await response.text();
+      if (!html || html.length < 200 || html.includes('challenge-form') || html.includes('captcha')) {
+        logger.warn('DuckDuckGo Lite returned empty or bot challenge response');
+        return [];
+      }
+
       return this.parseDuckDuckGoLiteHtml(html, maxResults);
     } catch {
       clearTimeout(timeout);
@@ -484,6 +671,7 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
         title: titles[i].title,
         snippet: snippets[i],
         url: titles[i].url,
+        sourceDomain: SearchDeduplicator.extractDomain(titles[i].url),
       });
     }
 
@@ -522,6 +710,7 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
         title: item.title || '',
         snippet: item.content || '',
         url: item.url || '',
+        sourceDomain: SearchDeduplicator.extractDomain(item.url),
       }));
     } catch {
       clearTimeout(timeout);

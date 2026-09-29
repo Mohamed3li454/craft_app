@@ -44,6 +44,9 @@ import { MemoryContextAssembler } from '../src/modules/memory/memory_context_ass
 import { SemanticCacheEngine } from '../src/modules/cache/semantic_cache_engine';
 import { MemoryItemEntity, MemoryObservation } from '../src/database/repositories/types';
 import { RetrievedMemory } from '../src/modules/memory/types';
+import { SystemPromptBuilder } from '../src/modules/ai';
+import { ProviderRegistry } from '../src/modules/ai/provider_registry';
+import { GroqAIProvider } from '../src/modules/ai/providers/groq/provider';
 
 /**
  * Deterministic Test-Only Seam for GroqProvider.
@@ -62,6 +65,23 @@ class TestGroqProvider extends GroqProvider {
     this.callCount = 0;
   }
 
+  public override generateMockResponse(
+    messages: GroqMessage[],
+    memories?: string[],
+    hasImage = false,
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext
+  ): GroqMessageResponse {
+    this.callCount++;
+    return super.generateMockResponse(
+      messages,
+      memories,
+      hasImage,
+      languageContext,
+      personalityContext
+    );
+  }
+
   public override async generateReply(
     messages: GroqMessage[],
     useTools = true,
@@ -70,7 +90,6 @@ class TestGroqProvider extends GroqProvider {
     languageContext?: LanguageContext,
     personalityContext?: PersonalityContext
   ): Promise<GroqMessageResponse> {
-    this.callCount++;
     this.lastCapturedMemories = memories ? [...memories] : undefined;
     this.lastCapturedMessages = [...messages];
     this.lastCapturedSystemPrompt = this.getSystemInstruction(
@@ -132,9 +151,20 @@ describe('Phase 2.9: Memory Intelligence End-to-End & Final Validation', () => {
     retrievalService = MemoryRetrievalService.getInstance(memoryRepo);
     contextAssembler = MemoryContextAssembler.getInstance();
     safetyGate = MemorySafetyGate.getInstance();
+
+    ProviderRegistry.getInstance().registerProvider(new GroqAIProvider(testGroqProvider));
+
+    const origBuild = SystemPromptBuilder.buildSystemInstruction;
+    jest.spyOn(SystemPromptBuilder, 'buildSystemInstruction').mockImplementation((memories, langCtx, persCtx, ...rest) => {
+      const prompt = origBuild.call(SystemPromptBuilder, memories, langCtx, persCtx, ...rest);
+      testGroqProvider.lastCapturedMemories = memories && memories.length > 0 ? [...memories] : undefined;
+      testGroqProvider.lastCapturedSystemPrompt = prompt;
+      return prompt;
+    });
   });
 
   afterEach(() => {
+    ProviderRegistry.getInstance().registerProvider(new GroqAIProvider());
     jest.restoreAllMocks();
   });
 

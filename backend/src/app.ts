@@ -6,6 +6,7 @@ import { logger } from './core/logger';
 import { ChatController } from './modules/chat/chat.controller';
 import { WhatsAppWebhookHandler } from './modules/whatsapp/webhook';
 import { ReminderScheduler } from './modules/reminder/reminder.scheduler';
+import { ReminderTrigger, TriggerSource } from './modules/reminder';
 import { ProactiveScheduler } from './modules/proactive';
 import { WhatsAppProactiveDispatcher } from './modules/whatsapp';
 import { AnalyticsController } from './modules/analytics/analytics.controller';
@@ -153,17 +154,46 @@ export function createApp(): Application {
   app.post('/webhooks/whatsapp', whatsappHandler.handleIncoming);
 
   // 8. Cron Dispatcher Endpoints (Reminders & Proactive Actions)
-  const reminderScheduler = ReminderScheduler.getInstance();
+  const reminderTrigger = ReminderTrigger.getInstance();
   const proactiveDispatcher = WhatsAppProactiveDispatcher.getInstance();
   const proactiveScheduler = ProactiveScheduler.getInstance(proactiveDispatcher);
 
   const handleCronReminders = async (req: Request, res: Response): Promise<void> => {
     const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
-      logger.warn('[Cron Auth] Unauthorized invocation of reminder cron endpoint');
-      res.status(401).json({ success: false, error: 'Unauthorized: invalid or missing cron secret' });
+
+    if (config.nodeEnv === 'production' && !cronSecret) {
+      logger.error('[Cron Auth] CRON_SECRET is not configured in production environment');
+      res.status(500).json({ success: false, error: 'Server misconfiguration: CRON_SECRET required in production' });
       return;
     }
+
+    if (cronSecret) {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
+        logger.warn('[Cron Auth] Unauthorized invocation of reminder cron endpoint');
+        res.status(401).json({ success: false, error: 'Unauthorized: invalid or missing cron secret' });
+        return;
+      }
+    }
+
+    const headerSource = req.headers['x-trigger-source'] as string;
+    const isVercelCron = Boolean(
+      req.headers['x-vercel-cron'] ||
+      (req.headers['user-agent'] && req.headers['user-agent'].includes('vercel-cron'))
+    );
+    const triggerSource: TriggerSource =
+      headerSource === 'external_cron' ||
+      headerSource === 'vercel_cron' ||
+      headerSource === 'manual' ||
+      headerSource === 'test'
+        ? headerSource
+        : isVercelCron
+        ? 'vercel_cron'
+        : 'external_cron';
+
+    const correlationId =
+      (req.headers['x-correlation-id'] as string) ||
+      (req.headers['x-request-id'] as string);
 
     let reminderResult: any = { dispatchedCount: 0, remindersDispatched: [] };
     let proactiveResult: any = { claimedCount: 0, dispatchedIntents: [] };
@@ -172,9 +202,12 @@ export function createApp(): Application {
 
     // Strict failure isolation: proactive failure never prevents reminder dispatch, and vice versa
     try {
-      reminderResult = await reminderScheduler.checkAndDispatchDueReminders();
+      reminderResult = await reminderTrigger.execute({
+        triggerSource,
+        correlationId,
+      });
     } catch (err: any) {
-      logger.error('Error running reminder cron job', { error: err.message });
+      logger.error('Error running reminder cron job via trigger', { error: err.message });
       reminderError = err.message;
     }
 
@@ -191,7 +224,7 @@ export function createApp(): Application {
     }
 
     res.status(200).json({
-      success: true,
+      success: reminderResult.success !== false,
       ...reminderResult,
       proactive: proactiveResult,
       timestamp: new Date().toISOString(),
@@ -200,10 +233,20 @@ export function createApp(): Application {
 
   const handleCronProactive = async (req: Request, res: Response): Promise<void> => {
     const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
-      logger.warn('[Cron Auth] Unauthorized invocation of proactive cron endpoint');
-      res.status(401).json({ success: false, error: 'Unauthorized: invalid or missing cron secret' });
+
+    if (config.nodeEnv === 'production' && !cronSecret) {
+      logger.error('[Cron Auth] CRON_SECRET is not configured in production environment');
+      res.status(500).json({ success: false, error: 'Server misconfiguration: CRON_SECRET required in production' });
       return;
+    }
+
+    if (cronSecret) {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
+        logger.warn('[Cron Auth] Unauthorized invocation of proactive cron endpoint');
+        res.status(401).json({ success: false, error: 'Unauthorized: invalid or missing cron secret' });
+        return;
+      }
     }
 
     try {
