@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin-client';
+import { useLanguage } from '@/lib/i18n/language-context';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
 import { StatusPill } from '@/components/ui/status-pill';
@@ -11,10 +12,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ErrorAlert } from '@/components/ui/error-alert';
 import { Search, Play, ExternalLink, Globe } from 'lucide-react';
-import { formatRelativeTime, truncate } from '@/lib/utils';
+import { truncate } from '@/lib/utils';
 import { SearchDiagnosticResult } from '@/types/admin';
 
 export default function SearchPage() {
+  const { t, formatRelativeTime } = useLanguage();
   const [testQuery, setTestQuery] = useState('');
   const [testIntent, setTestIntent] = useState('factual_lookup');
   const [diagnosticResult, setDiagnosticResult] = useState<SearchDiagnosticResult | null>(null);
@@ -47,10 +49,10 @@ export default function SearchPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            SEARCH INTELLIGENCE & DIAGNOSTIC SANDBOX
+            {t('search.title')}
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Real-time web query logs, search intent distribution, and interactive provider probe
+            {t('search.subtitle')}
           </p>
         </div>
       </div>
@@ -58,7 +60,7 @@ export default function SearchPage() {
       {(recentSearchesQuery.error || diagnosticMutation.error) && (
         <ErrorAlert
           error={(recentSearchesQuery.error || diagnosticMutation.error) as any}
-          title="Search Subsystem Alert"
+          title={t('search.subsystemAlert')}
           onRetry={() => {
             if (recentSearchesQuery.error) recentSearchesQuery.refetch();
           }}
@@ -70,14 +72,14 @@ export default function SearchPage() {
         <CardHeader>
           <CardTitle>
             <Globe className="h-4 w-4 text-cyan-400" />
-            Dry-Run Search Provider Diagnostic Probe
+            {t('search.sandboxTitle')}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleRunDiagnostic} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="sm:col-span-2">
               <Input
-                placeholder="Enter test search query (e.g. current gold price in Egypt)..."
+                placeholder={t('search.queryPlaceholder')}
                 value={testQuery}
                 onChange={(e) => setTestQuery(e.target.value)}
                 icon={<Search className="h-4 w-4" />}
@@ -90,10 +92,10 @@ export default function SearchPage() {
                 onChange={(e) => setTestIntent(e.target.value)}
                 className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-slate-200 focus:outline-none"
               >
-                <option value="factual_lookup">Intent: Factual Lookup</option>
-                <option value="price_inquiry">Intent: Price Inquiry</option>
-                <option value="news_recent">Intent: Recent News</option>
-                <option value="technical">Intent: Technical / Code</option>
+                <option value="factual_lookup">{t('search.intentFactual')}</option>
+                <option value="price_inquiry">{t('search.intentPrice')}</option>
+                <option value="news_recent">{t('search.intentNews')}</option>
+                <option value="technical">{t('search.intentTechnical')}</option>
               </select>
             </div>
             <div>
@@ -103,8 +105,8 @@ export default function SearchPage() {
                 className="w-full h-9 font-mono text-xs"
                 isLoading={diagnosticMutation.isPending}
               >
-                <Play className="h-3.5 w-3.5 mr-1" />
-                Probe Provider
+                <Play className="h-3.5 w-3.5 me-1" />
+                {t('search.btnRunProbe')}
               </Button>
             </div>
           </form>
@@ -113,10 +115,10 @@ export default function SearchPage() {
           {diagnosticResult && (
             <div className="p-4 rounded-lg bg-surface-elevated/40 border border-border font-mono text-xs space-y-3 animate-in fade-in">
               <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                <div className="flex items-center space-x-2">
-                  <span className="text-slate-400">Provider:</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">{t('search.provider')}:</span>
                   <Badge variant="info">{diagnosticResult.provider}</Badge>
-                  <span className="text-slate-400 ml-2">Latency:</span>
+                  <span className="text-slate-400 ms-2">{t('search.latency')}</span>
                   <span className="font-bold text-slate-200">{diagnosticResult.latencyMs}ms</span>
                 </div>
                 <StatusPill status={diagnosticResult.status} />
@@ -124,7 +126,7 @@ export default function SearchPage() {
 
               <div>
                 <span className="text-[11px] text-slate-400 uppercase font-semibold block mb-1">
-                  Sample Results ({diagnosticResult.sampleResults?.length || 0})
+                  {t('search.sampleResults', { count: diagnosticResult.sampleResults?.length || 0 })}
                 </span>
                 <div className="space-y-2">
                   {diagnosticResult.sampleResults?.map((res, i) => (
@@ -156,41 +158,41 @@ export default function SearchPage() {
         <CardHeader>
           <CardTitle>
             <Search className="h-4 w-4 text-brand-400" />
-            Recent Production Searches
+            {t('search.recentSearchesTitle')}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <DataTable
             columns={[
               {
-                header: 'Search Query',
+                header: t('search.colQuery'),
                 accessorKey: 'query',
                 cell: (s) => <span className="font-semibold text-slate-100">{s.query}</span>,
               },
               {
-                header: 'Intent',
+                header: t('search.colIntent'),
                 accessorKey: 'intent',
                 cell: (s) => <Badge variant="purple">{s.intent || 'general'}</Badge>,
               },
               {
-                header: 'Results Returned',
+                header: t('search.resultsReturned'),
                 accessorKey: 'resultCount',
                 cell: (s) => <span className="text-slate-300">{s.resultCount ?? 0}</span>,
               },
               {
-                header: 'Latency',
+                header: t('search.colDuration'),
                 accessorKey: 'latencyMs',
                 cell: (s) => <span className="text-slate-200">{s.latencyMs || 0}ms</span>,
               },
               {
-                header: 'Executed At',
+                header: t('search.colTimestamp'),
                 accessorKey: 'createdAt',
                 cell: (s) => formatRelativeTime(s.createdAt),
               },
             ]}
             data={recentSearches}
             isLoading={recentSearchesQuery.isLoading}
-            emptyMessage="No search telemetry queries recorded"
+            emptyMessage={t('search.noSearches')}
           />
         </CardContent>
       </Card>

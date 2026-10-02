@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin-client';
 import { useAuth } from '@/lib/auth/auth-context';
+import { useLanguage } from '@/lib/i18n/language-context';
 import { Card } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
 import { StatusPill } from '@/components/ui/status-pill';
@@ -24,10 +25,10 @@ import {
   Brain,
 } from 'lucide-react';
 import { AdminUserListItem } from '@/types/admin';
-import { formatNumber, formatCurrency, formatDate, formatRelativeTime } from '@/lib/utils';
 
 export default function UsersPage() {
   const { canMutate, canPurgeData } = useAuth();
+  const { t, formatNumber, formatCurrency, formatDate, formatRelativeTime } = useLanguage();
   const queryClient = useQueryClient();
 
   // Search & Filter state
@@ -111,10 +112,10 @@ export default function UsersPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            USER CONTROL PLANE & 360° PROFILES
+            {t('users.title')}
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Manage WhatsApp contacts, VIP tiers, enforcement bans, and memory profiles
+            {t('users.subtitle')}
           </p>
         </div>
       </div>
@@ -122,18 +123,18 @@ export default function UsersPage() {
       {error && (
         <ErrorAlert
           error={error}
-          title="Failed to load users list"
+          title={t('users.failedToLoad')}
           onRetry={() => refetch()}
         />
       )}
       {toggleVipMutation.error && (
-        <ErrorAlert error={toggleVipMutation.error} title="Failed to toggle VIP tier" />
+        <ErrorAlert error={toggleVipMutation.error} title={t('users.failedToToggleVip')} />
       )}
       {banMutation.error && (
-        <ErrorAlert error={banMutation.error} title="Failed to update ban status" />
+        <ErrorAlert error={banMutation.error} title={t('users.failedToBan')} />
       )}
       {unbanMutation.error && (
-        <ErrorAlert error={unbanMutation.error} title="Failed to unban user account" />
+        <ErrorAlert error={unbanMutation.error} title={t('users.failedToUnban')} />
       )}
 
       {/* Filters Bar */}
@@ -141,7 +142,7 @@ export default function UsersPage() {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div className="sm:col-span-2">
             <Input
-              placeholder="Search phone number or user ID..."
+              placeholder={t('users.searchPlaceholder')}
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -159,9 +160,9 @@ export default function UsersPage() {
               }}
               className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-slate-200 focus:outline-none"
             >
-              <option value="all">VIP Status: All</option>
-              <option value="vip">VIP Only</option>
-              <option value="standard">Standard Only</option>
+              <option value="all">{t('users.allVip')}</option>
+              <option value="vip">{t('users.vipOnly')}</option>
+              <option value="standard">{t('users.standardUsers')}</option>
             </select>
           </div>
           <div>
@@ -173,9 +174,9 @@ export default function UsersPage() {
               }}
               className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-slate-200 focus:outline-none"
             >
-              <option value="all">Account State: All</option>
-              <option value="active">Active Only</option>
-              <option value="banned">Banned Only</option>
+              <option value="all">{t('users.allStatus')}</option>
+              <option value="active">{t('users.activeOnly')}</option>
+              <option value="banned">{t('users.bannedOnly')}</option>
             </select>
           </div>
         </div>
@@ -185,58 +186,58 @@ export default function UsersPage() {
       <DataTable
         columns={[
           {
-            header: 'Contact / Phone',
+            header: t('users.colUser'),
             accessorKey: 'phoneNumber',
             cell: (u) => (
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <span className="font-semibold text-slate-100">{u.phoneNumber || u.id}</span>
                 {u.isVip && (
                   <Badge variant="warning" className="text-[10px] py-0 px-1">
-                    <Star className="h-2.5 w-2.5 mr-0.5 fill-amber-400" />
-                    VIP
+                    <Star className="h-2.5 w-2.5 me-0.5 fill-amber-400" />
+                    {t('common.vip')}
                   </Badge>
                 )}
               </div>
             ),
           },
           {
-            header: 'Status',
+            header: t('users.colStatus'),
             accessorKey: 'isBanned',
             cell: (u) => (
               <StatusPill status={u.isBanned ? 'banned' : 'active'} />
             ),
           },
           {
-            header: 'Messages',
+            header: t('overview.messages'),
             accessorKey: 'messageCount',
             cell: (u) => formatNumber(u.messageCount),
           },
           {
-            header: 'Conversations',
+            header: t('navigation.conversations'),
             accessorKey: 'conversationCount',
             cell: (u) => formatNumber(u.conversationCount),
           },
           {
-            header: 'Reminders',
+            header: t('navigation.reminders'),
             accessorKey: 'reminderCount',
             cell: (u) => formatNumber(u.reminderCount),
           },
           {
-            header: 'Last Active',
+            header: t('users.colLastActive'),
             accessorKey: 'lastActiveAt',
             cell: (u) => formatRelativeTime(u.lastActiveAt),
           },
           {
-            header: 'Actions',
+            header: t('users.colActions'),
             cell: (u) => (
-              <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setSelectedUserId(u.id)}
-                  title="View User 360 Profile"
+                  title={t('users.btnView360')}
                 >
-                  <Eye className="h-3.5 w-3.5 mr-1" />
+                  <Eye className="h-3.5 w-3.5 me-1" />
                   360°
                 </Button>
 
@@ -247,7 +248,7 @@ export default function UsersPage() {
                       size="sm"
                       onClick={() => toggleVipMutation.mutate({ id: u.id, isVip: !u.isVip })}
                       isLoading={toggleVipMutation.isPending}
-                      title={u.isVip ? 'Revoke VIP Tier' : 'Promote to VIP Tier'}
+                      title={u.isVip ? t('users.btnUnvip') : t('users.btnVip')}
                     >
                       <Star className={`h-3.5 w-3.5 ${u.isVip ? 'text-amber-400 fill-amber-400' : 'text-slate-400'}`} />
                     </Button>
@@ -258,7 +259,7 @@ export default function UsersPage() {
                         size="sm"
                         onClick={() => unbanMutation.mutate(u.id)}
                         isLoading={unbanMutation.isPending}
-                        title="Unban User Account"
+                        title={t('users.btnUnban')}
                       >
                         <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
                       </Button>
@@ -267,7 +268,7 @@ export default function UsersPage() {
                         variant="destructive"
                         size="sm"
                         onClick={() => setBanModalUser(u)}
-                        title="Ban User Account"
+                        title={t('users.btnBan')}
                       >
                         <Ban className="h-3.5 w-3.5" />
                       </Button>
@@ -280,7 +281,7 @@ export default function UsersPage() {
         ]}
         data={users}
         isLoading={isLoading}
-        emptyMessage="No users matching the filters found"
+        emptyMessage={t('common.noData')}
         pagination={{
           currentPage: page,
           hasMore: total !== undefined ? page * limit < total : users.length === limit,
@@ -294,35 +295,35 @@ export default function UsersPage() {
       <Drawer
         isOpen={Boolean(selectedUserId)}
         onClose={() => setSelectedUserId(null)}
-        title={`USER 360° PROFILE: ${userDetails?.user?.phoneNumber || selectedUserId || ''}`}
-        subtitle={`System ID: ${selectedUserId || ''}`}
+        title={`${t('users.drawerTitle')}: ${userDetails?.user?.phoneNumber || selectedUserId || ''}`}
+        subtitle={t('users.systemId', { id: selectedUserId || '' })}
         width="xl"
       >
         {detailsQuery.isLoading ? (
-          <div className="p-8 text-center text-xs font-mono text-slate-400">Loading user profile telemetry...</div>
+          <div className="p-8 text-center text-xs font-mono text-slate-400">{t('users.loadingTelemetry')}</div>
         ) : detailsQuery.error ? (
           <div className="p-4">
             <ErrorAlert
               error={detailsQuery.error}
-              title="Failed to load User 360 Profile"
+              title={t('users.failedToLoad')}
               onRetry={() => detailsQuery.refetch()}
             />
           </div>
         ) : !userDetails ? (
-          <div className="p-8 text-center text-xs font-mono text-slate-400">User details not found</div>
+          <div className="p-8 text-center text-xs font-mono text-slate-400">{t('users.userNotFound')}</div>
         ) : (
           <div className="space-y-6 font-mono text-xs">
             {/* Status & Quick Tags */}
             <div className="flex items-center justify-between p-4 rounded-lg bg-surface-elevated/40 border border-border">
               <div className="space-y-1">
-                <span className="text-[11px] text-slate-400 uppercase">Account State</span>
+                <span className="text-[11px] text-slate-400 uppercase">{t('users.colStatus')}</span>
                 <div className="flex items-center gap-2">
                   <StatusPill status={userDetails.user.isBanned ? 'banned' : 'active'} />
-                  {userDetails.user.isVip && <Badge variant="warning">VIP CONTACT</Badge>}
+                  {userDetails.user.isVip && <Badge variant="warning">{t('users.vipContact')}</Badge>}
                 </div>
               </div>
-              <div className="text-right">
-                <span className="text-[11px] text-slate-400 uppercase">First Seen</span>
+              <div className="text-end">
+                <span className="text-[11px] text-slate-400 uppercase">{t('users.firstSeen')}</span>
                 <p className="text-slate-200 mt-1">{formatDate(userDetails.user.createdAt)}</p>
               </div>
             </div>
@@ -330,15 +331,15 @@ export default function UsersPage() {
             {/* Metrics Breakdown */}
             <div className="grid grid-cols-3 gap-2">
               <div className="p-3 rounded bg-surface-elevated/30 border border-border">
-                <span className="text-[10px] text-slate-400 uppercase block">Messages</span>
+                <span className="text-[10px] text-slate-400 uppercase block">{t('overview.messages')}</span>
                 <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.totalMessages)}</span>
               </div>
               <div className="p-3 rounded bg-surface-elevated/30 border border-border">
-                <span className="text-[10px] text-slate-400 uppercase block">Tokens</span>
+                <span className="text-[10px] text-slate-400 uppercase block">{t('overview.tokenUsage')}</span>
                 <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.tokenCount)}</span>
               </div>
               <div className="p-3 rounded bg-surface-elevated/30 border border-border">
-                <span className="text-[10px] text-slate-400 uppercase block">Inference Cost</span>
+                <span className="text-[10px] text-slate-400 uppercase block">{t('users.colCost')}</span>
                 <span className="text-base font-bold text-slate-100">{formatCurrency(userDetails.stats?.costUsd)}</span>
               </div>
             </div>
@@ -348,12 +349,12 @@ export default function UsersPage() {
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
                   <Clock className="h-3.5 w-3.5 text-brand-400" />
-                  Scheduled Reminders ({userDetails.reminders?.length || 0})
+                  {t('users.scheduledRemindersCount', { count: userDetails.reminders?.length || 0 })}
                 </h4>
               </div>
               {userDetails.reminders?.length === 0 ? (
                 <p className="p-3 rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
-                  No active or past reminders found
+                  {t('users.noRemindersFound')}
                 </p>
               ) : (
                 <div className="space-y-1.5">
@@ -375,7 +376,7 @@ export default function UsersPage() {
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
                   <Brain className="h-3.5 w-3.5 text-purple-400" />
-                  Profile Memories ({userDetails.memories?.length || 0})
+                  {t('users.profileMemoriesCount', { count: userDetails.memories?.length || 0 })}
                 </h4>
                 {canPurgeData && (userDetails.memories?.length || 0) > 0 && (
                   <Button
@@ -383,14 +384,14 @@ export default function UsersPage() {
                     size="sm"
                     onClick={() => setPurgeModalUserId(selectedUserId)}
                   >
-                    <Trash2 className="h-3 w-3 mr-1" />
-                    Purge All Memories
+                    <Trash2 className="h-3 w-3 me-1" />
+                    {t('users.purgeMemoryBtn')}
                   </Button>
                 )}
               </div>
               {userDetails.memories?.length === 0 ? (
                 <p className="p-3 rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
-                  No memory profile facts recorded
+                  {t('users.noMemoriesFound')}
                 </p>
               ) : (
                 <div className="space-y-1.5">
@@ -419,16 +420,16 @@ export default function UsersPage() {
         isOpen={Boolean(banModalUser)}
         onClose={() => setBanModalUser(null)}
         onConfirm={() => banMutation.mutate({ id: banModalUser!.id, reason: banReason })}
-        title={`Ban User Contact: ${banModalUser?.phoneNumber || banModalUser?.id}`}
-        description="Banning will prevent the user from triggering further AI executions or receiving proactive dispatches. Existing scheduled reminders will be preserved unless cancelled."
-        confirmText="Confirm Ban"
+        title={`${t('users.banModalTitle')}: ${banModalUser?.phoneNumber || banModalUser?.id || ''}`}
+        description={t('users.banModalDesc')}
+        confirmText={t('users.confirmBan')}
         variant="destructive"
         isLoading={banMutation.isPending}
       >
         <div className="space-y-1 mt-2">
-          <label className="text-[11px] font-mono text-slate-400">Optional Enforcement Reason</label>
+          <label className="text-[11px] font-mono text-slate-400">{t('users.optionalEnforcementReason')}</label>
           <Input
-            placeholder="e.g. Rate limit abuse, spam activity"
+            placeholder={t('users.banReasonPlaceholder')}
             value={banReason}
             onChange={(e) => setBanReason(e.target.value)}
           />
@@ -440,9 +441,9 @@ export default function UsersPage() {
         isOpen={Boolean(purgeModalUserId)}
         onClose={() => setPurgeModalUserId(null)}
         onConfirm={() => purgeMemoryMutation.mutate(purgeModalUserId!)}
-        title="Purge All User Memories"
-        description="This will permanently delete all stored memory profile facts for this user. This action cannot be undone."
-        confirmText="Purge Memories"
+        title={t('users.purgeModalTitle')}
+        description={t('users.purgeModalDesc')}
+        confirmText={t('users.confirmPurge')}
         variant="destructive"
         isLoading={purgeMemoryMutation.isPending}
       />

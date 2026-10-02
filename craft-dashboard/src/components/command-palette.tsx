@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -18,33 +18,35 @@ import {
   Settings,
   X,
 } from 'lucide-react';
+import { useLanguage } from '@/lib/i18n/language-context';
 
-interface NavItem {
-  name: string;
+interface NavItemConfig {
+  nameKey: string;
+  categoryKey: string;
   href: string;
   icon: any;
-  category: string;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { name: 'Overview & KPIs', href: '/overview', icon: LayoutDashboard, category: 'Platform' },
-  { name: 'Observability & Health', href: '/observability', icon: Activity, category: 'Platform' },
-  { name: 'Users & 360 Profiles', href: '/users', icon: Users, category: 'Operations' },
-  { name: 'Conversations & Transcripts', href: '/conversations', icon: MessageSquare, category: 'Operations' },
-  { name: 'Memory & Evidence Candidates', href: '/memory', icon: Brain, category: 'Intelligence' },
-  { name: 'Reminders Lifecycle', href: '/reminders', icon: Clock, category: 'Operations' },
-  { name: 'Knowledge & Semantic Cache', href: '/knowledge', icon: BookOpen, category: 'Intelligence' },
-  { name: 'Agent Runs & Traces', href: '/agent-runs', icon: Cpu, category: 'Intelligence' },
-  { name: 'Tool Calls & Telemetry', href: '/tools', icon: Wrench, category: 'Observability' },
-  { name: 'Proactive Intelligence', href: '/proactive', icon: Send, category: 'Operations' },
-  { name: 'Search & Diagnostics', href: '/search', icon: Search, category: 'Intelligence' },
-  { name: 'Audit Trail', href: '/audit', icon: ShieldCheck, category: 'Security' },
-  { name: 'Runtime Settings', href: '/settings', icon: Settings, category: 'System' },
+const NAV_ITEMS_CONFIG: NavItemConfig[] = [
+  { nameKey: 'commandPalette.viewOverview', href: '/overview', icon: LayoutDashboard, categoryKey: 'navigation.platform' },
+  { nameKey: 'commandPalette.viewObservability', href: '/observability', icon: Activity, categoryKey: 'navigation.platform' },
+  { nameKey: 'navigation.users', href: '/users', icon: Users, categoryKey: 'navigation.operations' },
+  { nameKey: 'commandPalette.viewConversations', href: '/conversations', icon: MessageSquare, categoryKey: 'navigation.operations' },
+  { nameKey: 'commandPalette.viewMemory', href: '/memory', icon: Brain, categoryKey: 'navigation.intelligence' },
+  { nameKey: 'commandPalette.goToReminders', href: '/reminders', icon: Clock, categoryKey: 'navigation.operations' },
+  { nameKey: 'commandPalette.viewKnowledge', href: '/knowledge', icon: BookOpen, categoryKey: 'navigation.intelligence' },
+  { nameKey: 'commandPalette.viewAgentRuns', href: '/agent-runs', icon: Cpu, categoryKey: 'navigation.intelligence' },
+  { nameKey: 'commandPalette.viewTools', href: '/tools', icon: Wrench, categoryKey: 'navigation.system' },
+  { nameKey: 'commandPalette.viewProactive', href: '/proactive', icon: Send, categoryKey: 'navigation.operations' },
+  { nameKey: 'commandPalette.viewSearch', href: '/search', icon: Search, categoryKey: 'navigation.intelligence' },
+  { nameKey: 'commandPalette.viewAudit', href: '/audit', icon: ShieldCheck, categoryKey: 'navigation.system' },
+  { nameKey: 'commandPalette.openSettings', href: '/settings', icon: Settings, categoryKey: 'navigation.system' },
 ];
 
 export function CommandPalette({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const router = useRouter();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -52,8 +54,6 @@ export function CommandPalette({ isOpen, onClose }: { isOpen: boolean; onClose: 
         e.preventDefault();
         if (isOpen) {
           onClose();
-        } else {
-          // Open
         }
       } else if (e.key === 'Escape' && isOpen) {
         onClose();
@@ -63,9 +63,18 @@ export function CommandPalette({ isOpen, onClose }: { isOpen: boolean; onClose: 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  const items = useMemo(() => {
+    return NAV_ITEMS_CONFIG.map((item) => ({
+      name: t(item.nameKey),
+      category: t(item.categoryKey),
+      href: item.href,
+      icon: item.icon,
+    }));
+  }, [t]);
+
   if (!isOpen) return null;
 
-  const filtered = NAV_ITEMS.filter((item) =>
+  const filtered = items.filter((item) =>
     item.name.toLowerCase().includes(query.toLowerCase()) ||
     item.category.toLowerCase().includes(query.toLowerCase())
   );
@@ -80,23 +89,25 @@ export function CommandPalette({ isOpen, onClose }: { isOpen: boolean; onClose: 
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-150">
       <div className="relative w-full max-w-xl rounded-lg border border-border bg-surface shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
         <div className="flex items-center px-4 py-3 border-b border-border bg-surface-elevated/40">
-          <Search className="h-4 w-4 text-slate-400 mr-2 shrink-0" />
+          <Search className="h-4 w-4 text-slate-400 me-2 shrink-0" />
           <input
             autoFocus
             type="text"
-            placeholder="Type a command or jump to a module... (e.g. users, traces, memory)"
+            placeholder={t('commandPalette.placeholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none font-mono"
+            className="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none font-mono text-start"
           />
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 ml-2">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 ms-2" aria-label={t('common.close')}>
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="max-h-80 overflow-y-auto p-2 space-y-1">
           {filtered.length === 0 ? (
-            <div className="p-4 text-center text-xs text-slate-400 font-mono">No matching views found</div>
+            <div className="p-4 text-center text-xs text-slate-400 font-mono">
+              {t('commandPalette.noMatching')}
+            </div>
           ) : (
             filtered.map((item) => {
               const Icon = item.icon;
@@ -104,9 +115,9 @@ export function CommandPalette({ isOpen, onClose }: { isOpen: boolean; onClose: 
                 <button
                   key={item.href}
                   onClick={() => handleSelect(item.href)}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-surface-elevated text-left text-xs font-mono transition-colors group"
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-surface-elevated text-start text-xs font-mono transition-colors group"
                 >
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center gap-3">
                     <Icon className="h-4 w-4 text-slate-400 group-hover:text-brand-400 transition-colors" />
                     <span className="text-slate-200 group-hover:text-white">{item.name}</span>
                   </div>
@@ -118,8 +129,8 @@ export function CommandPalette({ isOpen, onClose }: { isOpen: boolean; onClose: 
         </div>
 
         <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-surface-elevated/20 text-[11px] text-slate-400 font-mono">
-          <span>Navigate with click or arrow keys</span>
-          <span>ESC to close</span>
+          <span>{t('commandPalette.navigateHint')}</span>
+          <span>{t('commandPalette.escHint')}</span>
         </div>
       </div>
     </div>

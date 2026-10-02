@@ -9,10 +9,11 @@ import { MetricCard } from '@/components/ui/metric-card';
 import { ErrorAlert } from '@/components/ui/error-alert';
 import { Activity, Server, Zap, Clock, ShieldCheck, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formatNumber, formatDate } from '@/lib/utils';
+import { useLanguage } from '@/lib/i18n/language-context';
 
 export default function ObservabilityPage() {
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const { t, formatDate, formatNumber } = useLanguage();
 
   const healthQuery = useQuery({
     queryKey: ['observability-health'],
@@ -47,22 +48,22 @@ export default function ObservabilityPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            SYSTEM OBSERVABILITY & HEALTH
+            {t('observability.title')}
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Component status, AI latency percentiles, and runtime telemetry
+            {t('observability.subtitle')}
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
-          <label className="flex items-center space-x-2 text-xs font-mono text-slate-400 cursor-pointer">
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs font-mono text-slate-400 cursor-pointer">
             <input
               type="checkbox"
               checked={autoRefresh}
               onChange={(e) => setAutoRefresh(e.target.checked)}
               className="rounded bg-surface-elevated border-border text-brand-500 focus:ring-0"
             />
-            <span>Auto-refresh (10s)</span>
+            <span>{t('observability.autoRefresh')}</span>
           </label>
           <Button
             variant="outline"
@@ -74,8 +75,8 @@ export default function ObservabilityPage() {
             isLoading={healthQuery.isRefetching || metricsQuery.isRefetching}
             className="font-mono text-xs"
           >
-            <RefreshCw className="h-3.5 w-3.5 mr-1" />
-            Probe Now
+            <RefreshCw className="h-3.5 w-3.5 me-1" />
+            {t('observability.probeNow')}
           </Button>
         </div>
       </div>
@@ -83,7 +84,7 @@ export default function ObservabilityPage() {
       {(healthQuery.error || metricsQuery.error) && (
         <ErrorAlert
           error={healthQuery.error || metricsQuery.error}
-          title="Telemetry Connection Alert"
+          title={t('observability.telemetryAlert')}
           onRetry={() => {
             healthQuery.refetch();
             metricsQuery.refetch();
@@ -93,9 +94,9 @@ export default function ObservabilityPage() {
 
       {/* Top Health Banner */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="p-4 flex items-center justify-between border-l-4 border-l-emerald-500">
+        <Card className="p-4 flex items-center justify-between border-s-4 border-s-emerald-500">
           <div>
-            <span className="text-[11px] font-mono uppercase text-slate-400">System State</span>
+            <span className="text-[11px] font-mono uppercase text-slate-400">{t('observability.systemState')}</span>
             <div className="mt-1">
               <StatusPill status={health?.status || 'checking'} />
             </div>
@@ -104,22 +105,22 @@ export default function ObservabilityPage() {
         </Card>
 
         <MetricCard
-          title="Uptime"
+          title={t('observability.uptime')}
           value={formatUptime(health?.uptimeSeconds)}
-          subtext={`Started ${formatDate(health?.snapshot?.timestamp)}`}
+          subtext={`${t('observability.lastCheckedCol')}: ${formatDate(health?.snapshot?.timestamp)}`}
           icon={<Clock className="h-4 w-4" />}
         />
 
         <MetricCard
-          title="Environment"
+          title={t('observability.environment')}
           value={health?.environment || 'production'}
           subtext={health?.service || 'craft-agent-backend'}
           icon={<Server className="h-4 w-4" />}
         />
 
         <MetricCard
-          title="Telemetry Counters"
-          value={Object.keys(counters).length}
+          title={t('observability.operationalCounters')}
+          value={formatNumber(Object.keys(counters).length)}
           subtext="Active monitored signals"
           icon={<Zap className="h-4 w-4" />}
         />
@@ -130,14 +131,14 @@ export default function ObservabilityPage() {
         <CardHeader>
           <CardTitle>
             <ShieldCheck className="h-4 w-4 text-emerald-400" />
-            Core Infrastructure Components
+            {t('observability.subsystemHealth')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {Object.keys(components).length === 0 ? (
               <div className="text-xs text-slate-400 font-mono col-span-3 py-4 text-center">
-                All subsystem checks operational
+                {t('common.noData')}
               </div>
             ) : (
               Object.entries(components).map(([name, comp]: [string, any]) => (
@@ -148,7 +149,7 @@ export default function ObservabilityPage() {
                   <div>
                     <p className="text-xs font-semibold text-slate-200 uppercase">{name}</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      {comp.latencyMs !== undefined ? `${comp.latencyMs}ms latency` : 'Active'}
+                      {comp.latencyMs !== undefined ? `${comp.latencyMs}ms ${t('observability.latencyCol')}` : t('common.active')}
                     </p>
                   </div>
                   <StatusPill status={comp.status || 'healthy'} />
@@ -165,13 +166,13 @@ export default function ObservabilityPage() {
           <CardHeader>
             <CardTitle>
               <Activity className="h-4 w-4 text-brand-400" />
-              Latency Percentiles (p50 / p95 / p99)
+              {t('observability.latencyPercentiles')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {Object.keys(latencies).length === 0 ? (
               <p className="text-xs text-slate-400 font-mono text-center py-6">
-                No latency histograms collected in current snapshot
+                {t('common.noData')}
               </p>
             ) : (
               <div className="space-y-3 font-mono">
@@ -179,20 +180,24 @@ export default function ObservabilityPage() {
                   <div key={key} className="p-3 rounded-md bg-surface-elevated/40 border border-border">
                     <div className="flex items-center justify-between text-xs font-semibold text-slate-200">
                       <span>{key}</span>
-                      <span className="text-slate-400">{formatNumber(hist.count)} samples</span>
+                      <span className="text-slate-400 text-[11px]">{hist.count || 0} samples</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-border/40 text-xs">
+                    <div className="grid grid-cols-4 gap-2 mt-2 pt-2 border-t border-border/60 text-[11px]">
                       <div>
-                        <span className="text-[10px] text-slate-400 block">P50 (Median)</span>
-                        <span className="font-bold text-slate-200">{hist.p50}ms</span>
+                        <span className="text-slate-400">{t('observability.p50Col')}</span>
+                        <p className="text-emerald-400 font-bold">{hist.p50 || 0}ms</p>
                       </div>
                       <div>
-                        <span className="text-[10px] text-slate-400 block">P95</span>
-                        <span className="font-bold text-amber-300">{hist.p95}ms</span>
+                        <span className="text-slate-400">{t('observability.p95Col')}</span>
+                        <p className="text-amber-400 font-bold">{hist.p95 || 0}ms</p>
                       </div>
                       <div>
-                        <span className="text-[10px] text-slate-400 block">P99 (Tail)</span>
-                        <span className="font-bold text-rose-300">{hist.p99}ms</span>
+                        <span className="text-slate-400">{t('observability.p99Col')}</span>
+                        <p className="text-rose-400 font-bold">{hist.p99 || 0}ms</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">{t('observability.maxCol')}</span>
+                        <p className="text-slate-200 font-bold">{hist.max || 0}ms</p>
                       </div>
                     </div>
                   </div>
@@ -202,27 +207,26 @@ export default function ObservabilityPage() {
           </CardContent>
         </Card>
 
+        {/* Operational Counters */}
         <Card>
           <CardHeader>
             <CardTitle>
               <Zap className="h-4 w-4 text-amber-400" />
-              System Event Counters
+              {t('observability.operationalCounters')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {Object.keys(counters).length === 0 ? (
               <p className="text-xs text-slate-400 font-mono text-center py-6">
-                No active event counters recorded
+                {t('common.noData')}
               </p>
             ) : (
-              <div className="grid grid-cols-2 gap-2 font-mono">
-                {Object.entries(counters).map(([key, val]) => (
-                  <div key={key} className="p-3 rounded-md bg-surface-elevated/40 border border-border">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block truncate" title={key}>
-                      {key}
-                    </span>
-                    <span className="text-lg font-bold text-slate-100 mt-1 block">
-                      {formatNumber(val as number)}
+              <div className="divide-y divide-border/60 font-mono">
+                {Object.entries(counters).map(([key, count]) => (
+                  <div key={key} className="py-2.5 flex items-center justify-between text-xs">
+                    <span className="text-slate-300 font-medium">{key}</span>
+                    <span className="px-2 py-0.5 rounded bg-surface-elevated text-brand-300 font-bold">
+                      {formatNumber(count as number)}
                     </span>
                   </div>
                 ))}

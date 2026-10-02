@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin-client';
 import { useAuth } from '@/lib/auth/auth-context';
+import { useLanguage } from '@/lib/i18n/language-context';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
 import { Tabs } from '@/components/ui/tabs';
@@ -13,11 +14,12 @@ import { Button } from '@/components/ui/button';
 import { ConfirmModal } from '@/components/ui/confirm-modal';
 import { ErrorAlert } from '@/components/ui/error-alert';
 import { Send, RotateCcw, XCircle, BarChart3, Radio } from 'lucide-react';
-import { formatNumber, formatDate, formatRelativeTime, truncate } from '@/lib/utils';
+import { truncate } from '@/lib/utils';
 import { AdminProactiveAction } from '@/types/admin';
 
 export default function ProactivePage() {
   const { canMutate } = useAuth();
+  const { t, formatNumber, formatDate, formatRelativeTime } = useLanguage();
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<'actions' | 'engagement'>('actions');
@@ -80,10 +82,10 @@ export default function ProactivePage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            PROACTIVE ENGAGEMENT ENGINE
+            {t('proactive.title')}
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Autonomous follow-ups, contextual check-ins, and conversation reactivation
+            {t('proactive.subtitle')}
           </p>
         </div>
       </div>
@@ -91,17 +93,17 @@ export default function ProactivePage() {
       {/* Tabs */}
       <Tabs
         tabs={[
-          { id: 'actions', label: 'Proactive Actions', icon: <Radio className="h-3.5 w-3.5" /> },
-          { id: 'engagement', label: 'Engagement & Dispatch Logs', icon: <BarChart3 className="h-3.5 w-3.5" /> },
+          { id: 'actions', label: t('proactive.tabActions'), icon: <Radio className="h-3.5 w-3.5" /> },
+          { id: 'engagement', label: t('proactive.tabEngagement'), icon: <BarChart3 className="h-3.5 w-3.5" /> },
         ]}
         activeTab={activeTab}
-        onChange={(t) => setActiveTab(t as any)}
+        onChange={(tId) => setActiveTab(tId as any)}
       />
 
       {(actionsQuery.error || engagementQuery.error || dispatchLogQuery.error || cancelMutation.error || retryMutation.error) && (
         <ErrorAlert
           error={(actionsQuery.error || engagementQuery.error || dispatchLogQuery.error || cancelMutation.error || retryMutation.error) as any}
-          title="Proactive Subsystem Error"
+          title={t('proactive.subsystemError')}
           onRetry={() => {
             if (activeTab === 'actions') actionsQuery.refetch();
             else {
@@ -125,7 +127,7 @@ export default function ProactivePage() {
                 }}
                 className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-slate-200 focus:outline-none"
               >
-                <option value="all">Action Status: All</option>
+                <option value="all">{t('proactive.actionStatusAll')}</option>
                 <option value="pending">Pending</option>
                 <option value="sent">Sent</option>
                 <option value="failed">Failed</option>
@@ -137,7 +139,7 @@ export default function ProactivePage() {
           <DataTable
             columns={[
               {
-                header: 'Action Type',
+                header: t('proactive.actionType'),
                 accessorKey: 'actionType',
                 cell: (a) => (
                   <Badge variant="purple" className="uppercase text-[10px]">
@@ -146,12 +148,12 @@ export default function ProactivePage() {
                 ),
               },
               {
-                header: 'Recipient',
+                header: t('proactive.recipient'),
                 accessorKey: 'userPhone',
                 cell: (a) => <span className="font-semibold text-slate-200">{a.userPhone || truncate(a.userId, 16)}</span>,
               },
               {
-                header: 'Scheduled For',
+                header: t('proactive.colScheduled'),
                 accessorKey: 'scheduledAt',
                 cell: (a) => (
                   <div>
@@ -161,12 +163,12 @@ export default function ProactivePage() {
                 ),
               },
               {
-                header: 'Status',
+                header: t('common.status'),
                 accessorKey: 'status',
                 cell: (a) => <StatusPill status={a.status} />,
               },
               {
-                header: 'Payload Preview',
+                header: t('proactive.payloadPreview'),
                 accessorKey: 'payload',
                 cell: (a) => (
                   <span className="text-slate-400 text-xs italic">
@@ -175,9 +177,9 @@ export default function ProactivePage() {
                 ),
               },
               {
-                header: 'Actions',
+                header: t('common.actions'),
                 cell: (a) => (
-                  <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     {canMutate && (
                       <>
                         {a.status === 'failed' && (
@@ -185,10 +187,10 @@ export default function ProactivePage() {
                             variant="secondary"
                             size="sm"
                             onClick={() => setRetryModalAction(a)}
-                            title="Retry Proactive Dispatch"
+                            title={t('proactive.retryDispatch')}
                           >
-                            <RotateCcw className="h-3.5 w-3.5 mr-1 text-cyan-400" />
-                            Retry
+                            <RotateCcw className="h-3.5 w-3.5 me-1 text-cyan-400" />
+                            {t('proactive.btnRetry')}
                           </Button>
                         )}
                         {a.status === 'pending' && (
@@ -196,10 +198,10 @@ export default function ProactivePage() {
                             variant="destructive"
                             size="sm"
                             onClick={() => setCancelModalAction(a)}
-                            title="Cancel Action"
+                            title={t('proactive.cancelAction')}
                           >
-                            <XCircle className="h-3.5 w-3.5 mr-1" />
-                            Cancel
+                            <XCircle className="h-3.5 w-3.5 me-1" />
+                            {t('proactive.btnCancel')}
                           </Button>
                         )}
                       </>
@@ -210,7 +212,7 @@ export default function ProactivePage() {
             ]}
             data={actions}
             isLoading={actionsQuery.isLoading}
-            emptyMessage="No proactive actions recorded"
+            emptyMessage={t('proactive.noActions')}
             pagination={{
               currentPage: page,
               hasMore: actionsQuery.data?.pagination?.total !== undefined ? page * limit < actionsQuery.data.pagination.total : actions.length === limit,
@@ -227,31 +229,31 @@ export default function ProactivePage() {
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 font-mono">
             <Card className="p-4">
-              <span className="text-[10px] text-slate-400 uppercase block">Total Dispatched</span>
+              <span className="text-[10px] text-slate-400 uppercase block">{t('proactive.dispatchedCount')}</span>
               <span className="text-xl font-bold text-slate-100 mt-1 block">
                 {formatNumber(engagement?.totalDispatches)}
               </span>
             </Card>
             <Card className="p-4">
-              <span className="text-[10px] text-slate-400 uppercase block">Delivered</span>
+              <span className="text-[10px] text-slate-400 uppercase block">{t('proactive.delivered')}</span>
               <span className="text-xl font-bold text-emerald-400 mt-1 block">
                 {formatNumber(engagement?.deliveredCount)}
               </span>
             </Card>
             <Card className="p-4">
-              <span className="text-[10px] text-slate-400 uppercase block">User Replies</span>
+              <span className="text-[10px] text-slate-400 uppercase block">{t('proactive.userReplies')}</span>
               <span className="text-xl font-bold text-brand-300 mt-1 block">
                 {formatNumber(engagement?.repliedCount)}
               </span>
             </Card>
             <Card className="p-4">
-              <span className="text-[10px] text-slate-400 uppercase block">Response Rate</span>
+              <span className="text-[10px] text-slate-400 uppercase block">{t('proactive.engagementRate')}</span>
               <span className="text-xl font-bold text-amber-300 mt-1 block">
                 {engagement?.responseRatePercent ?? 0}%
               </span>
             </Card>
             <Card className="p-4">
-              <span className="text-[10px] text-slate-400 uppercase block">Opt-Outs</span>
+              <span className="text-[10px] text-slate-400 uppercase block">{t('proactive.optOuts')}</span>
               <span className="text-xl font-bold text-slate-400 mt-1 block">
                 {formatNumber(engagement?.optOutCount)}
               </span>
@@ -262,36 +264,36 @@ export default function ProactivePage() {
             <CardHeader>
               <CardTitle>
                 <Send className="h-4 w-4 text-emerald-400" />
-                Recent Proactive Dispatches
+                {t('proactive.recentDispatches')}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <DataTable
                 columns={[
                   {
-                    header: 'Recipient',
+                    header: t('proactive.recipient'),
                     accessorKey: 'recipientPhone',
                     cell: (l) => <span className="font-semibold text-slate-200">{l.recipientPhone || l.userId || '—'}</span>,
                   },
                   {
-                    header: 'Action Type',
+                    header: t('proactive.actionType'),
                     accessorKey: 'actionType',
                     cell: (l) => <Badge variant="purple">{l.actionType || 'follow_up'}</Badge>,
                   },
                   {
-                    header: 'Status',
+                    header: t('common.status'),
                     accessorKey: 'status',
                     cell: (l) => <StatusPill status={l.status || 'delivered'} />,
                   },
                   {
-                    header: 'Timestamp',
+                    header: t('common.timestamp'),
                     accessorKey: 'createdAt',
                     cell: (l) => formatRelativeTime(l.createdAt),
                   },
                 ]}
                 data={dispatchLogs}
                 isLoading={dispatchLogQuery.isLoading}
-                emptyMessage="No dispatch log events recorded"
+                emptyMessage={t('proactive.noDispatchEvents')}
               />
             </CardContent>
           </Card>
@@ -303,9 +305,9 @@ export default function ProactivePage() {
         isOpen={Boolean(cancelModalAction)}
         onClose={() => setCancelModalAction(null)}
         onConfirm={() => cancelMutation.mutate(cancelModalAction!.id)}
-        title="Cancel Proactive Action"
-        description="This will prevent the scheduled message from being dispatched to the user."
-        confirmText="Cancel Action"
+        title={t('proactive.cancelModalTitle')}
+        description={t('proactive.cancelDesc')}
+        confirmText={t('proactive.cancelAction')}
         variant="destructive"
         isLoading={cancelMutation.isPending}
       />
@@ -315,9 +317,9 @@ export default function ProactivePage() {
         isOpen={Boolean(retryModalAction)}
         onClose={() => setRetryModalAction(null)}
         onConfirm={() => retryMutation.mutate(retryModalAction!.id)}
-        title="Retry Proactive Dispatch"
-        description="This will reset the action status and schedule immediate delivery attempt."
-        confirmText="Retry Dispatch"
+        title={t('proactive.retryModalTitle')}
+        description={t('proactive.retryDesc')}
+        confirmText={t('proactive.retryDispatch')}
         variant="primary"
         isLoading={retryMutation.isPending}
       />

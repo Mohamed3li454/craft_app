@@ -17,11 +17,12 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formatNumber, formatCurrency, formatTokens, formatRelativeTime } from '@/lib/utils';
+import { useLanguage } from '@/lib/i18n/language-context';
 import Link from 'next/link';
 
 export default function OverviewPage() {
   const [days, setDays] = useState(14);
+  const { t, formatNumber, formatCurrency, formatTokens, formatRelativeTime } = useLanguage();
 
   const { data, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['admin-overview', days],
@@ -40,22 +41,22 @@ export default function OverviewPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            MISSION CONTROL OVERVIEW
+            {t('overview.title')}
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Real-time platform telemetry, user metrics, and operational performance
+            {t('overview.subtitle')}
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
           <select
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
             className="h-8 rounded-md border border-border bg-surface-elevated px-2.5 text-xs font-mono text-slate-200 focus:outline-none"
           >
-            <option value={7}>Last 7 Days</option>
-            <option value={14}>Last 14 Days</option>
-            <option value={30}>Last 30 Days</option>
+            <option value={7}>{t('common.last7Days')}</option>
+            <option value={14}>{t('common.last14Days')}</option>
+            <option value={30}>{t('common.last30Days')}</option>
           </select>
           <Button
             variant="outline"
@@ -64,8 +65,8 @@ export default function OverviewPage() {
             isLoading={isRefetching}
             className="font-mono text-xs"
           >
-            <RefreshCw className="h-3.5 w-3.5 mr-1" />
-            Refresh
+            <RefreshCw className="h-3.5 w-3.5 me-1" />
+            {t('common.refresh')}
           </Button>
         </div>
       </div>
@@ -73,7 +74,7 @@ export default function OverviewPage() {
       {error && (
         <ErrorAlert
           error={error}
-          title="Failed to load mission control overview"
+          title={t('overview.failedToLoad')}
           onRetry={() => refetch()}
         />
       )}
@@ -81,39 +82,39 @@ export default function OverviewPage() {
       {/* KPI Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <MetricCard
-          title="Total Users"
+          title={t('overview.totalUsers')}
           value={isLoading ? '...' : formatNumber(overview?.totalUsers)}
-          subtext={`${formatNumber(overview?.activeUsers24h)} active 24h`}
+          subtext={t('overview.active24h', { count: formatNumber(overview?.activeUsers24h) })}
           icon={<Users className="h-4 w-4" />}
         />
         <MetricCard
-          title="Active Users (7d)"
+          title={t('overview.activeUsers7d')}
           value={isLoading ? '...' : formatNumber(overview?.activeUsers7d)}
-          subtext="Weekly active reach"
+          subtext={t('overview.weeklyReach')}
           icon={<TrendingUp className="h-4 w-4" />}
         />
         <MetricCard
-          title="Messages"
+          title={t('overview.messages')}
           value={isLoading ? '...' : formatNumber(overview?.totalMessages)}
-          subtext={`${formatNumber(overview?.totalConversations)} conversations`}
+          subtext={t('overview.conversationsCount', { count: formatNumber(overview?.totalConversations) })}
           icon={<MessageSquare className="h-4 w-4" />}
         />
         <MetricCard
-          title="Reminders"
+          title={t('overview.reminders')}
           value={isLoading ? '...' : formatNumber(overview?.totalReminders)}
-          subtext={`${formatNumber(overview?.pendingReminders)} pending`}
+          subtext={t('overview.pendingReminders', { count: formatNumber(overview?.pendingReminders) })}
           icon={<Clock className="h-4 w-4" />}
         />
         <MetricCard
-          title="Token Usage"
+          title={t('overview.tokenUsage')}
           value={isLoading ? '...' : formatTokens(overview?.totalTokens)}
           subtext={formatCurrency(overview?.totalCostUsd)}
           icon={<Cpu className="h-4 w-4" />}
         />
         <MetricCard
-          title="Cache Hit Rate"
+          title={t('overview.cacheHitRate')}
           value={isLoading ? '...' : `${overview?.cacheHitRatePercent ?? 0}%`}
-          subtext="Semantic response cache"
+          subtext={t('overview.semanticCacheSubtitle')}
           icon={<Zap className="h-4 w-4" />}
         />
       </div>
@@ -125,21 +126,21 @@ export default function OverviewPage() {
           <CardHeader>
             <CardTitle>
               <TrendingUp className="h-4 w-4 text-brand-400" />
-              Daily Volume & Cost Trends ({days}d)
+              {t('overview.dailyVolumeTitle', { days: String(days) })}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <DataTable
               columns={[
-                { header: 'Date', accessorKey: 'date', cell: (r) => <span className="text-slate-200">{r.date}</span> },
-                { header: 'Messages', accessorKey: 'messageCount', cell: (r) => formatNumber(r.messageCount) },
-                { header: 'Active Users', accessorKey: 'activeUsers', cell: (r) => formatNumber(r.activeUsers) },
-                { header: 'Tokens', accessorKey: 'tokenCount', cell: (r) => formatTokens(r.tokenCount) },
-                { header: 'Cost', accessorKey: 'costUsd', cell: (r) => formatCurrency(r.costUsd) },
+                { header: t('overview.dateCol'), accessorKey: 'date', cell: (r) => <span className="text-slate-200">{r.date}</span> },
+                { header: t('overview.messagesCol'), accessorKey: 'messageCount', cell: (r) => formatNumber(r.messageCount) },
+                { header: t('overview.activeUsersCol'), accessorKey: 'activeUsers', cell: (r) => formatNumber(r.activeUsers) },
+                { header: t('overview.tokensCol'), accessorKey: 'tokenCount', cell: (r) => formatTokens(r.tokenCount) },
+                { header: t('overview.costCol'), accessorKey: 'costUsd', cell: (r) => formatCurrency(r.costUsd) },
               ]}
               data={dailyTrends}
               isLoading={isLoading}
-              emptyMessage="No trend history recorded"
+              emptyMessage={t('overview.noTrendHistory')}
             />
           </CardContent>
         </Card>
@@ -149,21 +150,21 @@ export default function OverviewPage() {
           <CardHeader>
             <CardTitle>
               <Cpu className="h-4 w-4 text-cyan-400" />
-              Model Inference Distribution
+              {t('overview.modelDistributionTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <DataTable
               columns={[
-                { header: 'Model', accessorKey: 'model', cell: (r) => <span className="font-semibold text-slate-100">{r.model}</span> },
-                { header: 'Calls', accessorKey: 'calls', cell: (r) => formatNumber(r.calls) },
-                { header: 'Tokens', accessorKey: 'tokens', cell: (r) => formatTokens(r.tokens) },
-                { header: 'Cost', accessorKey: 'costUsd', cell: (r) => formatCurrency(r.costUsd) },
-                { header: 'Avg Latency', accessorKey: 'avgLatencyMs', cell: (r) => `${r.avgLatencyMs || 0}ms` },
+                { header: t('overview.modelCol'), accessorKey: 'model', cell: (r) => <span className="font-semibold text-slate-100">{r.model}</span> },
+                { header: t('overview.callsCol'), accessorKey: 'calls', cell: (r) => formatNumber(r.calls) },
+                { header: t('overview.tokensCol'), accessorKey: 'tokens', cell: (r) => formatTokens(r.tokens) },
+                { header: t('overview.costCol'), accessorKey: 'costUsd', cell: (r) => formatCurrency(r.costUsd) },
+                { header: t('overview.avgLatencyCol'), accessorKey: 'avgLatencyMs', cell: (r) => `${r.avgLatencyMs || 0}ms` },
               ]}
               data={modelBreakdown}
               isLoading={isLoading}
-              emptyMessage="No model inference records found"
+              emptyMessage={t('overview.noModelRecords')}
             />
           </CardContent>
         </Card>
@@ -174,23 +175,23 @@ export default function OverviewPage() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>
             <Users className="h-4 w-4 text-emerald-400" />
-            Top Active WhatsApp Users
+            {t('overview.topUsersTitle')}
           </CardTitle>
           <Link href="/users" className="text-xs font-mono text-brand-400 hover:text-brand-300">
-            View All Users →
+            {t('overview.viewAllUsers')}
           </Link>
         </CardHeader>
         <CardContent className="p-0">
           <DataTable
             columns={[
-              { header: 'User Identifier', accessorKey: 'userId', cell: (r) => <span className="text-slate-300">{r.userId}</span> },
-              { header: 'Phone', accessorKey: 'phone', cell: (r) => <span className="text-slate-200">{r.phone || '—'}</span> },
-              { header: 'Total Messages', accessorKey: 'messageCount', cell: (r) => formatNumber(r.messageCount) },
-              { header: 'Last Active', accessorKey: 'lastActive', cell: (r) => formatRelativeTime(r.lastActive) },
+              { header: t('overview.userIdentifierCol'), accessorKey: 'userId', cell: (r) => <span className="text-slate-300">{r.userId}</span> },
+              { header: t('overview.phoneCol'), accessorKey: 'phone', cell: (r) => <span className="text-slate-200">{r.phone || '—'}</span> },
+              { header: t('overview.totalMessagesCol'), accessorKey: 'messageCount', cell: (r) => formatNumber(r.messageCount) },
+              { header: t('overview.lastActiveCol'), accessorKey: 'lastActive', cell: (r) => formatRelativeTime(r.lastActive) },
             ]}
             data={topUsers}
             isLoading={isLoading}
-            emptyMessage="No active user data available"
+            emptyMessage={t('overview.noActiveUsers')}
           />
         </CardContent>
       </Card>

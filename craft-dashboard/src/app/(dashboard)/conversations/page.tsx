@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin-client';
 import { useAuth } from '@/lib/auth/auth-context';
+import { useLanguage } from '@/lib/i18n/language-context';
 import { Card } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
 import { StatusPill } from '@/components/ui/status-pill';
@@ -12,11 +13,12 @@ import { Input } from '@/components/ui/input';
 import { Drawer } from '@/components/ui/drawer';
 import { ErrorAlert } from '@/components/ui/error-alert';
 import { Search, Eye, Archive, User, Bot } from 'lucide-react';
-import { formatNumber, formatDate, formatRelativeTime, truncate } from '@/lib/utils';
+import { truncate } from '@/lib/utils';
 import { AdminConversationItem } from '@/types/admin';
 
 export default function ConversationsPage() {
   const { canMutate } = useAuth();
+  const { t, formatNumber, formatDate, formatRelativeTime } = useLanguage();
   const queryClient = useQueryClient();
 
   const [userIdFilter, setUserIdFilter] = useState('');
@@ -64,10 +66,10 @@ export default function ConversationsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            CONVERSATION INSPECTOR & TRANSCRIPTS
+            {t('conversations.title')}
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Real-time chat threads, user turn history, and assistant telemetry
+            {t('conversations.subtitle')}
           </p>
         </div>
       </div>
@@ -75,19 +77,19 @@ export default function ConversationsPage() {
       {error && (
         <ErrorAlert
           error={error}
-          title="Failed to load conversations"
+          title={t('conversations.failedToLoad')}
           onRetry={() => refetch()}
         />
       )}
       {archiveMutation.error && (
-        <ErrorAlert error={archiveMutation.error} title="Failed to archive conversation" />
+        <ErrorAlert error={archiveMutation.error} title={t('conversations.failedToArchive')} />
       )}
 
       {/* Filter Bar */}
       <Card className="p-4">
         <div className="max-w-md">
           <Input
-            placeholder="Filter by User ID or phone..."
+            placeholder={t('conversations.filterPlaceholder')}
             value={userIdFilter}
             onChange={(e) => {
               setUserIdFilter(e.target.value);
@@ -102,47 +104,47 @@ export default function ConversationsPage() {
       <DataTable
         columns={[
           {
-            header: 'Conversation ID',
+            header: t('conversations.colConvId'),
             accessorKey: 'id',
             cell: (c) => <span className="font-semibold text-slate-200">{truncate(c.id, 16)}</span>,
           },
           {
-            header: 'User / Contact',
+            header: t('conversations.colUser'),
             accessorKey: 'userPhone',
             cell: (c) => <span className="text-slate-100">{c.userPhone || truncate(c.userId, 16)}</span>,
           },
           {
-            header: 'Channel',
+            header: t('conversations.colChannel'),
             accessorKey: 'channel',
             cell: (c) => <span className="uppercase text-slate-400 text-xs">{c.channel || 'whatsapp'}</span>,
           },
           {
-            header: 'Status',
+            header: t('conversations.colStatus'),
             accessorKey: 'status',
             cell: (c) => <StatusPill status={c.status} />,
           },
           {
-            header: 'Messages',
+            header: t('conversations.colMessages'),
             accessorKey: 'messageCount',
             cell: (c) => formatNumber(c.messageCount),
           },
           {
-            header: 'Last Snippet',
+            header: t('conversations.lastSnippet'),
             accessorKey: 'lastMessageSnippet',
             cell: (c) => <span className="text-slate-400 text-xs italic">{truncate(c.lastMessageSnippet, 40)}</span>,
           },
           {
-            header: 'Updated',
+            header: t('conversations.updated'),
             accessorKey: 'updatedAt',
             cell: (c) => formatRelativeTime(c.updatedAt),
           },
           {
-            header: 'Actions',
+            header: t('conversations.colActions'),
             cell: (c) => (
-              <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                 <Button variant="outline" size="sm" onClick={() => setSelectedConv(c)}>
-                  <Eye className="h-3.5 w-3.5 mr-1" />
-                  Transcript
+                  <Eye className="h-3.5 w-3.5 me-1" />
+                  {t('conversations.btnTranscript')}
                 </Button>
                 {canMutate && c.status !== 'archived' && (
                   <Button
@@ -150,7 +152,7 @@ export default function ConversationsPage() {
                     size="sm"
                     onClick={() => archiveMutation.mutate(c.id)}
                     isLoading={archiveMutation.isPending}
-                    title="Archive Conversation"
+                    title={t('conversations.archiveTitle')}
                   >
                     <Archive className="h-3.5 w-3.5 text-slate-400 hover:text-amber-400" />
                   </Button>
@@ -161,7 +163,7 @@ export default function ConversationsPage() {
         ]}
         data={conversations}
         isLoading={isLoading}
-        emptyMessage="No conversations recorded"
+        emptyMessage={t('conversations.noMessages')}
         pagination={{
           currentPage: page,
           hasMore: total !== undefined ? page * limit < total : conversations.length === limit,
@@ -175,14 +177,14 @@ export default function ConversationsPage() {
       <Drawer
         isOpen={Boolean(selectedConv)}
         onClose={() => setSelectedConv(null)}
-        title={`TRANSCRIPT: ${selectedConv?.id}`}
-        subtitle={`User: ${selectedConv?.userPhone || selectedConv?.userId || ''} • Channel: ${selectedConv?.channel || 'whatsapp'}`}
+        title={`${t('conversations.drawerTitle')}: ${selectedConv?.id}`}
+        subtitle={`${t('conversations.colUser')}: ${selectedConv?.userPhone || selectedConv?.userId || ''} • ${t('conversations.colChannel')}: ${selectedConv?.channel || 'whatsapp'}`}
         width="2xl"
       >
         {messagesQuery.isLoading ? (
-          <div className="p-8 text-center text-xs font-mono text-slate-400">Loading conversation transcript...</div>
+          <div className="p-8 text-center text-xs font-mono text-slate-400">{t('conversations.loadingTranscript')}</div>
         ) : messages.length === 0 ? (
-          <div className="p-8 text-center text-xs font-mono text-slate-400">No messages in this conversation thread</div>
+          <div className="p-8 text-center text-xs font-mono text-slate-400">{t('conversations.noMessages')}</div>
         ) : (
           <div className="space-y-4 font-mono text-xs">
             {messages.map((msg) => {
@@ -193,18 +195,18 @@ export default function ConversationsPage() {
                   key={msg.id}
                   className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} space-y-1`}
                 >
-                  <div className="flex items-center space-x-1.5 text-[11px] text-slate-400 px-1">
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 px-1">
                     {isUser ? (
                       <>
                         <span>{formatDate(msg.createdAt)}</span>
                         <span className="font-semibold text-slate-300 flex items-center gap-1">
-                          User <User className="h-3 w-3" />
+                          {t('conversations.user')} <User className="h-3 w-3" />
                         </span>
                       </>
                     ) : (
                       <>
                         <span className="font-semibold text-brand-300 flex items-center gap-1">
-                          <Bot className="h-3 w-3" /> Assistant
+                          <Bot className="h-3 w-3" /> {t('conversations.assistant')}
                         </span>
                         {msg.model && <span className="text-[10px] text-slate-400">({msg.model})</span>}
                         <span>• {formatDate(msg.createdAt)}</span>
@@ -215,14 +217,14 @@ export default function ConversationsPage() {
                   <div
                     className={`max-w-xl p-3.5 rounded-lg border leading-relaxed text-xs ${
                       isUser
-                        ? 'bg-brand-950/40 border-brand-800/60 text-slate-100 rounded-tr-none'
-                        : 'bg-surface-elevated border-border text-slate-200 rounded-tl-none'
+                        ? 'bg-brand-950/40 border-brand-800/60 text-slate-100 rounded-te-none'
+                        : 'bg-surface-elevated border-border text-slate-200 rounded-ts-none'
                     }`}
                   >
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                     {msg.tokens !== undefined && (
                       <div className="mt-2 pt-2 border-t border-border/40 text-[10px] text-slate-400 flex items-center justify-between">
-                        <span>Tokens: {msg.tokens}</span>
+                        <span>{t('conversations.tokens', { tokens: String(msg.tokens) })}</span>
                       </div>
                     )}
                   </div>

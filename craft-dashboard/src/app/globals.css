@@ -14,6 +14,14 @@ body {
   overflow-x: hidden;
 }
 
+[dir="rtl"] body,
+[dir="rtl"] input,
+[dir="rtl"] textarea,
+[dir="rtl"] select,
+[dir="rtl"] button {
+  font-family: 'Cairo', 'Segoe UI', Tahoma, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
 /* Custom technical scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

@@ -1,6 +1,9 @@
+'use client';
+
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/lib/i18n/language-context';
 
 export interface DrawerProps {
   isOpen: boolean;
@@ -21,6 +24,8 @@ export function Drawer({
   width = 'xl',
   footer,
 }: DrawerProps) {
+  const { t } = useLanguage();
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -44,7 +49,7 @@ export function Drawer({
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
       <div
         className={cn(
-          'w-full h-full bg-surface border-l border-border flex flex-col shadow-2xl animate-in slide-in-from-right duration-200 overflow-hidden',
+          'w-full h-full bg-surface border-s border-border flex flex-col shadow-2xl animate-in slide-in-from-right rtl:slide-in-from-left duration-200 overflow-hidden',
           widthClasses[width]
         )}
       >
@@ -56,6 +61,7 @@ export function Drawer({
           </div>
           <button
             onClick={onClose}
+            aria-label={t('common.close')}
             className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-surface-elevated transition-colors"
           >
             <X className="h-5 w-5" />
@@ -67,7 +73,7 @@ export function Drawer({
 
         {/* Optional Drawer Footer */}
         {footer && (
-          <div className="px-6 py-4 border-t border-border bg-surface-elevated/40 flex items-center justify-end space-x-2">
+          <div className="px-6 py-4 border-t border-border bg-surface-elevated/40 flex items-center justify-end gap-2">
             {footer}
           </div>
         )}

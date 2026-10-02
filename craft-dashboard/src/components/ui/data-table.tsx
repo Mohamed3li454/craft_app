@@ -1,7 +1,10 @@
+'use client';
+
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import { Button } from './button';
+import { useLanguage } from '@/lib/i18n/language-context';
 
 export interface Column<T> {
   header: string;
@@ -30,19 +33,26 @@ export function DataTable<T extends Record<string, any>>({
   columns,
   data,
   isLoading,
-  emptyMessage = 'No records found',
+  emptyMessage,
   onRowClick,
   pagination,
   className,
 }: DataTableProps<T>) {
+  const { t, isRtl } = useLanguage();
+  const effectiveEmptyMessage = emptyMessage || t('common.noResults');
+
+  // Directional icons: in RTL, Next is Left arrow, Previous is Right arrow
+  const PrevIcon = isRtl ? ChevronRight : ChevronLeft;
+  const NextIcon = isRtl ? ChevronLeft : ChevronRight;
+
   return (
     <div className={cn('w-full flex flex-col rounded-lg border border-border bg-surface overflow-hidden', className)}>
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs sm:text-sm">
+        <table className="w-full text-start text-xs sm:text-sm">
           <thead className="bg-surface-elevated/70 text-slate-400 uppercase font-mono text-[11px] tracking-wider border-b border-border">
             <tr>
               {columns.map((col, idx) => (
-                <th key={idx} className={cn('px-4 py-3 font-semibold select-none', col.className)}>
+                <th key={idx} className={cn('px-4 py-3 font-semibold select-none text-start', col.className)}>
                   {col.header}
                 </th>
               ))}
@@ -64,7 +74,7 @@ export function DataTable<T extends Record<string, any>>({
                 <td colSpan={columns.length} className="px-4 py-12 text-center text-slate-400">
                   <div className="flex flex-col items-center justify-center space-y-2">
                     <Inbox className="h-8 w-8 text-slate-400" />
-                    <span>{emptyMessage}</span>
+                    <span>{effectiveEmptyMessage}</span>
                   </div>
                 </td>
               </tr>
@@ -79,7 +89,7 @@ export function DataTable<T extends Record<string, any>>({
                   )}
                 >
                   {columns.map((col, colIdx) => (
-                    <td key={colIdx} className={cn('px-4 py-3 text-slate-200 text-xs sm:text-sm align-middle', col.className)}>
+                    <td key={colIdx} className={cn('px-4 py-3 text-slate-200 text-xs sm:text-sm align-middle text-start', col.className)}>
                       {col.cell ? col.cell(item) : (col.accessorKey ? String(item[col.accessorKey] ?? '—') : '—')}
                     </td>
                   ))}
@@ -94,20 +104,24 @@ export function DataTable<T extends Record<string, any>>({
         <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-surface-elevated/40 text-xs font-mono text-slate-400">
           <div>
             {pagination.total !== undefined ? (
-              <span>Total records: <strong className="text-slate-200">{pagination.total}</strong></span>
+              <span>
+                {t('common.totalRecords', { count: String(pagination.total) })}
+              </span>
             ) : (
-              <span>Showing {data.length} records</span>
+              <span>
+                {t('common.showingRecords', { count: String(data.length) })}
+              </span>
             )}
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={pagination.onPrev}
               disabled={!pagination.currentPage || pagination.currentPage <= 1 || isLoading}
             >
-              <ChevronLeft className="h-3.5 w-3.5 mr-1" />
-              Previous
+              <PrevIcon className="h-3.5 w-3.5 me-1" />
+              {t('common.previous')}
             </Button>
             <Button
               variant="outline"
@@ -115,8 +129,8 @@ export function DataTable<T extends Record<string, any>>({
               onClick={pagination.onNext}
               disabled={!pagination.hasMore || isLoading}
             >
-              Next
-              <ChevronRight className="h-3.5 w-3.5 ml-1" />
+              {t('common.next')}
+              <NextIcon className="h-3.5 w-3.5 ms-1" />
             </Button>
           </div>
         </div>

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin-client';
 import { useAuth } from '@/lib/auth/auth-context';
+import { useLanguage } from '@/lib/i18n/language-context';
 import { Card } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
 import { StatusPill } from '@/components/ui/status-pill';
@@ -12,11 +13,12 @@ import { Input } from '@/components/ui/input';
 import { ConfirmModal } from '@/components/ui/confirm-modal';
 import { ErrorAlert } from '@/components/ui/error-alert';
 import { Search, RotateCcw, XCircle, AlertCircle, ShieldAlert } from 'lucide-react';
-import { formatDate, formatRelativeTime, truncate } from '@/lib/utils';
+import { truncate } from '@/lib/utils';
 import { AdminReminderItem } from '@/types/admin';
 
 export default function RemindersPage() {
   const { canMutate } = useAuth();
+  const { t, formatDate, formatRelativeTime } = useLanguage();
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState('');
@@ -68,10 +70,10 @@ export default function RemindersPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            REMINDER LIFECYCLE & DISPATCH ENGINE
+            {t('reminders.title')}
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Monitor proactive delivery states, failures, and trigger safe automated re-dispatches
+            {t('reminders.subtitle')}
           </p>
         </div>
       </div>
@@ -80,22 +82,22 @@ export default function RemindersPage() {
       <div className="flex items-center gap-2.5 p-3 rounded-lg border border-brand-800/40 bg-brand-950/20 text-brand-300 text-xs font-mono">
         <ShieldAlert className="h-4 w-4 shrink-0 text-brand-400" />
         <span>
-          Scheduler Invariant: Operational retries strictly reschedule reminders through the centralized database control plane; pg_cron and WhatsApp rate-limit guards are never bypassed.
+          {t('reminders.invariantNotice')}
         </span>
       </div>
 
       {error && (
         <ErrorAlert
           error={error}
-          title="Failed to load reminders"
+          title={t('reminders.failedToLoad')}
           onRetry={() => refetch()}
         />
       )}
       {cancelMutation.error && (
-        <ErrorAlert error={cancelMutation.error} title="Failed to cancel reminder" />
+        <ErrorAlert error={cancelMutation.error} title={t('reminders.failedToCancel')} />
       )}
       {retryMutation.error && (
-        <ErrorAlert error={retryMutation.error} title="Failed to reschedule reminder" />
+        <ErrorAlert error={retryMutation.error} title={t('reminders.failedToRetry')} />
       )}
 
       {/* Filter Bar */}
@@ -103,7 +105,7 @@ export default function RemindersPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="sm:col-span-2">
             <Input
-              placeholder="Search reminder title, contact or ID..."
+              placeholder={t('reminders.searchPlaceholder')}
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -121,7 +123,7 @@ export default function RemindersPage() {
               }}
               className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-slate-200 focus:outline-none"
             >
-              <option value="all">Lifecycle: All Statuses</option>
+              <option value="all">{t('common.allStatuses')}</option>
               <option value="pending">Pending</option>
               <option value="processing">Processing</option>
               <option value="delivered">Delivered</option>
@@ -136,7 +138,7 @@ export default function RemindersPage() {
       <DataTable
         columns={[
           {
-            header: 'Reminder Title',
+            header: t('reminders.titleCol'),
             accessorKey: 'title',
             cell: (r) => (
               <div>
@@ -151,12 +153,12 @@ export default function RemindersPage() {
             ),
           },
           {
-            header: 'Recipient Contact',
+            header: t('reminders.recipientContact'),
             accessorKey: 'userPhone',
             cell: (r) => <span className="text-slate-200">{r.userPhone || truncate(r.userId, 16)}</span>,
           },
           {
-            header: 'Scheduled For',
+            header: t('reminders.scheduledFor'),
             accessorKey: 'scheduledTime',
             cell: (r) => (
               <div>
@@ -166,12 +168,12 @@ export default function RemindersPage() {
             ),
           },
           {
-            header: 'Status',
+            header: t('reminders.colStatus'),
             accessorKey: 'status',
             cell: (r) => <StatusPill status={r.status} />,
           },
           {
-            header: 'Retries',
+            header: t('reminders.colRetries'),
             accessorKey: 'retryCount',
             cell: (r) => (
               <span className={`font-mono text-xs ${r.retryCount > 0 ? 'text-amber-400 font-bold' : 'text-slate-400'}`}>
@@ -180,9 +182,9 @@ export default function RemindersPage() {
             ),
           },
           {
-            header: 'Actions',
+            header: t('reminders.colActions'),
             cell: (r) => (
-              <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                 {canMutate && (
                   <>
                     {(r.status === 'failed' || r.status === 'cancelled') && (
@@ -190,10 +192,10 @@ export default function RemindersPage() {
                         variant="secondary"
                         size="sm"
                         onClick={() => setRetryModalReminder(r)}
-                        title="Reschedule Reminder Dispatch"
+                        title={t('reminders.btnRetry')}
                       >
-                        <RotateCcw className="h-3.5 w-3.5 mr-1 text-cyan-400" />
-                        Retry
+                        <RotateCcw className="h-3.5 w-3.5 me-1 text-cyan-400" />
+                        {t('reminders.btnRetry')}
                       </Button>
                     )}
 
@@ -202,10 +204,10 @@ export default function RemindersPage() {
                         variant="destructive"
                         size="sm"
                         onClick={() => setCancelModalReminder(r)}
-                        title="Cancel Reminder"
+                        title={t('reminders.btnCancel')}
                       >
-                        <XCircle className="h-3.5 w-3.5 mr-1" />
-                        Cancel
+                        <XCircle className="h-3.5 w-3.5 me-1" />
+                        {t('reminders.btnCancel')}
                       </Button>
                     )}
                   </>
@@ -216,7 +218,7 @@ export default function RemindersPage() {
         ]}
         data={reminders}
         isLoading={isLoading}
-        emptyMessage="No reminders matching filter"
+        emptyMessage={t('reminders.noReminders')}
         pagination={{
           currentPage: page,
           hasMore: total !== undefined ? page * limit < total : reminders.length === limit,
@@ -236,16 +238,16 @@ export default function RemindersPage() {
             reason: cancelReason,
           })
         }
-        title={`Cancel Reminder: "${cancelModalReminder?.title}"`}
-        description="Cancelling will prevent this reminder from being dispatched by the scheduler."
-        confirmText="Confirm Cancel"
+        title={`${t('reminders.cancelModalTitle')}: "${cancelModalReminder?.title}"`}
+        description={t('reminders.cancelModalDesc')}
+        confirmText={t('reminders.confirmCancel')}
         variant="destructive"
         isLoading={cancelMutation.isPending}
       >
         <div className="space-y-1 mt-2">
-          <label className="text-[11px] font-mono text-slate-400">Optional Reason</label>
+          <label className="text-[11px] font-mono text-slate-400">{t('reminders.optionalReason')}</label>
           <Input
-            placeholder="e.g. User request, obsolete item"
+            placeholder={t('reminders.reasonPlaceholder')}
             value={cancelReason}
             onChange={(e) => setCancelReason(e.target.value)}
           />
@@ -257,9 +259,9 @@ export default function RemindersPage() {
         isOpen={Boolean(retryModalReminder)}
         onClose={() => setRetryModalReminder(null)}
         onConfirm={() => retryMutation.mutate(retryModalReminder!.id)}
-        title={`Reschedule Reminder: "${retryModalReminder?.title}"`}
-        description="This will reset the reminder lifecycle state to pending and queue it for the next scheduled delivery sweep."
-        confirmText="Reschedule Dispatch"
+        title={`${t('reminders.retryModalTitle')}: "${retryModalReminder?.title}"`}
+        description={t('reminders.retryModalDesc')}
+        confirmText={t('reminders.rescheduleDispatch')}
         variant="primary"
         isLoading={retryMutation.isPending}
       />

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin-client';
 import { useAuth } from '@/lib/auth/auth-context';
+import { useLanguage } from '@/lib/i18n/language-context';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +15,7 @@ import { Settings, ShieldCheck, Server, Cpu, Database, Save, CheckCircle2 } from
 
 export default function SettingsPage() {
   const { canManageSettings } = useAuth();
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -69,10 +71,10 @@ export default function SettingsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            PLATFORM CONFIGURATION & RUNTIME SETTINGS
+            {t('settings.title')}
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Safe operational toggles, infrastructure telemetry, and zero secret leakage
+            {t('settings.subtitle')}
           </p>
         </div>
       </div>
@@ -81,14 +83,14 @@ export default function SettingsPage() {
       <div className="flex items-center gap-2.5 p-3.5 rounded-lg border border-emerald-800/40 bg-emerald-950/20 text-emerald-300 text-xs font-mono">
         <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-400" />
         <span>
-          Strict Security Policy: Zero secret keys, auth tokens, database credentials, or webhook secrets are disclosed in this dashboard or in the settings API responses.
+          {t('settings.securityGuarantee')}
         </span>
       </div>
 
       {(error || updateMutation.error) && (
         <ErrorAlert
           error={(error || updateMutation.error) as any}
-          title="Settings Configuration Error"
+          title={t('settings.configError')}
           onRetry={() => refetch()}
         />
       )}
@@ -99,20 +101,20 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle>
               <Settings className="h-4 w-4 text-brand-400" />
-              Runtime Control Plane Toggles
+              {t('settings.runtimeControlsTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="p-6 text-center text-xs font-mono text-slate-400">Loading settings...</div>
+              <div className="p-6 text-center text-xs font-mono text-slate-400">{t('settings.loading')}</div>
             ) : (
               <form onSubmit={handleSave} className="space-y-4 font-mono text-xs">
                 {/* Maintenance Mode */}
                 <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface-elevated/40">
                   <div>
-                    <span className="font-semibold text-slate-200 block">Maintenance Mode</span>
+                    <span className="font-semibold text-slate-200 block">{t('settings.maintenanceMode')}</span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      Temporarily reject inbound user messages with maintenance message
+                      {t('settings.maintenanceDesc')}
                     </span>
                   </div>
                   <input
@@ -127,9 +129,9 @@ export default function SettingsPage() {
                 {/* Debug Logging */}
                 <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface-elevated/40">
                   <div>
-                    <span className="font-semibold text-slate-200 block">Verbose Debug Logging</span>
+                    <span className="font-semibold text-slate-200 block">{t('settings.debugLogging')}</span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      Enable verbose step-by-step telemetry in application logs
+                      {t('settings.debugDesc')}
                     </span>
                   </div>
                   <input
@@ -144,9 +146,9 @@ export default function SettingsPage() {
                 {/* Search Engine */}
                 <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface-elevated/40">
                   <div>
-                    <span className="font-semibold text-slate-200 block">Web Search Provider</span>
+                    <span className="font-semibold text-slate-200 block">{t('settings.searchEnabled')}</span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      Enable real-time search intelligence tool execution
+                      {t('settings.searchDesc')}
                     </span>
                   </div>
                   <input
@@ -161,9 +163,9 @@ export default function SettingsPage() {
                 {/* Proactive Engine */}
                 <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface-elevated/40">
                   <div>
-                    <span className="font-semibold text-slate-200 block">Proactive Engagement Engine</span>
+                    <span className="font-semibold text-slate-200 block">{t('settings.proactiveEnabled')}</span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      Allow scheduled follow-ups and conversational reactivation
+                      {t('settings.proactiveDesc')}
                     </span>
                   </div>
                   <input
@@ -177,9 +179,9 @@ export default function SettingsPage() {
 
                 {/* Memory Retention */}
                 <div className="p-3 rounded-lg border border-border bg-surface-elevated/40 space-y-1.5">
-                  <span className="font-semibold text-slate-200 block">Default Memory Retention (Days)</span>
+                  <span className="font-semibold text-slate-200 block">{t('settings.retentionDays')}</span>
                   <span className="text-[11px] text-slate-400 block">
-                    Days before unverified memory items expire
+                    {t('settings.retentionDesc')}
                   </span>
                   <div className="w-32 mt-1">
                     <Input
@@ -196,10 +198,10 @@ export default function SettingsPage() {
                 <div className="pt-2 flex items-center justify-between">
                   {saveSuccess && (
                     <span className="text-emerald-400 text-xs font-mono flex items-center gap-1">
-                      <CheckCircle2 className="h-4 w-4" /> Settings updated successfully
+                      <CheckCircle2 className="h-4 w-4" /> {t('settings.saveSuccess')}
                     </span>
                   )}
-                  <div className="ml-auto">
+                  <div className="ms-auto">
                     <Button
                       type="submit"
                       variant="brand"
@@ -207,8 +209,8 @@ export default function SettingsPage() {
                       disabled={!canManageSettings}
                       isLoading={updateMutation.isPending}
                     >
-                      <Save className="h-3.5 w-3.5 mr-1" />
-                      Save Configuration
+                      <Save className="h-3.5 w-3.5 me-1" />
+                      {t('settings.btnSave')}
                     </Button>
                   </div>
                 </div>
@@ -223,20 +225,20 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>
                 <Server className="h-4 w-4 text-cyan-400" />
-                Infrastructure Topology
+                {t('settings.topologyTitle')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 font-mono text-xs">
               <div className="flex items-center justify-between p-2.5 rounded bg-surface-elevated/40 border border-border">
-                <span className="text-slate-400">Environment</span>
+                <span className="text-slate-400">{t('settings.activeEnv')}</span>
                 <span className="font-semibold text-slate-200 uppercase">{settings?.infrastructure?.environment || 'production'}</span>
               </div>
               <div className="flex items-center justify-between p-2.5 rounded bg-surface-elevated/40 border border-border">
-                <span className="text-slate-400">Platform Deployment</span>
+                <span className="text-slate-400">{t('settings.platformDeployment')}</span>
                 <span className="font-semibold text-slate-200">{settings?.infrastructure?.serverlessPlatform || 'node_standard'}</span>
               </div>
               <div className="flex items-center justify-between p-2.5 rounded bg-surface-elevated/40 border border-border">
-                <span className="text-slate-400">Deployment Version</span>
+                <span className="text-slate-400">{t('settings.deploymentVersion')}</span>
                 <span className="font-semibold text-brand-300">{settings?.infrastructure?.deploymentVersion || 'v10.3'}</span>
               </div>
             </CardContent>
@@ -246,20 +248,20 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>
                 <Cpu className="h-4 w-4 text-purple-400" />
-                AI Inference Topology
+                {t('settings.aiInferenceTopology')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 font-mono text-xs">
               <div className="flex items-center justify-between p-2.5 rounded bg-surface-elevated/40 border border-border">
-                <span className="text-slate-400">Primary Inference Engine</span>
+                <span className="text-slate-400">{t('settings.primaryInferenceEngine')}</span>
                 <Badge variant="purple">{settings?.infrastructure?.aiProvider?.primary || 'groq'} ({settings?.infrastructure?.aiProvider?.engine || 'LPU'})</Badge>
               </div>
               <div className="flex items-center justify-between p-2.5 rounded bg-surface-elevated/40 border border-border">
-                <span className="text-slate-400">Primary Production Model</span>
+                <span className="text-slate-400">{t('settings.primaryProductionModel')}</span>
                 <span className="font-semibold text-slate-200">{settings?.infrastructure?.aiProvider?.models?.primary || 'openai/gpt-oss-120b'}</span>
               </div>
               <div className="flex items-center justify-between p-2.5 rounded bg-surface-elevated/40 border border-border">
-                <span className="text-slate-400">Fast Fallback Model</span>
+                <span className="text-slate-400">{t('settings.fastFallbackModel')}</span>
                 <span className="font-semibold text-slate-200">{settings?.infrastructure?.aiProvider?.models?.fastFallback || 'llama-3.3-70b-versatile'}</span>
               </div>
             </CardContent>
@@ -269,7 +271,7 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>
                 <Database className="h-4 w-4 text-emerald-400" />
-                Integration Status (Zero Secret Exposure)
+                {t('settings.integrationStatus')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 font-mono text-xs">
@@ -281,7 +283,7 @@ export default function SettingsPage() {
                   </div>
                 ))
               ) : (
-                <div className="text-slate-400 text-center py-2">Integrated providers operational</div>
+                <div className="text-slate-400 text-center py-2">{t('settings.integratedOperational')}</div>
               )}
             </CardContent>
           </Card>
