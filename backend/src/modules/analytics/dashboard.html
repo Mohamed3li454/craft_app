@@ -214,7 +214,7 @@
           <div class="mt-3">
             <h3 id="statCost" class="text-2xl font-black text-emerald-400">$0.00</h3>
             <p class="text-[10px] text-slate-400 mt-1" id="statCostBreakdown">
-              Gemini + Groq دقيق
+              Groq LPU دقيق
             </p>
           </div>
         </div>
@@ -298,7 +298,7 @@
               <i data-lucide="pie-chart" class="w-4 h-4 text-violet-400"></i>
               توزيع النماذج والتكلفة
             </h2>
-            <p class="text-xs text-slate-400 mt-0.5">نسب استهلاك Gemini 3.6 مقابل Groq Qwen</p>
+            <p class="text-xs text-slate-400 mt-0.5">نسب استهلاك نماذج Groq LPU</p>
           </div>
           <div class="h-52 my-3 flex items-center justify-center">
             <canvas id="modelsChart"></canvas>
@@ -333,15 +333,15 @@
           </div>
           <div class="space-y-3 my-auto">
             <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex justify-between items-center text-xs">
-              <span class="text-slate-300">Gemini 3.6 Flash</span>
-              <span id="costGeminiFlash" class="font-bold text-emerald-400">$0.00</span>
+              <span class="text-slate-300">Groq Primary (GPT-OSS 120B / Llama 70B)</span>
+              <span id="costGroqPrimary" class="font-bold text-emerald-400">$0.00</span>
             </div>
             <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex justify-between items-center text-xs">
-              <span class="text-slate-300">Gemini 3.1 Flash-Lite</span>
-              <span id="costGeminiLite" class="font-bold text-emerald-400">$0.00</span>
+              <span class="text-slate-300">Groq Fallback (GPT-OSS 20B / Llama 8B)</span>
+              <span id="costGroqFallback" class="font-bold text-emerald-400">$0.00</span>
             </div>
             <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex justify-between items-center text-xs">
-              <span class="text-slate-300">Groq LPU (Qwen 27B)</span>
+              <span class="text-slate-300">Groq Vision (Qwen 27B)</span>
               <span id="costGroqQwen" class="font-bold text-emerald-400">$0.00</span>
             </div>
             <div class="p-3 rounded-xl bg-indigo-950/40 border border-indigo-800/40 flex justify-between items-center text-xs font-bold text-indigo-300">
@@ -992,7 +992,9 @@
       refreshIcon?.classList.add('animate-spin');
 
       try {
-        const res = await fetch(`/api/admin/analytics?token=${encodeURIComponent(token)}&days=${days}&userLimit=20`);
+        const res = await fetch(`/api/admin/analytics?days=${days}&userLimit=20`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         if (res.status === 401) {
           promptForToken();
           return;
@@ -1032,9 +1034,15 @@
       document.getElementById('statActiveUsersToday').innerText = ov.activeUsersToday.toLocaleString();
 
       if (ov.modelCosts) {
-        document.getElementById('costGeminiFlash').innerText = `$${ov.modelCosts.geminiFlash.toFixed(5)}`;
-        document.getElementById('costGeminiLite').innerText = `$${ov.modelCosts.geminiFlashLite.toFixed(5)}`;
-        document.getElementById('costGroqQwen').innerText = `$${ov.modelCosts.groqQwen.toFixed(5)}`;
+        const prim = ov.modelCosts.groqPrimary ?? ov.modelCosts.geminiFlash ?? 0;
+        const fb = ov.modelCosts.groqFallback ?? ov.modelCosts.geminiFlashLite ?? 0;
+        const qwen = ov.modelCosts.groqQwen ?? 0;
+        if (document.getElementById('costGroqPrimary')) document.getElementById('costGroqPrimary').innerText = `$${prim.toFixed(5)}`;
+        if (document.getElementById('costGroqFallback')) document.getElementById('costGroqFallback').innerText = `$${fb.toFixed(5)}`;
+        if (document.getElementById('costGroqQwen')) document.getElementById('costGroqQwen').innerText = `$${qwen.toFixed(5)}`;
+        // Fallback backward-compat for legacy element IDs if any
+        if (document.getElementById('costGeminiFlash')) document.getElementById('costGeminiFlash').innerText = `$${prim.toFixed(5)}`;
+        if (document.getElementById('costGeminiLite')) document.getElementById('costGeminiLite').innerText = `$${fb.toFixed(5)}`;
         const perConv = ov.totalConversations > 0 ? (ov.estimatedCostUsd / ov.totalConversations).toFixed(5) : '0.0004';
         document.getElementById('costPerConv').innerText = `$${perConv}`;
       }
@@ -1281,7 +1289,7 @@
         return;
       }
       try {
-        const res = await fetch(`/api/admin/users/${userId}/toggle-vip?token=${encodeURIComponent(token)}`, {
+        const res = await fetch(`/api/admin/users/${userId}/toggle-vip`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1309,7 +1317,9 @@
       if (container) container.innerHTML = `<div class="text-center py-10 text-xs text-slate-500">جاري تحميل المحادثات...</div>`;
 
       try {
-        const res = await fetch(`/api/admin/conversations?token=${encodeURIComponent(token)}&channel=${channel}`);
+        const res = await fetch(`/api/admin/conversations?channel=${channel}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
 
@@ -1394,7 +1404,9 @@
 
       try {
         const token = getStoredToken();
-        const res = await fetch(`/api/admin/conversations/${convId}/messages?token=${encodeURIComponent(token)}`);
+        const res = await fetch(`/api/admin/conversations/${convId}/messages`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
 
@@ -1450,7 +1462,9 @@
 
       try {
         const token = getStoredToken();
-        const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/details?token=${encodeURIComponent(token)}`);
+        const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/details`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
 
@@ -1500,7 +1514,9 @@
     async function loadToolsStats() {
       const token = getStoredToken();
       try {
-        const res = await fetch(`/api/admin/tools-stats?token=${encodeURIComponent(token)}`);
+        const res = await fetch(`/api/admin/tools-stats`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
 
@@ -1581,10 +1597,9 @@
     async function loadSemanticCacheDashboard() {
       const token = getStoredToken();
       try {
-        const res = await fetch(`/api/admin/semantic-cache/dashboard?token=${encodeURIComponent(token)}`, {
+        const res = await fetch(`/api/admin/semantic-cache/dashboard`, {
           headers: {
             'Authorization': `Bearer ${token}`,
-            'x-admin-token': token,
           }
         });
         if (!res.ok) return;
@@ -1688,7 +1703,7 @@
       const container = document.getElementById('faqContainer');
       if (container) container.innerHTML = '<div class="col-span-full text-center py-12 text-slate-500">جاري تحميل الردود السريعة...</div>';
       try {
-        const res = await fetch(`/api/admin/faq?token=${encodeURIComponent(token)}`, {
+        const res = await fetch(`/api/admin/faq`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
@@ -1864,7 +1879,7 @@
       submitBtn.textContent = 'جاري الحفظ...';
 
       try {
-        const url = id ? `/api/admin/faq/${id}?token=${encodeURIComponent(token)}` : `/api/admin/faq?token=${encodeURIComponent(token)}`;
+        const url = id ? `/api/admin/faq/${id}` : `/api/admin/faq`;
         const method = id ? 'PUT' : 'POST';
 
         const res = await fetch(url, {
@@ -1894,7 +1909,7 @@
       if (!confirm(`هل أنت متأكد من حذف الرد: "${title}"؟`)) return;
       const token = getStoredToken();
       try {
-        const res = await fetch(`/api/admin/faq/${id}?token=${encodeURIComponent(token)}`, {
+        const res = await fetch(`/api/admin/faq/${id}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });

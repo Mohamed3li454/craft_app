@@ -2,6 +2,7 @@ import { DatabaseManager } from '../connection';
 import { ChatRepository } from './chat.repo';
 import { UserRepository, normalizePhoneNumber } from './user.repo';
 import { logger } from '../../core/logger';
+import { config } from '../../config/env';
 
 export interface AnalyticsOverview {
   totalConversations: number;
@@ -15,9 +16,11 @@ export interface AnalyticsOverview {
   completionTokens: number;
   estimatedCostUsd: number;
   modelCosts: {
-    geminiFlash: number;
-    geminiFlashLite: number;
+    groqPrimary: number;
+    groqFallback: number;
     groqQwen: number;
+    geminiFlash?: number;
+    geminiFlashLite?: number;
   };
   avgLatencyMs: number;
   minLatencyMs: number;
@@ -54,6 +57,9 @@ export interface TopUserItem {
   phone: string;
   name: string;
   isVip?: boolean;
+  isBanned?: boolean;
+  bannedAt?: string;
+  banReason?: string;
   dailyMessageCount?: number;
   totalMessages: number;
   tokensUsed: number;
@@ -69,6 +75,7 @@ export interface ConversationListItem {
   userName: string;
   channel: 'flutter' | 'whatsapp';
   title: string;
+  isArchived?: boolean;
   messagesCount: number;
   tokensUsed: number;
   lastMessage: string;
@@ -99,8 +106,20 @@ export interface UserDetailsResponse {
     name: string;
     phoneNumber?: string;
     email?: string;
+    bsuid?: string;
+    isVip?: boolean;
+    isBanned?: boolean;
+    bannedAt?: string;
+    banReason?: string;
     createdAt: string;
   };
+  whatsappContact?: {
+    waId: string;
+    profileName?: string;
+    verified: boolean;
+    bsuid?: string;
+  } | null;
+  preferences?: Record<string, string>;
   metrics: {
     totalConversations: number;
     totalMessages: number;
@@ -108,9 +127,14 @@ export interface UserDetailsResponse {
     promptTokens: number;
     completionTokens: number;
     estimatedCostUsd: number;
+    dailyMessageCount?: number;
+    lastActive?: string;
+    memoryCount?: number;
+    reminderCount?: number;
+    activeRemindersCount?: number;
   };
   memories: { id: string; factText: string; category: string; createdAt: string }[];
-  reminders: { id: string; title: string; dueAt?: string; recurrence: string; isCompleted: boolean; createdAt: string }[];
+  reminders: { id: string; title: string; dueAt?: string; recurrence: string; isCompleted: boolean; state?: string; createdAt: string }[];
   conversations: ConversationListItem[];
 }
 
@@ -138,22 +162,9 @@ export class AnalyticsRepository {
   ) {}
 
   private async ensureSchema() {
-    if (this.schemaChecked) return;
-    const pool = this.db.getPool();
-    if (!pool) return;
-    try {
-      await pool.query(`
-        ALTER TABLE messages ADD COLUMN IF NOT EXISTS tokens_used INT DEFAULT 0;
-        ALTER TABLE messages ADD COLUMN IF NOT EXISTS prompt_tokens INT DEFAULT 0;
-        ALTER TABLE messages ADD COLUMN IF NOT EXISTS completion_tokens INT DEFAULT 0;
-        ALTER TABLE messages ADD COLUMN IF NOT EXISTS model_name VARCHAR(100);
-        ALTER TABLE messages ADD COLUMN IF NOT EXISTS latency_ms INT DEFAULT 0;
-        ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(50);
-      `);
-      this.schemaChecked = true;
-    } catch (err: any) {
-      logger.debug('Schema check for analytics repo skipped', { error: err.message });
-    }
+    // Phase 10.1: Analytical read paths MUST NOT execute DDL mutations (ALTER TABLE).
+    // Schema alterations belong strictly in versioned database migrations.
+    this.schemaChecked = true;
   }
 
   public async getOverviewStats(): Promise<AnalyticsOverview> {
@@ -189,7 +200,7 @@ export class AnalyticsRepository {
         // Fetch model-specific tokens for precise cost calculation
         const modelCostQuery = `
           SELECT 
-            COALESCE(model_name, 'gemini-3.6-flash') as model,
+            COALESCE(model_name, 'openai/gpt-oss-120b') as model,
             COALESCE(SUM(prompt_tokens), 0) as pt,
             COALESCE(SUM(completion_tokens), 0) as ct
           FROM messages
@@ -197,24 +208,25 @@ export class AnalyticsRepository {
           GROUP BY model_name
         `;
         const modelRes = await pool.query(modelCostQuery);
-        let geminiFlashCost = 0;
-        let geminiFlashLiteCost = 0;
+        let groqPrimaryCost = 0;
+        let groqFallbackCost = 0;
         let groqQwenCost = 0;
 
         for (const m of modelRes.rows) {
           const pt = parseInt(m.pt, 10);
           const ct = parseInt(m.ct, 10);
           const name = (m.model || '').toLowerCase();
-          if (name.includes('3.1') || name.includes('lite')) {
-            geminiFlashLiteCost += (pt / 1_000_000) * 0.075 + (ct / 1_000_000) * 0.3;
-          } else if (name.includes('groq') || name.includes('qwen')) {
-            groqQwenCost += (pt / 1_000_000) * 0.2 + (ct / 1_000_000) * 0.2;
+          if (name.includes('qwen')) {
+            groqQwenCost += (pt / 1_000_000) * 0.15 + (ct / 1_000_000) * 0.6;
+          } else if (name.includes('20b') || name.includes('8b') || name.includes('lite') || name.includes('fallback')) {
+            groqFallbackCost += (pt / 1_000_000) * 0.05 + (ct / 1_000_000) * 0.1;
           } else {
-            geminiFlashCost += (pt / 1_000_000) * 0.1 + (ct / 1_000_000) * 0.4;
+            // Primary Groq model (e.g. 120b, 70b, or default)
+            groqPrimaryCost += (pt / 1_000_000) * 0.15 + (ct / 1_000_000) * 0.6;
           }
         }
 
-        const totalCost = Number((geminiFlashCost + geminiFlashLiteCost + groqQwenCost).toFixed(5));
+        const totalCost = Number((groqPrimaryCost + groqFallbackCost + groqQwenCost).toFixed(5));
 
         return {
           totalConversations: parseInt(row.total_conversations || '0', 10),
@@ -228,9 +240,11 @@ export class AnalyticsRepository {
           completionTokens: compTok,
           estimatedCostUsd: totalCost,
           modelCosts: {
-            geminiFlash: Number(geminiFlashCost.toFixed(5)),
-            geminiFlashLite: Number(geminiFlashLiteCost.toFixed(5)),
+            groqPrimary: Number(groqPrimaryCost.toFixed(5)),
+            groqFallback: Number(groqFallbackCost.toFixed(5)),
             groqQwen: Number(groqQwenCost.toFixed(5)),
+            geminiFlash: Number(groqPrimaryCost.toFixed(5)),
+            geminiFlashLite: Number(groqFallbackCost.toFixed(5)),
           },
           avgLatencyMs: Math.round(parseFloat(row.avg_latency || '0')),
           minLatencyMs: Math.round(parseFloat(row.min_latency || '0')),
@@ -239,9 +253,12 @@ export class AnalyticsRepository {
           activeUsersToday: parseInt(row.active_users_today || '0', 10),
         };
       } catch (err: any) {
-        logger.warn('Database query failed in getOverviewStats, using in-memory calculation', {
+        logger.error('Database query failed in getOverviewStats', {
           error: err.message,
         });
+        if (config.nodeEnv === 'production') {
+          throw new Error(`Database error in getOverviewStats: ${err.message}`);
+        }
       }
     }
 
@@ -285,9 +302,12 @@ export class AnalyticsRepository {
           activeUsers: parseInt(r.active_users || '0', 10),
         }));
       } catch (err: any) {
-        logger.warn('Database query failed in getDailyTrends, calculating in-memory', {
+        logger.error('Database query failed in getDailyTrends', {
           error: err.message,
         });
+        if (config.nodeEnv === 'production') {
+          throw new Error(`Database error in getDailyTrends: ${err.message}`);
+        }
       }
     }
 
@@ -328,16 +348,28 @@ export class AnalyticsRepository {
         }
         return result;
       } catch (err: any) {
-        logger.warn('Database query failed in getHourlyDistribution', { error: err.message });
+        logger.error('Database query failed in getHourlyDistribution', { error: err.message });
+        if (config.nodeEnv === 'production') {
+          throw new Error(`Database error in getHourlyDistribution: ${err.message}`);
+        }
       }
     }
 
-    // In-memory fallback: generate 24 hours
+    // In-memory fallback: compute from in-memory messages deterministically (no random fake numbers)
+    const map = new Map<number, { userMessages: number; botMessages: number; totalMessages: number }>();
+    for (const msgs of this.chatRepo.getInMemoryMessages().values()) {
+      for (const m of msgs) {
+        const hour = new Date(m.createdAt || new Date()).getHours();
+        const current = map.get(hour) || { userMessages: 0, botMessages: 0, totalMessages: 0 };
+        if (m.senderRole === 'user') current.userMessages++;
+        if (m.senderRole === 'assistant') current.botMessages++;
+        current.totalMessages++;
+        map.set(hour, current);
+      }
+    }
     return Array.from({ length: 24 }, (_, i) => ({
       hour: i,
-      userMessages: i >= 9 && i <= 23 ? Math.floor(Math.random() * 5) + 1 : 0,
-      botMessages: i >= 9 && i <= 23 ? Math.floor(Math.random() * 5) + 1 : 0,
-      totalMessages: i >= 9 && i <= 23 ? Math.floor(Math.random() * 10) + 2 : 0,
+      ...(map.get(i) || { userMessages: 0, botMessages: 0, totalMessages: 0 }),
     }));
   }
 
@@ -349,7 +381,7 @@ export class AnalyticsRepository {
         await this.ensureSchema();
         const query = `
           SELECT 
-            COALESCE(model_name, 'gemini-3.6-flash') as model,
+            COALESCE(model_name, 'openai/gpt-oss-120b') as model,
             COUNT(*) as count,
             COALESCE(SUM(tokens_used), 0) as tokens
           FROM messages
@@ -370,9 +402,12 @@ export class AnalyticsRepository {
           };
         });
       } catch (err: any) {
-        logger.warn('Database query failed in getModelBreakdown, calculating in-memory', {
+        logger.error('Database query failed in getModelBreakdown', {
           error: err.message,
         });
+        if (config.nodeEnv === 'production') {
+          throw new Error(`Database error in getModelBreakdown: ${err.message}`);
+        }
       }
     }
 
@@ -463,20 +498,169 @@ export class AnalyticsRepository {
     return this.calculateInMemoryTopUsers(limit);
   }
 
-  public async getConversationsList(options: {
+  public async getUsersList(options: {
     search?: string;
-    channel?: string;
+    isVip?: boolean;
+    isBanned?: boolean;
     limit?: number;
     offset?: number;
-  } = {}): Promise<ConversationListItem[]> {
+  } = {}): Promise<{ users: TopUserItem[]; total: number }> {
     const pool = this.db.getPool();
-    const limit = options.limit || 50;
-    const offset = options.offset || 0;
-    const channel = options.channel && options.channel !== 'all' ? options.channel : null;
+    const limit = Math.min(Math.max(options.limit || 20, 1), 100);
+    const offset = Math.max(options.offset || 0, 0);
     const search = options.search ? `%${options.search.trim()}%` : null;
 
     if (pool) {
       try {
+        const whereClauses: string[] = ['1=1'];
+        const params: any[] = [];
+        let pIdx = 1;
+
+        if (search) {
+          whereClauses.push(`(u.name ILIKE $${pIdx} OR u.phone_number ILIKE $${pIdx} OR u.bsuid ILIKE $${pIdx} OR wc.wa_id ILIKE $${pIdx})`);
+          params.push(search);
+          pIdx++;
+        }
+        if (typeof options.isVip === 'boolean') {
+          whereClauses.push(`u.is_vip = $${pIdx}`);
+          params.push(options.isVip);
+          pIdx++;
+        }
+        if (typeof options.isBanned === 'boolean') {
+          whereClauses.push(`COALESCE(u.is_banned, false) = $${pIdx}`);
+          params.push(options.isBanned);
+          pIdx++;
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+
+        const countQuery = `
+          SELECT COUNT(DISTINCT u.id) as total
+          FROM users u
+          LEFT JOIN whatsapp_contacts wc ON wc.user_id = u.id
+          WHERE ${whereSql}
+        `;
+        const countRes = await pool.query(countQuery, params);
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const listQuery = `
+          SELECT
+            u.id as user_id,
+            COALESCE(u.phone_number, wc.wa_id, '') as phone,
+            COALESCE(u.name, wc.profile_name, 'User') as name,
+            u.is_vip,
+            u.is_banned,
+            u.banned_at,
+            u.ban_reason,
+            u.daily_message_count,
+            COUNT(m.id) as total_messages,
+            COALESCE(SUM(m.tokens_used), 0) as tokens_used,
+            COALESCE(SUM(m.prompt_tokens), 0) as prompt_tokens,
+            COALESCE(SUM(m.completion_tokens), 0) as completion_tokens,
+            MIN(m.created_at) as first_active,
+            MAX(m.created_at) as last_active
+          FROM users u
+          LEFT JOIN whatsapp_contacts wc ON wc.user_id = u.id
+          LEFT JOIN conversations c ON c.user_id = u.id
+          LEFT JOIN messages m ON m.conversation_id = c.id
+          WHERE ${whereSql}
+          GROUP BY u.id, u.phone_number, wc.wa_id, u.name, wc.profile_name, u.is_vip, u.is_banned, u.banned_at, u.ban_reason, u.daily_message_count
+          ORDER BY last_active DESC NULLS LAST, u.created_at DESC
+          LIMIT $${pIdx} OFFSET $${pIdx + 1}
+        `;
+        params.push(limit, offset);
+
+        const listRes = await pool.query(listQuery, params);
+        const users: TopUserItem[] = listRes.rows.map((r: any) => {
+          const pt = parseInt(r.prompt_tokens || '0', 10);
+          const ct = parseInt(r.completion_tokens || '0', 10);
+          const cost = Number(((pt / 1_000_000) * 0.1 + (ct / 1_000_000) * 0.4).toFixed(4));
+          return {
+            userId: r.user_id,
+            phone: (r.phone || '').replace(/^wa_/, ''),
+            name: r.name || 'User',
+            isVip: !!r.is_vip,
+            isBanned: !!r.is_banned,
+            bannedAt: r.banned_at ? new Date(r.banned_at).toISOString() : undefined,
+            banReason: r.ban_reason || undefined,
+            dailyMessageCount: parseInt(r.daily_message_count || '0', 10),
+            totalMessages: parseInt(r.total_messages || '0', 10),
+            tokensUsed: parseInt(r.tokens_used || '0', 10),
+            estimatedCostUsd: cost,
+            firstActive: r.first_active ? new Date(r.first_active).toISOString() : new Date().toISOString(),
+            lastActive: r.last_active ? new Date(r.last_active).toISOString() : new Date().toISOString(),
+          };
+        });
+
+        return { users, total };
+      } catch (err: any) {
+        logger.warn('Database query failed in getUsersList, falling back to top users', { error: err.message });
+      }
+    }
+
+    const top = await this.getTopUsers(limit);
+    return { users: top, total: top.length };
+  }
+
+  public async getConversationsList(options: {
+    search?: string;
+    channel?: string;
+    userId?: string;
+    startDate?: string;
+    endDate?: string;
+    includeArchived?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<ConversationListItem[]> {
+    const pool = this.db.getPool();
+    const limit = Math.min(Math.max(options.limit || 50, 1), 100);
+    const offset = Math.max(options.offset || 0, 0);
+    const channel = options.channel && options.channel !== 'all' ? options.channel : null;
+    const search = options.search ? `%${options.search.trim()}%` : null;
+    const includeArchived = !!options.includeArchived;
+
+    if (pool) {
+      try {
+        const whereClauses: string[] = [];
+        const params: any[] = [];
+        let pIdx = 1;
+
+        if (!includeArchived) {
+          whereClauses.push(`c.is_archived = false`);
+        }
+
+        if (channel) {
+          whereClauses.push(`c.channel = $${pIdx}`);
+          params.push(channel);
+          pIdx++;
+        }
+
+        if (options.userId) {
+          whereClauses.push(`(c.user_id::text = $${pIdx} OR u.phone_number = $${pIdx} OR wc.wa_id = $${pIdx})`);
+          params.push(options.userId);
+          pIdx++;
+        }
+
+        if (options.startDate) {
+          whereClauses.push(`c.created_at >= $${pIdx}::timestamptz`);
+          params.push(options.startDate);
+          pIdx++;
+        }
+
+        if (options.endDate) {
+          whereClauses.push(`c.created_at <= $${pIdx}::timestamptz`);
+          params.push(options.endDate);
+          pIdx++;
+        }
+
+        if (search) {
+          whereClauses.push(`(u.phone_number ILIKE $${pIdx} OR wc.wa_id ILIKE $${pIdx} OR u.name ILIKE $${pIdx} OR c.title ILIKE $${pIdx})`);
+          params.push(search);
+          pIdx++;
+        }
+
+        const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
         const query = `
           SELECT 
             c.id,
@@ -485,6 +669,7 @@ export class AnalyticsRepository {
             COALESCE(u.name, wc.profile_name, 'User') as user_name,
             c.channel,
             c.title,
+            c.is_archived,
             COUNT(m.id) as messages_count,
             COALESCE(SUM(m.tokens_used), 0) as tokens_used,
             (SELECT m2.text FROM messages m2 WHERE m2.conversation_id = c.id ORDER BY m2.created_at DESC LIMIT 1) as last_message,
@@ -494,14 +679,14 @@ export class AnalyticsRepository {
           LEFT JOIN users u ON u.id = c.user_id OR u.phone_number = c.user_id::text
           LEFT JOIN whatsapp_contacts wc ON wc.user_id = c.user_id
           LEFT JOIN messages m ON m.conversation_id = c.id
-          WHERE c.is_archived = false
-            AND ($1::text IS NULL OR c.channel = $1::text)
-            AND ($2::text IS NULL OR u.phone_number ILIKE $2 OR wc.wa_id ILIKE $2 OR u.name ILIKE $2 OR c.title ILIKE $2)
-          GROUP BY c.id, u.phone_number, wc.wa_id, u.name, wc.profile_name
+          ${whereSql}
+          GROUP BY c.id, c.user_id, u.phone_number, wc.wa_id, u.name, wc.profile_name, c.channel, c.title, c.is_archived, c.created_at
           ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC
-          LIMIT $3 OFFSET $4
+          LIMIT $${pIdx} OFFSET $${pIdx + 1}
         `;
-        const res = await pool.query(query, [channel, search, limit, offset]);
+        params.push(limit, offset);
+
+        const res = await pool.query(query, params);
         return res.rows.map((r: any) => ({
           id: r.id,
           userId: r.user_id,
@@ -509,6 +694,7 @@ export class AnalyticsRepository {
           userName: r.user_name || 'User',
           channel: r.channel,
           title: r.title,
+          isArchived: !!r.is_archived,
           messagesCount: parseInt(r.messages_count || '0', 10),
           tokensUsed: parseInt(r.tokens_used || '0', 10),
           lastMessage: r.last_message || '',
@@ -521,7 +707,11 @@ export class AnalyticsRepository {
     }
 
     // In-memory fallback
-    const convs = Array.from(this.chatRepo.getInMemoryConversations().values());
+    const convs = Array.from(this.chatRepo.getInMemoryConversations().values())
+      .filter(c => includeArchived ? true : !c.isArchived)
+      .filter(c => !channel || c.channel === channel)
+      .filter(c => !options.userId || c.userId === options.userId);
+
     return convs.slice(offset, offset + limit).map((c) => {
       const msgs = this.chatRepo.getInMemoryMessages().get(c.id) || [];
       const lastMsg = msgs[msgs.length - 1];
@@ -532,6 +722,7 @@ export class AnalyticsRepository {
         userName: 'User',
         channel: c.channel,
         title: c.title,
+        isArchived: !!c.isArchived,
         messagesCount: msgs.length,
         tokensUsed: msgs.reduce((acc, m) => acc + (m.tokensUsed || 0), 0),
         lastMessage: lastMsg?.text || '',
@@ -541,8 +732,37 @@ export class AnalyticsRepository {
     });
   }
 
-  public async getConversationTranscript(conversationId: string): Promise<RecentInteractionItem[]> {
+  public async archiveConversation(conversationId: string, isArchived: boolean = true): Promise<boolean> {
     const pool = this.db.getPool();
+    if (pool) {
+      try {
+        const res = await pool.query(
+          `UPDATE conversations SET is_archived = $1, updated_at = NOW() WHERE id::text = $2`,
+          [isArchived, conversationId]
+        );
+        if ((res.rowCount ?? 0) > 0) {
+          return true;
+        }
+      } catch (err: any) {
+        logger.error('Failed to archive conversation', { error: err.message, conversationId });
+      }
+    }
+
+    const conv = this.chatRepo.getInMemoryConversations().get(conversationId);
+    if (conv) {
+      conv.isArchived = isArchived;
+      return true;
+    }
+    return false;
+  }
+
+  public async getConversationTranscript(
+    conversationId: string,
+    options: { limit?: number; offset?: number } = {}
+  ): Promise<RecentInteractionItem[]> {
+    const pool = this.db.getPool();
+    const limit = Math.min(Math.max(options.limit || 100, 1), 500);
+    const offset = Math.max(options.offset || 0, 0);
 
     if (pool) {
       try {
@@ -565,8 +785,9 @@ export class AnalyticsRepository {
           FROM messages m
           WHERE m.conversation_id = $1
           ORDER BY m.created_at ASC
+          LIMIT $2 OFFSET $3
         `;
-        const res = await pool.query(query, [conversationId]);
+        const res = await pool.query(query, [conversationId, limit, offset]);
         return res.rows.map((r: any) => ({
           id: r.id,
           conversationId: r.conversationId,
@@ -589,7 +810,7 @@ export class AnalyticsRepository {
     }
 
     const msgs = this.chatRepo.getInMemoryMessages().get(conversationId) || [];
-    return msgs.map((m) => ({
+    return msgs.slice(offset, offset + limit).map((m) => ({
       id: m.id,
       conversationId: m.conversationId,
       timestamp: (m.createdAt || new Date()).toISOString(),
@@ -613,7 +834,7 @@ export class AnalyticsRepository {
     if (pool) {
       try {
         const userQuery = `
-          SELECT id, name, email, phone_number as "phoneNumber", created_at as "createdAt"
+          SELECT id, name, email, phone_number as "phoneNumber", bsuid, is_vip as "isVip", is_banned as "isBanned", banned_at as "bannedAt", ban_reason as "banReason", daily_message_count as "dailyMessageCount", created_at as "createdAt"
           FROM users 
           WHERE id::text = $1 OR phone_number = $2 OR phone_number = $3
           LIMIT 1
@@ -628,6 +849,39 @@ export class AnalyticsRepository {
 
         const userId = user.id;
 
+        // WhatsApp Contact Details
+        let whatsappContact = null;
+        try {
+          const contactRes = await pool.query(
+            `SELECT wa_id, profile_name, verified, bsuid FROM whatsapp_contacts WHERE user_id = $1 LIMIT 1`,
+            [userId]
+          );
+          if (contactRes.rows.length > 0) {
+            whatsappContact = {
+              waId: contactRes.rows[0].wa_id,
+              profileName: contactRes.rows[0].profile_name,
+              verified: !!contactRes.rows[0].verified,
+              bsuid: contactRes.rows[0].bsuid,
+            };
+          }
+        } catch {
+          // Soft-fail if table not yet populated
+        }
+
+        // User Preferences
+        const preferences: Record<string, string> = {};
+        try {
+          const prefRes = await pool.query(
+            `SELECT preference_key, preference_value FROM user_preferences WHERE user_id = $1`,
+            [userId]
+          );
+          for (const r of prefRes.rows) {
+            preferences[r.preference_key] = r.preference_value;
+          }
+        } catch {
+          // Soft-fail
+        }
+
         // Metrics
         const metricsRes = await pool.query(
           `SELECT 
@@ -635,7 +889,8 @@ export class AnalyticsRepository {
              COUNT(m.id) as total_messages,
              COALESCE(SUM(m.tokens_used), 0) as tokens_used,
              COALESCE(SUM(m.prompt_tokens), 0) as prompt_tokens,
-             COALESCE(SUM(m.completion_tokens), 0) as completion_tokens
+             COALESCE(SUM(m.completion_tokens), 0) as completion_tokens,
+             MAX(m.created_at) as last_active
            FROM conversations c
            LEFT JOIN messages m ON m.conversation_id = c.id
            WHERE c.user_id::text = $1::text`,
@@ -646,22 +901,22 @@ export class AnalyticsRepository {
         const ct = parseInt(mRow.completion_tokens || '0', 10);
         const cost = Number(((pt / 1_000_000) * 0.1 + (ct / 1_000_000) * 0.4).toFixed(4));
 
-        // Memories
+        // Memories (bounded top 20 for User 360 overview)
         const memRes = await pool.query(
           `SELECT id, fact_text as "factText", category, created_at as "createdAt"
-           FROM memory_items WHERE user_id::text = $1::text ORDER BY created_at DESC`,
+           FROM memory_items WHERE user_id::text = $1::text ORDER BY created_at DESC LIMIT 20`,
           [userId]
         );
 
-        // Reminders
+        // Reminders (bounded top 20 for User 360 overview)
         const remRes = await pool.query(
-          `SELECT id, title, due_at as "dueAt", recurrence, is_completed as "isCompleted", created_at as "createdAt"
-           FROM reminders WHERE user_id::text = $1::text ORDER BY created_at DESC`,
+          `SELECT id, title, due_at as "dueAt", recurrence, is_completed as "isCompleted", state, created_at as "createdAt"
+           FROM reminders WHERE user_id::text = $1::text ORDER BY created_at DESC LIMIT 20`,
           [userId]
         );
 
-        // User Conversations
-        const convList = await this.getConversationsList({ search: user.phoneNumber || userId });
+        // User Conversations (bounded top 10)
+        const convList = await this.getConversationsList({ userId, limit: 10 });
 
         return {
           user: {
@@ -669,8 +924,15 @@ export class AnalyticsRepository {
             name: user.name,
             phoneNumber: user.phoneNumber,
             email: user.email,
+            bsuid: user.bsuid,
+            isVip: !!user.isVip,
+            isBanned: !!user.isBanned,
+            bannedAt: user.bannedAt ? new Date(user.bannedAt).toISOString() : undefined,
+            banReason: user.banReason || undefined,
             createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
           },
+          whatsappContact,
+          preferences,
           metrics: {
             totalConversations: parseInt(mRow.total_conversations || '0', 10),
             totalMessages: parseInt(mRow.total_messages || '0', 10),
@@ -678,6 +940,11 @@ export class AnalyticsRepository {
             promptTokens: pt,
             completionTokens: ct,
             estimatedCostUsd: cost,
+            dailyMessageCount: user.dailyMessageCount ? parseInt(user.dailyMessageCount, 10) : 0,
+            lastActive: mRow.last_active ? new Date(mRow.last_active).toISOString() : undefined,
+            memoryCount: memRes.rows.length,
+            reminderCount: remRes.rows.length,
+            activeRemindersCount: remRes.rows.filter((r: any) => !r.isCompleted).length,
           },
           memories: memRes.rows.map((r: any) => ({
             id: r.id,
@@ -691,6 +958,7 @@ export class AnalyticsRepository {
             dueAt: r.dueAt ? new Date(r.dueAt).toISOString() : undefined,
             recurrence: r.recurrence || 'none',
             isCompleted: !!r.isCompleted,
+            state: r.state || (r.isCompleted ? 'sent' : 'scheduled'),
             createdAt: new Date(r.createdAt).toISOString(),
           })),
           conversations: convList,
@@ -715,6 +983,10 @@ export class AnalyticsRepository {
         promptTokens: 400,
         completionTokens: 800,
         estimatedCostUsd: 0.00036,
+        dailyMessageCount: 0,
+        memoryCount: 1,
+        reminderCount: 0,
+        activeRemindersCount: 0,
       },
       memories: [
         { id: '1', factText: 'المستخدم يفضل التحدث بالعامية المصرية', category: 'preference', createdAt: new Date().toISOString() },
@@ -802,20 +1074,20 @@ export class AnalyticsRepository {
           confirmations,
         };
       } catch (err: any) {
-        logger.warn('Database query failed in getToolsStats', { error: err.message });
+        logger.error('Database query failed in getToolsStats', { error: err.message });
+        if (config.nodeEnv === 'production') {
+          throw new Error(`Database error in getToolsStats: ${err.message}`);
+        }
       }
     }
 
     return {
-      totalWebSearches: 8,
-      recentSearches: [
-        { query: 'أحدث أسعار العملات اليوم في مصر', timestamp: new Date().toISOString() },
-        { query: 'مواصفات iPhone 16 Pro Max', timestamp: new Date().toISOString() },
-      ],
-      totalRemindersCreated: 5,
-      recurringRemindersCount: 2,
-      totalAudioTranscribed: 3,
-      confirmations: { total: 4, approved: 3, rejected: 1, pending: 0 },
+      totalWebSearches: 0,
+      recentSearches: [],
+      totalRemindersCreated: 0,
+      recurringRemindersCount: 0,
+      totalAudioTranscribed: 0,
+      confirmations: { total: 0, approved: 0, rejected: 0, pending: 0 },
     };
   }
 
@@ -924,9 +1196,11 @@ export class AnalyticsRepository {
       completionTokens: Math.max(completionTokens, 80),
       estimatedCostUsd: Math.max(estimatedCostUsd, 0.00004),
       modelCosts: {
+        groqPrimary: estimatedCostUsd,
+        groqFallback: 0,
+        groqQwen: 0,
         geminiFlash: estimatedCostUsd,
         geminiFlashLite: 0,
-        groqQwen: 0,
       },
       avgLatencyMs,
       minLatencyMs: 420,
@@ -939,19 +1213,32 @@ export class AnalyticsRepository {
   private calculateInMemoryDailyTrends(days: number): DailyTrendItem[] {
     const list: DailyTrendItem[] = [];
     const now = new Date();
+    const allMessages: any[] = [];
+    for (const msgs of this.chatRepo.getInMemoryMessages().values()) {
+      allMessages.push(...msgs);
+    }
+    const conversations = Array.from(this.chatRepo.getInMemoryConversations().values());
 
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
       const dayStr = d.toISOString().slice(0, 10);
 
+      const dayMessages = allMessages.filter(
+        (m) => (m.createdAt || new Date()).toISOString().slice(0, 10) === dayStr
+      );
+      const dayConvs = conversations.filter(
+        (c) => (c.updatedAt || c.createdAt || new Date()).toISOString().slice(0, 10) === dayStr
+      );
+      const dayUsers = new Set(dayConvs.map((c) => c.userId));
+
       list.push({
         date: dayStr,
-        conversations: i === 0 ? 3 : Math.floor(Math.random() * 2),
-        userMessages: i === 0 ? 5 : Math.floor(Math.random() * 4),
-        botMessages: i === 0 ? 5 : Math.floor(Math.random() * 4),
-        tokens: i === 0 ? 1200 : Math.floor(Math.random() * 800),
-        activeUsers: i === 0 ? 2 : 1,
+        conversations: dayConvs.length,
+        userMessages: dayMessages.filter((m) => m.senderRole === 'user').length,
+        botMessages: dayMessages.filter((m) => m.senderRole === 'assistant').length,
+        tokens: dayMessages.reduce((sum, m) => sum + (m.tokensUsed || 0), 0),
+        activeUsers: dayUsers.size,
       });
     }
 
@@ -959,11 +1246,31 @@ export class AnalyticsRepository {
   }
 
   private calculateInMemoryModelBreakdown(): ModelBreakdownItem[] {
-    return [
-      { model: 'gemini-3.6-flash', count: 12, tokens: 6500, percentage: 75 },
-      { model: 'gemini-3.1-flash-lite', count: 3, tokens: 1200, percentage: 18 },
-      { model: 'qwen/qwen3.8-27b', count: 1, tokens: 400, percentage: 7 },
-    ];
+    const allMessages: any[] = [];
+    for (const msgs of this.chatRepo.getInMemoryMessages().values()) {
+      allMessages.push(...msgs);
+    }
+    const botMessages = allMessages.filter((m) => m.senderRole === 'assistant');
+    if (botMessages.length === 0) {
+      return [
+        { model: 'openai/gpt-oss-120b', count: 0, tokens: 0, percentage: 0 },
+      ];
+    }
+    const modelCounts = new Map<string, { count: number; tokens: number }>();
+    for (const m of botMessages) {
+      const model = m.modelName || 'openai/gpt-oss-120b';
+      const entry = modelCounts.get(model) || { count: 0, tokens: 0 };
+      entry.count++;
+      entry.tokens += m.tokensUsed || 0;
+      modelCounts.set(model, entry);
+    }
+    const total = botMessages.length;
+    return Array.from(modelCounts.entries()).map(([model, data]) => ({
+      model,
+      count: data.count,
+      tokens: data.tokens,
+      percentage: total > 0 ? Math.round((data.count / total) * 100) : 0,
+    }));
   }
 
   private calculateInMemoryTopUsers(limit: number): TopUserItem[] {

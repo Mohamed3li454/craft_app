@@ -53,23 +53,20 @@ describe('Craft AI Analytics & Monitoring Dashboard', () => {
       );
     });
 
-    it('allows access with valid query token', async () => {
+    it('strictly rejects query token even if valid secret is provided', async () => {
       const req: any = { query: { token: adminSecret }, headers: {} };
-      let jsonOutput: any = null;
       const res: any = {
         status: jest.fn().mockReturnThis(),
-        json: jest.fn().mockImplementation((val) => {
-          jsonOutput = val;
-        }),
+        json: jest.fn(),
       };
 
       await controller.getAnalyticsData(req, res);
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(jsonOutput.success).toBe(true);
-      expect(jsonOutput.overview).toBeDefined();
-      expect(jsonOutput.dailyTrends).toBeDefined();
-      expect(jsonOutput.modelBreakdown).toBeDefined();
-      expect(jsonOutput.mediaBreakdown).toBeDefined();
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+        })
+      );
     });
 
     it('allows access with valid Bearer token header', async () => {
@@ -170,7 +167,7 @@ describe('Craft AI Analytics & Monitoring Dashboard', () => {
     });
 
     it('returns conversation list with user and message details via controller', async () => {
-      const req: any = { query: { token: adminSecret } };
+      const req: any = { query: {}, headers: { authorization: `Bearer ${adminSecret}` } };
       let jsonOutput: any = null;
       const res: any = {
         status: jest.fn().mockReturnThis(),
@@ -217,16 +214,46 @@ describe('Craft AI Analytics & Monitoring Dashboard', () => {
 
   describe('Dashboard UI Serving', () => {
     it('serves dashboard HTML page without crashing', () => {
-      const req: any = {};
+      const req: any = { query: {} };
       const res: any = {
         sendFile: jest.fn(),
         status: jest.fn().mockReturnThis(),
         send: jest.fn(),
+        redirect: jest.fn(),
       };
 
       controller.serveDashboardUI(req, res);
       const sentSomething = res.sendFile.mock.calls.length > 0 || res.send.mock.calls.length > 0;
       expect(sentSomething).toBe(true);
+    });
+
+    it('redirects 302 to modern dashboard when DASHBOARD_URL is set', () => {
+      process.env.DASHBOARD_URL = 'https://dashboard.craft.ai';
+      const req: any = { query: {} };
+      const res: any = {
+        redirect: jest.fn(),
+      };
+
+      controller.serveDashboardUI(req, res);
+      expect(res.redirect).toHaveBeenCalledWith(302, 'https://dashboard.craft.ai');
+      delete process.env.DASHBOARD_URL;
+    });
+
+    it('bypasses 302 redirect when ?legacy=true is present', () => {
+      process.env.DASHBOARD_URL = 'https://dashboard.craft.ai';
+      const req: any = { query: { legacy: 'true' } };
+      const res: any = {
+        sendFile: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        send: jest.fn(),
+        redirect: jest.fn(),
+      };
+
+      controller.serveDashboardUI(req, res);
+      expect(res.redirect).not.toHaveBeenCalled();
+      const sentSomething = res.sendFile.mock.calls.length > 0 || res.send.mock.calls.length > 0;
+      expect(sentSomething).toBe(true);
+      delete process.env.DASHBOARD_URL;
     });
   });
 });

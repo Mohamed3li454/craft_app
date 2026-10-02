@@ -15,15 +15,18 @@ export const MAX_PAGE_SIZE = 100;
 export class SemanticCandidateRepository {
   private inMemoryItems: Map<string, SemanticCacheCandidate> = new Map();
   private schemaChecked = false;
+  private schemaPromise: Promise<void> | null = null;
 
   constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
 
   public async ensureSchema(): Promise<void> {
     if (this.schemaChecked) return;
+    if (this.schemaPromise) return this.schemaPromise;
     const pool = this.db.getPool();
     if (!pool) return;
 
-    try {
+    this.schemaPromise = (async () => {
+      try {
       // 1. Create table if not exists (Migration 002)
       await pool.query(`
         CREATE TABLE IF NOT EXISTS semantic_cache_candidates (
@@ -137,8 +140,13 @@ export class SemanticCandidateRepository {
     } catch (err: any) {
       logger.error('Failed to ensure semantic_cache_candidates schema in PostgreSQL', { error: err.message });
       throw err;
+    } finally {
+      this.schemaPromise = null;
     }
-  }
+  })();
+
+  return this.schemaPromise;
+}
 
   public async create(dto: CreateCandidateDto): Promise<SemanticCacheCandidate> {
     const id = uuidv4();

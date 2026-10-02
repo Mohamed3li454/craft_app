@@ -706,6 +706,118 @@ export class ProactiveDispatchRepository {
     return false;
   }
 
+  /**
+   * Lists dispatch logs with optional status, userId filters, and pagination.
+   */
+  public async listDispatchLogs(options: {
+    status?: string;
+    userId?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ items: ProactiveDispatchLogEntity[]; total: number }> {
+    const limit = Math.min(Math.max(options.limit || 20, 1), 100);
+    const offset = Math.max(options.offset || 0, 0);
+    const pool = this.db.getPool();
+
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const whereClauses: string[] = ['1=1'];
+        const params: any[] = [];
+        let pIdx = 1;
+
+        if (options.status) {
+          whereClauses.push(`status = $${pIdx}`);
+          params.push(options.status);
+          pIdx++;
+        }
+        if (options.userId) {
+          const userUuid = toDeterministicUuid(options.userId);
+          whereClauses.push(`user_id = $${pIdx}`);
+          params.push(userUuid);
+          pIdx++;
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+        const countRes = await pool.query(
+          `SELECT COUNT(*) as total FROM proactive_dispatch_log WHERE ${whereSql}`,
+          params
+        );
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const listQuery = `
+          SELECT id, user_id as "userId", action_id as "actionId",
+                 candidate_type as "candidateType", message_text as "messageText",
+                 idempotency_key as "idempotencyKey", status,
+                 provider_message_id as "providerMessageId", error_message as "errorMessage",
+                 receipt_status as "receiptStatus", delivered_at as "deliveredAt",
+                 read_at as "readAt", responded_at as "respondedAt",
+                 responded_message_id as "respondedMessageId", metadata,
+                 created_at as "createdAt", updated_at as "updatedAt"
+          FROM proactive_dispatch_log
+          WHERE ${whereSql}
+          ORDER BY created_at DESC
+          LIMIT $${pIdx} OFFSET $${pIdx + 1}
+        `;
+        params.push(limit, offset);
+
+        const listRes = await pool.query(listQuery, params);
+        return { items: listRes.rows, total };
+      } catch (err: any) {
+        logger.warn('Failed to list proactive dispatch logs from database', { error: err.message });
+      }
+    }
+
+    let all = Array.from(this.inMemoryLogs.values());
+    if (options.status) all = all.filter(l => l.status === options.status);
+    if (options.userId) {
+      const userUuid = toDeterministicUuid(options.userId);
+      all = all.filter(l => l.userId === userUuid || l.userId === options.userId);
+    }
+    const total = all.length;
+    all.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return { items: all.slice(offset, offset + limit), total };
+  }
+
+  /**
+   * Lists engagement records with pagination.
+   */
+  public async listEngagements(options: {
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ items: ProactiveEngagementEntity[]; total: number }> {
+    const limit = Math.min(Math.max(options.limit || 20, 1), 100);
+    const offset = Math.max(options.offset || 0, 0);
+    const pool = this.db.getPool();
+
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const countRes = await pool.query(`SELECT COUNT(*) as total FROM proactive_engagement`);
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const listQuery = `
+          SELECT id, dispatch_id as "dispatchId", action_id as "actionId",
+                 user_id as "userId", event_type as "eventType",
+                 occurred_at as "occurredAt", attribution_source as "attributionSource",
+                 metadata
+          FROM proactive_engagement
+          ORDER BY occurred_at DESC
+          LIMIT $1 OFFSET $2
+        `;
+        const listRes = await pool.query(listQuery, [limit, offset]);
+        return { items: listRes.rows, total };
+      } catch (err: any) {
+        logger.warn('Failed to list proactive engagements from database', { error: err.message });
+      }
+    }
+
+    const all = Array.from(this.inMemoryEngagements.values());
+    const total = all.length;
+    all.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
+    return { items: all.slice(offset, offset + limit), total };
+  }
+
   public clearInMemory(): void {
     this.inMemoryLogs.clear();
     this.inMemoryEngagements.clear();

@@ -12,6 +12,9 @@ import { WhatsAppProactiveDispatcher } from './modules/whatsapp';
 import { AnalyticsController } from './modules/analytics/analytics.controller';
 import { CandidateReviewController } from './modules/cache/learning/candidate_review.controller';
 import { AdminRateLimiter } from './modules/cache/learning/admin_rate_limiter';
+import { adminRouter } from './modules/admin/admin.router';
+import { adminAuthMiddleware } from './middleware/admin_auth.middleware';
+import { defaultAdminRateLimiter } from './middleware/admin_rate_limiter';
 import { v4 as uuidv4 } from 'uuid';
 import {
   TraceContextManager,
@@ -42,6 +45,8 @@ export function createApp(): Application {
       ? 'whatsapp'
       : req.path.startsWith('/api/v1/cron')
       ? 'cron'
+      : req.path.startsWith('/api/admin')
+      ? 'admin'
       : 'flutter';
 
     res.setHeader('X-Correlation-ID', rawCorrId);
@@ -267,31 +272,17 @@ export function createApp(): Application {
   app.all('/api/v1/cron/proactive', handleCronProactive);
   app.all('/api/cron/proactive', handleCronProactive);
 
-  // 9. Analytics & Admin Dashboard Routes
+  // 9. Analytics & Admin Dashboard UI Routes
   app.get('/dashboard', analyticsController.serveDashboardUI);
   app.get('/admin', analyticsController.serveDashboardUI);
-  app.get('/api/admin/analytics', analyticsController.getAnalyticsData);
-  app.get('/api/admin/conversations', analyticsController.getConversations);
-  app.get('/api/admin/conversations/:id/messages', analyticsController.getConversationTranscript);
-  app.get('/api/admin/users/:id/details', analyticsController.getUserDetails);
-  app.post('/api/admin/users/:id/toggle-vip', analyticsController.toggleUserVip);
-  app.get('/api/admin/tools-stats', analyticsController.getToolsStats);
-  app.get('/api/admin/faq', analyticsController.getFaqs);
-  app.post('/api/admin/faq', analyticsController.createFaq);
-  app.put('/api/admin/faq/:id', analyticsController.updateFaq);
-  app.delete('/api/admin/faq/:id', analyticsController.deleteFaq);
-  app.get('/api/admin/semantic-cache/dashboard', analyticsController.getSemanticCacheDashboard);
 
-  // 10. Semantic Cache Admin & Review Routes (/api/admin/cache)
-  app.use('/api/admin/cache', adminRateLimiter.middleware);
-  app.get('/api/admin/cache/candidates', candidateReviewController.listCandidates);
-  app.get('/api/admin/cache/candidates/:id', candidateReviewController.getCandidate);
-  app.post('/api/admin/cache/candidates/:id/validate', candidateReviewController.validateCandidate);
-  app.post('/api/admin/cache/candidates/:id/reject', candidateReviewController.rejectCandidate);
-  app.post('/api/admin/cache/candidates/:id/promote', candidateReviewController.promoteCandidate);
-  app.get('/api/admin/cache/stats', candidateReviewController.getCacheStats);
-  app.get('/api/admin/cache/learning-stats', candidateReviewController.getLearningStats);
-  app.post('/api/admin/cache/feedback/incorrect', candidateReviewController.markIncorrect);
+  // 10. Mount Hardened Modular Admin API
+  app.use(
+    '/api/admin',
+    defaultAdminRateLimiter.middleware,
+    adminAuthMiddleware,
+    adminRouter
+  );
 
   // 4.1 Root Endpoint
   app.get('/', (_req: Request, res: Response) => {

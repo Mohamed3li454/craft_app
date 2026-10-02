@@ -1151,6 +1151,219 @@ export class MemoryRepository {
   }
 
   /**
+   * Lists memory items with optional user and status filters and pagination.
+   */
+  public async listMemoryItems(options: {
+    userId?: string;
+    status?: string;
+    category?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ items: MemoryItemEntity[]; total: number }> {
+    const pool = this.db.getPool();
+    const limit = Math.min(Math.max(options.limit || 20, 1), 100);
+    const offset = Math.max(options.offset || 0, 0);
+
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const whereClauses: string[] = ['1=1'];
+        const params: any[] = [];
+        let pIdx = 1;
+
+        if (options.userId) {
+          const userUuid = toDeterministicUuid(options.userId);
+          whereClauses.push(`m.user_id = $${pIdx}`);
+          params.push(userUuid);
+          pIdx++;
+        }
+        if (options.status) {
+          whereClauses.push(`m.status = $${pIdx}`);
+          params.push(options.status);
+          pIdx++;
+        }
+        if (options.category) {
+          whereClauses.push(`m.category = $${pIdx}`);
+          params.push(options.category);
+          pIdx++;
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+
+        const countRes = await pool.query(
+          `SELECT COUNT(*) as total FROM memory_items m WHERE ${whereSql}`,
+          params
+        );
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const listQuery = `
+          SELECT m.id, m.user_id as "userId", m.fact_text as "factText",
+                 m.category, m.status, m.fact_key as "factKey",
+                 m.source, m.confidence, m.importance, m.temporal_state as "temporalState",
+                 m.valid_from as "validFrom", m.valid_until as "validUntil",
+                 m.metadata, m.created_at as "createdAt", m.updated_at as "updatedAt"
+          FROM memory_items m
+          WHERE ${whereSql}
+          ORDER BY m.created_at DESC
+          LIMIT $${pIdx} OFFSET $${pIdx + 1}
+        `;
+        params.push(limit, offset);
+
+        const listRes = await pool.query(listQuery, params);
+        return { items: listRes.rows, total };
+      } catch (err: any) {
+        logger.warn('Failed to list memory items from database', { error: err.message });
+      }
+    }
+
+    // In-memory fallback
+    let allItems: MemoryItemEntity[] = [];
+    for (const items of this.inMemoryItems.values()) {
+      allItems.push(...items);
+    }
+    if (options.userId) {
+      const userUuid = toDeterministicUuid(options.userId);
+      allItems = allItems.filter(i => i.userId === userUuid || i.userId === options.userId);
+    }
+    if (options.status) {
+      allItems = allItems.filter(i => i.status === options.status);
+    }
+    if (options.category) {
+      allItems = allItems.filter(i => i.category === options.category);
+    }
+
+    const total = allItems.length;
+    allItems.sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
+    return { items: allItems.slice(offset, offset + limit), total };
+  }
+
+  /**
+   * Retrieves a single memory item by its ID.
+   */
+  public async getMemoryById(id: string): Promise<MemoryItemEntity | null> {
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const res = await pool.query(
+          `SELECT m.id, m.user_id as "userId", m.fact_text as "factText",
+                  m.category, m.status, m.fact_key as "factKey",
+                  m.source, m.confidence, m.importance, m.temporal_state as "temporalState",
+                  m.valid_from as "validFrom", m.valid_until as "validUntil",
+                  m.metadata, m.created_at as "createdAt", m.updated_at as "updatedAt"
+           FROM memory_items m
+           WHERE m.id = $1 LIMIT 1`,
+          [id]
+        );
+        return res.rows[0] || null;
+      } catch (err: any) {
+        logger.warn('Failed to get memory by ID from database', { error: err.message, id });
+      }
+    }
+
+    for (const items of this.inMemoryItems.values()) {
+      const item = items.find(i => i.id === id);
+      if (item) return item;
+    }
+    return null;
+  }
+
+  /**
+   * Updates an existing memory fact (text, category, importance, status).
+   */
+  public async updateMemoryFact(
+    id: string,
+    updates: {
+      factText?: string;
+      category?: string;
+      importance?: string;
+      status?: string;
+    }
+  ): Promise<MemoryItemEntity | null> {
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const setClauses: string[] = ['updated_at = NOW()'];
+        const params: any[] = [id];
+        let pIdx = 2;
+
+        if (updates.factText) {
+          setClauses.push(`fact_text = $${pIdx}`);
+          params.push(updates.factText);
+          pIdx++;
+        }
+        if (updates.category) {
+          setClauses.push(`category = $${pIdx}`);
+          params.push(updates.category);
+          pIdx++;
+        }
+        if (updates.importance) {
+          setClauses.push(`importance = $${pIdx}`);
+          params.push(updates.importance);
+          pIdx++;
+        }
+        if (updates.status) {
+          setClauses.push(`status = $${pIdx}`);
+          params.push(updates.status);
+          pIdx++;
+        }
+
+        const query = `
+          UPDATE memory_items
+          SET ${setClauses.join(', ')}
+          WHERE id = $1
+          RETURNING id, user_id as "userId", fact_text as "factText",
+                    category, status, fact_key as "factKey",
+                    source, confidence, importance, temporal_state as "temporalState",
+                    valid_from as "validFrom", valid_until as "validUntil",
+                    metadata, created_at as "createdAt", updated_at as "updatedAt"
+        `;
+        const res = await pool.query(query, params);
+        return res.rows[0] || null;
+      } catch (err: any) {
+        logger.error('Failed to update memory fact in database', { error: err.message, id });
+      }
+    }
+
+    for (const items of this.inMemoryItems.values()) {
+      const item = items.find(i => i.id === id);
+      if (item) {
+        if (updates.factText) item.factText = updates.factText;
+        if (updates.category) item.category = updates.category as any;
+        if (updates.importance) item.importance = updates.importance as any;
+        if (updates.status) item.status = updates.status as any;
+        item.updatedAt = new Date();
+        return item;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Purges all memories for a given user (admin operation).
+   */
+  public async purgeUserMemories(userId: string): Promise<number> {
+    const userUuid = toDeterministicUuid(userId);
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const res = await pool.query(`DELETE FROM memory_items WHERE user_id = $1`, [userUuid]);
+        return res.rowCount ?? 0;
+      } catch (err: any) {
+        logger.error('Failed to purge user memories from database', { error: err.message, userId });
+      }
+    }
+
+    const items = this.inMemoryItems.get(userUuid) || this.inMemoryItems.get(userId);
+    const count = items ? items.length : 0;
+    this.inMemoryItems.delete(userUuid);
+    this.inMemoryItems.delete(userId);
+    return count;
+  }
+
+  /**
    * Resets the in-memory fallback cache (used for test isolation).
    */
   public clearInMemoryStore(): void {

@@ -633,6 +633,158 @@ export class MemoryEvidenceRepository {
   }
 
   /**
+   * Lists evidence candidates with optional userId and status filters and pagination.
+   */
+  public async listCandidates(options: {
+    userId?: string;
+    status?: EvidenceStatus;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ items: MemoryEvidenceCandidate[]; total: number }> {
+    const limit = Math.min(Math.max(options.limit || 20, 1), 100);
+    const offset = Math.max(options.offset || 0, 0);
+    const pool = this.db.getPool();
+
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const whereClauses: string[] = ['1=1'];
+        const params: any[] = [];
+        let pIdx = 1;
+
+        if (options.userId) {
+          const userUuid = await this.resolveUserId(options.userId);
+          whereClauses.push(`user_id = $${pIdx}`);
+          params.push(userUuid);
+          pIdx++;
+        }
+        if (options.status) {
+          whereClauses.push(`status = $${pIdx}`);
+          params.push(options.status);
+          pIdx++;
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+
+        const countRes = await pool.query(
+          `SELECT COUNT(*) as total FROM memory_evidence_candidates WHERE ${whereSql}`,
+          params
+        );
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const listQuery = `
+          SELECT id, user_id as "userId", candidate_key as "candidateKey",
+                 category, canonical_fact as "canonicalFact",
+                 evidence_count as "evidenceCount", conversation_count as "conversationCount",
+                 conversation_ids as "conversationIds", sources,
+                 evidence_strength as "evidenceStrength", confidence, importance,
+                 temporal_state as "temporalState",
+                 valid_from as "validFrom",
+                 valid_until as "validUntil",
+                 status,
+                 promoted_memory_id as "promotedMemoryId",
+                 first_observed_at as "firstObservedAt", last_observed_at as "lastObservedAt",
+                 metadata
+          FROM memory_evidence_candidates
+          WHERE ${whereSql}
+          ORDER BY last_observed_at DESC
+          LIMIT $${pIdx} OFFSET $${pIdx + 1}
+        `;
+        params.push(limit, offset);
+
+        const listRes = await pool.query(listQuery, params);
+        return { items: listRes.rows, total };
+      } catch (err: any) {
+        logger.warn('Failed to list candidates from database', { error: err.message });
+      }
+    }
+
+    let all: MemoryEvidenceCandidate[] = Array.from(this.inMemoryCandidates.values());
+    if (options.userId) {
+      const userUuid = toDeterministicUuid(options.userId);
+      all = all.filter(c => c.userId === userUuid || c.userId === options.userId);
+    }
+    if (options.status) {
+      all = all.filter(c => c.status === options.status);
+    }
+    const total = all.length;
+    all.sort((a, b) => b.lastObservedAt.getTime() - a.lastObservedAt.getTime());
+    return { items: all.slice(offset, offset + limit), total };
+  }
+
+  /**
+   * Retrieves a candidate by its unique ID.
+   */
+  public async getCandidateById(id: string): Promise<MemoryEvidenceCandidate | null> {
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const res = await pool.query(
+          `SELECT id, user_id as "userId", candidate_key as "candidateKey",
+                  category, canonical_fact as "canonicalFact",
+                  evidence_count as "evidenceCount", conversation_count as "conversationCount",
+                  conversation_ids as "conversationIds", sources,
+                  evidence_strength as "evidenceStrength", confidence, importance,
+                  temporal_state as "temporalState",
+                  valid_from as "validFrom",
+                  valid_until as "validUntil",
+                  status,
+                  promoted_memory_id as "promotedMemoryId",
+                  first_observed_at as "firstObservedAt", last_observed_at as "lastObservedAt",
+                  metadata
+           FROM memory_evidence_candidates
+           WHERE id = $1 LIMIT 1`,
+          [id]
+        );
+        return res.rows[0] || null;
+      } catch (err: any) {
+        logger.warn('Failed to get candidate by ID from database', { error: err.message, id });
+      }
+    }
+
+    for (const c of this.inMemoryCandidates.values()) {
+      if (c.id === id) return c;
+    }
+    return null;
+  }
+
+  /**
+   * Rejects an evidence candidate.
+   */
+  public async rejectCandidate(id: string, reason?: string): Promise<boolean> {
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const res = await pool.query(
+          `UPDATE memory_evidence_candidates
+           SET status = 'rejected',
+               metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{rejectionReason}', to_jsonb($1::text), true)
+           WHERE id = $2`,
+          [reason || 'Rejected by admin', id]
+        );
+        return (res.rowCount ?? 0) > 0;
+      } catch (err: any) {
+        logger.error('Failed to reject candidate in database', { error: err.message, id });
+      }
+    }
+
+    for (const [k, c] of this.inMemoryCandidates.entries()) {
+      if (c.id === id) {
+        const updated: MemoryEvidenceCandidate = {
+          ...c,
+          status: 'rejected',
+          metadata: { ...(c.metadata || {}), rejectionReason: reason || 'Rejected by admin' },
+        };
+        this.inMemoryCandidates.set(k, updated);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Resets in-memory store for unit test isolation.
    */
   public clearInMemoryStore(): void {

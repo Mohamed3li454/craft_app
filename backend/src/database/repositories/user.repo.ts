@@ -59,9 +59,13 @@ export class UserRepository {
         ALTER TABLE users ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT false;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_message_count INT DEFAULT 0;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS last_message_date DATE DEFAULT CURRENT_DATE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned BOOLEAN DEFAULT false;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMP WITH TIME ZONE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT;
         CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
         CREATE INDEX IF NOT EXISTS idx_users_bsuid ON users(bsuid);
         CREATE INDEX IF NOT EXISTS idx_users_is_vip ON users(is_vip);
+        CREATE INDEX IF NOT EXISTS idx_users_is_banned ON users(is_banned);
       `);
 
       // 2. Ensure whatsapp_contacts table exists and wa_id supports up to 255-char BSUIDs
@@ -514,6 +518,84 @@ export class UserRepository {
       return true;
     } catch (err: any) {
       logger.error('Failed to set user VIP status', { error: err.message, userId });
+      return false;
+    }
+  }
+
+  /**
+   * Bans a user with an optional reason.
+   */
+  public async banUser(userId: string, reason?: string): Promise<boolean> {
+    const pool = this.db.getPool();
+    if (!pool) {
+      const u = this.inMemoryUsers.get(userId);
+      if (u) {
+        u.isBanned = true;
+        u.bannedAt = new Date();
+        u.banReason = reason || null;
+        return true;
+      }
+      return false;
+    }
+    try {
+      await this.ensureSchema();
+      const userUuid = toDeterministicUuid(userId);
+      const res = await pool.query(
+        `UPDATE users SET is_banned = true, banned_at = NOW(), ban_reason = $1, updated_at = NOW() WHERE id = $2`,
+        [reason || 'Banned by admin', userUuid]
+      );
+      return (res.rowCount ?? 0) > 0;
+    } catch (err: any) {
+      logger.error('Failed to ban user', { error: err.message, userId });
+      return false;
+    }
+  }
+
+  /**
+   * Unbans a previously banned user.
+   */
+  public async unbanUser(userId: string): Promise<boolean> {
+    const pool = this.db.getPool();
+    if (!pool) {
+      const u = this.inMemoryUsers.get(userId);
+      if (u) {
+        u.isBanned = false;
+        u.bannedAt = null;
+        u.banReason = null;
+        return true;
+      }
+      return false;
+    }
+    try {
+      await this.ensureSchema();
+      const userUuid = toDeterministicUuid(userId);
+      const res = await pool.query(
+        `UPDATE users SET is_banned = false, banned_at = NULL, ban_reason = NULL, updated_at = NOW() WHERE id = $1`,
+        [userUuid]
+      );
+      return (res.rowCount ?? 0) > 0;
+    } catch (err: any) {
+      logger.error('Failed to unban user', { error: err.message, userId });
+      return false;
+    }
+  }
+
+  /**
+   * Checks if a user is currently banned.
+   */
+  public async isUserBanned(userId: string): Promise<boolean> {
+    const pool = this.db.getPool();
+    if (!pool) {
+      const u = this.inMemoryUsers.get(userId);
+      return !!u?.isBanned;
+    }
+    try {
+      await this.ensureSchema();
+      const userUuid = toDeterministicUuid(userId);
+      const res = await pool.query(`SELECT is_banned FROM users WHERE id = $1`, [userUuid]);
+      return res.rows.length > 0 ? !!res.rows[0].is_banned : false;
+    } catch (err: any) {
+      logger.warn('Failed to check user ban status', { error: err.message, userId });
       return false;
     }
   }

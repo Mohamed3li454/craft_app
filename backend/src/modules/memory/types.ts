@@ -353,7 +353,7 @@ export const MIN_MEMORY_RELEVANCE_THRESHOLD = 0.20;
  * Phase 2.2 - Memory Evidence & Observation Engine Models
  */
 
-export type EvidenceStatus = 'observing' | 'promoted' | 'discarded';
+export type EvidenceStatus = 'observing' | 'promoted' | 'discarded' | 'rejected';
 
 export interface MemoryObservation {
   readonly id?: string;

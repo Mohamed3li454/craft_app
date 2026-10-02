@@ -4,6 +4,10 @@ export interface UserEntity {
   email?: string;
   phoneNumber?: string;
   bsuid?: string;
+  isVip?: boolean;
+  isBanned?: boolean;
+  bannedAt?: Date | null;
+  banReason?: string | null;
   createdAt: Date;
 }
 

@@ -712,4 +712,140 @@ export class ReminderRepository {
     }
     return false;
   }
+
+  /**
+   * Lists reminders across all users with lifecycle status, date filters, and pagination.
+   */
+  public async listAllReminders(options: {
+    status?: string;
+    userId?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ items: ReminderEntity[]; total: number }> {
+    const limit = Math.min(Math.max(options.limit || 20, 1), 100);
+    const offset = Math.max(options.offset || 0, 0);
+    const pool = this.db.getPool();
+
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const whereClauses: string[] = ['1=1'];
+        const params: any[] = [];
+        let pIdx = 1;
+
+        if (options.status) {
+          whereClauses.push(`r.state = $${pIdx}`);
+          params.push(options.status);
+          pIdx++;
+        }
+        if (options.userId) {
+          const userUuid = toDeterministicUuid(options.userId);
+          whereClauses.push(`r.user_id = $${pIdx}`);
+          params.push(userUuid);
+          pIdx++;
+        }
+        if (options.startDate) {
+          whereClauses.push(`r.created_at >= $${pIdx}::timestamptz`);
+          params.push(options.startDate);
+          pIdx++;
+        }
+        if (options.endDate) {
+          whereClauses.push(`r.created_at <= $${pIdx}::timestamptz`);
+          params.push(options.endDate);
+          pIdx++;
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+
+        const countRes = await pool.query(
+          `SELECT COUNT(*) as total FROM reminders r WHERE ${whereSql}`,
+          params
+        );
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const listQuery = `
+          SELECT r.id, r.user_id as "userId", r.title, r.due_at as "dueAt",
+                 r.recurrence, r.is_completed as "isCompleted", r.state,
+                 r.attempts, r.locked_until as "lockedUntil", r.last_error as "lastError",
+                 r.wamid, r.created_at as "createdAt", r.updated_at as "updatedAt"
+          FROM reminders r
+          WHERE ${whereSql}
+          ORDER BY r.due_at ASC NULLS LAST, r.created_at DESC
+          LIMIT $${pIdx} OFFSET $${pIdx + 1}
+        `;
+        params.push(limit, offset);
+
+        const listRes = await pool.query(listQuery, params);
+        return { items: listRes.rows, total };
+      } catch (err: any) {
+        logger.warn('Failed to list all reminders from database', { error: err.message });
+      }
+    }
+
+    // In-memory fallback
+    let all: ReminderEntity[] = [];
+    for (const items of this.inMemoryReminders.values()) {
+      all.push(...items);
+    }
+    if (options.status) {
+      all = all.filter(r => r.state === options.status);
+    }
+    if (options.userId) {
+      const userUuid = toDeterministicUuid(options.userId);
+      all = all.filter(r => r.userId === userUuid || r.userId === options.userId);
+    }
+    const total = all.length;
+    all.sort((a, b) => ((a.dueAt?.getTime() || 0) - (b.dueAt?.getTime() || 0)));
+    return { items: all.slice(offset, offset + limit), total };
+  }
+
+  /**
+   * Safe Admin retry for a failed or dead_letter reminder.
+   * Resets status to 'retry_pending' and clears locking,
+   * allowing the standard scheduler pipeline to process it naturally.
+   */
+  public async adminRetryReminder(id: string): Promise<ReminderEntity | null> {
+    const pool = this.db.getPool();
+    const now = new Date();
+
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const res = await pool.query(
+          `UPDATE reminders
+           SET state = 'retry_pending',
+               is_completed = false,
+               due_at = NOW(),
+               locked_until = NULL,
+               last_error = NULL,
+               updated_at = NOW()
+           WHERE id = $1
+           RETURNING id, user_id as "userId", title, due_at as "dueAt",
+                     recurrence, is_completed as "isCompleted", state,
+                     attempts, locked_until as "lockedUntil", last_error as "lastError",
+                     wamid, created_at as "createdAt", updated_at as "updatedAt"`,
+          [id]
+        );
+        return res.rows[0] || null;
+      } catch (err: any) {
+        logger.error('Failed to admin retry reminder in database', { error: err.message, id });
+      }
+    }
+
+    for (const items of this.inMemoryReminders.values()) {
+      const item = items.find(r => r.id === id);
+      if (item) {
+        item.state = 'retry_pending';
+        item.isCompleted = false;
+        item.dueAt = now;
+        item.lockedUntil = null;
+        item.lastError = null;
+        item.updatedAt = now;
+        return item;
+      }
+    }
+    return null;
+  }
 }

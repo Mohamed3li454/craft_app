@@ -557,6 +557,154 @@ export class ProactiveActionRepository {
   }
 
   /**
+   * Lists proactive actions with optional filters and pagination for Admin.
+   */
+  public async listAll(options: {
+    status?: string;
+    userId?: string;
+    candidateType?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ items: ProactiveActionEntity[]; total: number }> {
+    const limit = Math.min(Math.max(options.limit || 20, 1), 100);
+    const offset = Math.max(options.offset || 0, 0);
+    const pool = this.db.getPool();
+
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const whereClauses: string[] = ['1=1'];
+        const params: any[] = [];
+        let pIdx = 1;
+
+        if (options.status) {
+          whereClauses.push(`status = $${pIdx}`);
+          params.push(options.status);
+          pIdx++;
+        }
+        if (options.userId) {
+          const userUuid = toDeterministicUuid(options.userId);
+          whereClauses.push(`user_id = $${pIdx}`);
+          params.push(userUuid);
+          pIdx++;
+        }
+        if (options.candidateType) {
+          whereClauses.push(`candidate_type = $${pIdx}`);
+          params.push(options.candidateType);
+          pIdx++;
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+        const countRes = await pool.query(
+          `SELECT COUNT(*) as total FROM proactive_actions WHERE ${whereSql}`,
+          params
+        );
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const listQuery = `
+          SELECT id, user_id as "userId", conversation_id as "conversationId",
+                 candidate_type as "candidateType", topic, context_digest as "contextDigest",
+                 reason, payload, status, suppression_reason as "suppressionReason",
+                 dedup_key as "dedupKey", priority, eligible_at as "eligibleAt",
+                 expires_at as "expiresAt", claimed_at as "claimedAt",
+                 completed_at as "completedAt", error_message as "errorMessage",
+                 retry_count as "retryCount", metadata, created_at as "createdAt",
+                 updated_at as "updatedAt"
+          FROM proactive_actions
+          WHERE ${whereSql}
+          ORDER BY eligible_at ASC NULLS LAST, created_at DESC
+          LIMIT $${pIdx} OFFSET $${pIdx + 1}
+        `;
+        params.push(limit, offset);
+
+        const listRes = await pool.query(listQuery, params);
+        return { items: listRes.rows, total };
+      } catch (err: any) {
+        logger.warn('Failed to list proactive actions from database', { error: err.message });
+      }
+    }
+
+    let all = Array.from(this.inMemoryActions.values());
+    if (options.status) all = all.filter(a => a.status === options.status);
+    if (options.userId) {
+      const userUuid = toDeterministicUuid(options.userId);
+      all = all.filter(a => a.userId === userUuid || a.userId === options.userId);
+    }
+    if (options.candidateType) all = all.filter(a => a.candidateType === options.candidateType);
+    const total = all.length;
+    all.sort((a, b) => ((a.eligibleAt?.getTime() || 0) - (b.eligibleAt?.getTime() || 0)));
+    return { items: all.slice(offset, offset + limit), total };
+  }
+
+  /**
+   * Safe Admin cancellation of a pending or deferred proactive action.
+   */
+  public async cancelAction(id: string, reason = 'Cancelled by admin'): Promise<boolean> {
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const res = await pool.query(
+          `UPDATE proactive_actions
+           SET status = 'suppressed',
+               metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{suppressionReason}', to_jsonb($1::text), true),
+               updated_at = NOW()
+           WHERE id = $2 AND status IN ('pending', 'deferred', 'claimed')`,
+          [reason, id]
+        );
+        return (res.rowCount ?? 0) > 0;
+      } catch (err: any) {
+        logger.error('Failed to cancel proactive action in database', { error: err.message, id });
+      }
+    }
+
+    const action = this.inMemoryActions.get(id);
+    if (action && (action.status === 'pending' || action.status === 'deferred' || action.status === 'claimed')) {
+      action.status = 'suppressed';
+      action.metadata = { ...(action.metadata || {}), suppressionReason: reason };
+      action.updatedAt = new Date();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Safe Admin retry for a failed proactive action.
+   */
+  public async retryAction(id: string): Promise<boolean> {
+    const pool = this.db.getPool();
+    if (pool) {
+      try {
+        await this.ensureSchema();
+        const res = await pool.query(
+          `UPDATE proactive_actions
+           SET status = 'pending',
+               eligible_at = NOW(),
+               claimed_at = NULL,
+               last_error = NULL,
+               updated_at = NOW()
+           WHERE id = $1`,
+          [id]
+        );
+        return (res.rowCount ?? 0) > 0;
+      } catch (err: any) {
+        logger.error('Failed to retry proactive action in database', { error: err.message, id });
+      }
+    }
+
+    const action = this.inMemoryActions.get(id);
+    if (action) {
+      action.status = 'pending';
+      action.eligibleAt = new Date();
+      action.claimedAt = null;
+      action.lastError = null;
+      action.updatedAt = new Date();
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Helper for tests to reset in-memory state.
    */
   public clearInMemory(): void {

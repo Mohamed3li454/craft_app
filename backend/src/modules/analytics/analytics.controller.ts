@@ -8,6 +8,8 @@ import { UserRepository } from '../../database/repositories/user.repo';
 import { FAQRepository } from '../../database/repositories/faq.repo';
 import { DatabaseManager } from '../../database/connection';
 
+import { validateAdminToken } from '../../middleware/admin_auth.middleware';
+
 export class AnalyticsController {
   constructor(
     private analyticsRepo: AnalyticsRepository = new AnalyticsRepository(),
@@ -16,7 +18,11 @@ export class AnalyticsController {
   ) {}
 
   public isAuthorized(req: Request): boolean {
-    const queryToken = req.query?.token as string;
+    // Phase 10.1: Query token is strictly forbidden
+    if (req.query && req.query.token !== undefined) {
+      return false;
+    }
+
     const authHeader = req.headers?.authorization;
     const customHeader = req.headers?.['x-admin-token'] as string;
 
@@ -24,14 +30,8 @@ export class AnalyticsController {
       ? authHeader.slice(7).trim()
       : undefined;
 
-    const providedToken = queryToken || bearerToken || customHeader;
-    const expectedToken = config.admin.secretKey;
-
-    if (!providedToken || !expectedToken) {
-      return false;
-    }
-
-    return providedToken === expectedToken;
+    const providedToken = bearerToken || (customHeader ? customHeader.trim() : undefined);
+    return validateAdminToken(providedToken);
   }
 
   public getAnalyticsData = async (req: Request, res: Response): Promise<void> => {
@@ -405,7 +405,13 @@ export class AnalyticsController {
     }
   };
 
-  public serveDashboardUI = (_req: Request, res: Response): void => {
+  public serveDashboardUI = (req: Request, res: Response): void => {
+    const modernDashboardUrl = process.env.DASHBOARD_URL || process.env.CRAFT_DASHBOARD_URL;
+    if (modernDashboardUrl && req.query.legacy !== 'true') {
+      res.redirect(302, modernDashboardUrl);
+      return;
+    }
+
     const htmlPath = path.join(__dirname, 'dashboard.html');
     if (fs.existsSync(htmlPath)) {
       res.sendFile(htmlPath);

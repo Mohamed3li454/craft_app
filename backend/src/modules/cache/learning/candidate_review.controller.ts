@@ -6,22 +6,18 @@ import { CandidateReviewService } from './candidate_review.service';
 import { CacheObservability } from '../cache_observability';
 import { ListCandidatesFilter, CandidateStatus } from '../../../database/repositories/semantic_candidate.types';
 
+import { validateAdminToken } from '../../../middleware/admin_auth.middleware';
+
 export class CandidateReviewController {
   constructor(
     private reviewService: CandidateReviewService = new CandidateReviewService(),
     private observability: CacheObservability = CacheObservability.getInstance()
   ) {}
 
-  /**
-   * Validates administrative authorization token against configured admin secret.
-   *
-   * SECURITY AUDIT ENFORCEMENTS:
-   * 1. Query token (?token=...) is STRICTLY FORBIDDEN to prevent leakage in URLs/access logs.
-   * 2. Only Authorization: Bearer <TOKEN> and x-admin-token: <TOKEN> headers are accepted.
-   * 3. Production Fail-Closed: If ADMIN_SECRET_KEY is missing or empty, all admin requests are blocked.
-   * 4. Constant-Time Comparison: crypto.timingSafeEqual prevents timing side-channel attacks.
-   */
   public isAuthorized(req: Request): boolean {
+    if (req.query && req.query.token !== undefined) {
+      return false;
+    }
     const authHeader = req.headers?.authorization;
     const customHeader = req.headers?.['x-admin-token'] as string;
 
@@ -30,32 +26,7 @@ export class CandidateReviewController {
       : undefined;
 
     const providedToken = bearerToken || (customHeader ? customHeader.trim() : undefined);
-    const expectedToken = (config.admin?.secretKey || '').trim();
-
-    // 1. Fail-closed: Reject if expected token is not configured or in production without explicit env var
-    if (!expectedToken) {
-      return false;
-    }
-    if (process.env.NODE_ENV === 'production' && (!process.env.ADMIN_SECRET_KEY || !process.env.ADMIN_SECRET_KEY.trim())) {
-      return false;
-    }
-
-    // 2. Reject if no valid header token was supplied
-    if (!providedToken) {
-      return false;
-    }
-
-    // 3. Constant-time comparison using crypto.timingSafeEqual
-    const providedBuf = Buffer.from(providedToken);
-    const expectedBuf = Buffer.from(expectedToken);
-
-    if (providedBuf.length !== expectedBuf.length) {
-      // Execute dummy timing operation with identical length to maintain constant time response
-      crypto.timingSafeEqual(expectedBuf, expectedBuf);
-      return false;
-    }
-
-    return crypto.timingSafeEqual(providedBuf, expectedBuf);
+    return validateAdminToken(providedToken);
   }
 
   /**
