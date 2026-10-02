@@ -212,7 +212,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   // Token formatting
   const formatTokens = useCallback(
     (tokens: number | undefined | null): string => {
-      if (!tokens) return '0';
+      if (tokens === undefined || tokens === null) return '—';
+      if (tokens === 0) return '0';
       if (tokens >= 1_000_000) {
         return `${(tokens / 1_000_000).toFixed(2)}M`;
       }
@@ -279,7 +280,7 @@ const fallbackContext: LanguageContextType = {
   formatCurrency: (v) => (v !== undefined && v !== null ? `$${Number(v).toFixed(2)}` : '$0.00'),
   formatDate: (d) => (d ? String(d) : '—'),
   formatRelativeTime: (d) => (d ? String(d) : '—'),
-  formatTokens: (v) => (v ? String(v) : '0'),
+  formatTokens: (v) => (v === undefined || v === null ? '—' : String(v)),
 };
 
 export function useLanguage(): LanguageContextType {

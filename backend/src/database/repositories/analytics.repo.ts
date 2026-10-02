@@ -53,33 +53,45 @@ export interface ModelBreakdownItem {
 }
 
 export interface TopUserItem {
+  id?: string;
   userId: string;
   phone: string;
+  phoneNumber?: string;
   name: string;
   isVip?: boolean;
   isBanned?: boolean;
   bannedAt?: string;
   banReason?: string;
   dailyMessageCount?: number;
+  messageCount?: number;
   totalMessages: number;
+  conversationCount?: number;
+  reminderCount?: number;
   tokensUsed: number;
   estimatedCostUsd: number;
   firstActive: string;
-  lastActive: string;
+  lastActive?: string;
+  lastActiveAt?: string;
+  createdAt?: string;
 }
 
 export interface ConversationListItem {
   id: string;
   userId: string;
   phone: string;
+  userPhone?: string;
   userName: string;
   channel: 'flutter' | 'whatsapp';
   title: string;
   isArchived?: boolean;
+  status?: string;
   messagesCount: number;
+  messageCount?: number;
   tokensUsed: number;
   lastMessage: string;
+  lastMessageSnippet?: string;
   lastMessageAt: string;
+  updatedAt?: string;
   createdAt: string;
 }
 
@@ -87,9 +99,11 @@ export interface RecentInteractionItem {
   id: string;
   conversationId: string;
   timestamp: string;
+  createdAt?: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   sender: string;
   text: string;
+  content?: string;
   model?: string;
   latencyMs?: number;
   tokens?: number;
@@ -120,6 +134,15 @@ export interface UserDetailsResponse {
     bsuid?: string;
   } | null;
   preferences?: Record<string, string>;
+  stats?: {
+    totalConversations: number;
+    totalMessages: number;
+    totalReminders: number;
+    activeReminders: number;
+    memoryCount: number;
+    tokenCount: number;
+    costUsd: number;
+  };
   metrics: {
     totalConversations: number;
     totalMessages: number;
@@ -133,8 +156,9 @@ export interface UserDetailsResponse {
     reminderCount?: number;
     activeRemindersCount?: number;
   };
-  memories: { id: string; factText: string; category: string; createdAt: string }[];
-  reminders: { id: string; title: string; dueAt?: string; recurrence: string; isCompleted: boolean; state?: string; createdAt: string }[];
+  memories: { id: string; key?: string; value?: string; factText: string; category: string; createdAt: string }[];
+  reminders: { id: string; title: string; dueAt?: string; scheduledTime?: string; recurrence: string; isCompleted: boolean; state?: string; status?: string; createdAt: string }[];
+  recentConversations?: ConversationListItem[];
   conversations: ConversationListItem[];
 }
 
@@ -474,18 +498,23 @@ export class AnalyticsRepository {
           const pt = parseInt(r.prompt_tokens || '0', 10);
           const ct = parseInt(r.completion_tokens || '0', 10);
           const cost = Number(((pt / 1_000_000) * 0.1 + (ct / 1_000_000) * 0.4).toFixed(4));
+          const phoneVal = (r.phone || '').replace(/^wa_/, '');
 
           return {
+            id: r.user_id,
             userId: r.user_id,
-            phone: (r.phone || '').replace(/^wa_/, ''),
+            phone: phoneVal,
+            phoneNumber: phoneVal,
             name: r.name || 'User',
             isVip: !!r.is_vip,
             dailyMessageCount: parseInt(r.daily_message_count || '0', 10),
             totalMessages: parseInt(r.total_messages || '0', 10),
+            messageCount: parseInt(r.total_messages || '0', 10),
             tokensUsed: parseInt(r.tokens_used || '0', 10),
             estimatedCostUsd: cost,
             firstActive: r.first_active ? new Date(r.first_active).toISOString() : new Date().toISOString(),
             lastActive: r.last_active ? new Date(r.last_active).toISOString() : new Date().toISOString(),
+            lastActiveAt: r.last_active ? new Date(r.last_active).toISOString() : undefined,
           };
         });
       } catch (err: any) {
@@ -553,19 +582,41 @@ export class AnalyticsRepository {
             u.banned_at,
             u.ban_reason,
             u.daily_message_count,
-            COUNT(m.id) as total_messages,
-            COALESCE(SUM(m.tokens_used), 0) as tokens_used,
-            COALESCE(SUM(m.prompt_tokens), 0) as prompt_tokens,
-            COALESCE(SUM(m.completion_tokens), 0) as completion_tokens,
-            MIN(m.created_at) as first_active,
-            MAX(m.created_at) as last_active
+            u.created_at,
+            COALESCE(c_agg.total_conversations, 0) as total_conversations,
+            COALESCE(m_agg.total_messages, 0) as total_messages,
+            COALESCE(r_agg.total_reminders, 0) as total_reminders,
+            COALESCE(m_agg.tokens_used, 0) as tokens_used,
+            COALESCE(m_agg.prompt_tokens, 0) as prompt_tokens,
+            COALESCE(m_agg.completion_tokens, 0) as completion_tokens,
+            m_agg.first_active,
+            m_agg.last_active
           FROM users u
           LEFT JOIN whatsapp_contacts wc ON wc.user_id = u.id
-          LEFT JOIN conversations c ON c.user_id = u.id
-          LEFT JOIN messages m ON m.conversation_id = c.id
+          LEFT JOIN (
+            SELECT user_id, COUNT(*) as total_conversations
+            FROM conversations
+            GROUP BY user_id
+          ) c_agg ON c_agg.user_id = u.id
+          LEFT JOIN (
+            SELECT c.user_id,
+              COUNT(m.id) as total_messages,
+              COALESCE(SUM(m.tokens_used), 0) as tokens_used,
+              COALESCE(SUM(m.prompt_tokens), 0) as prompt_tokens,
+              COALESCE(SUM(m.completion_tokens), 0) as completion_tokens,
+              MIN(m.created_at) as first_active,
+              MAX(m.created_at) as last_active
+            FROM messages m
+            JOIN conversations c ON c.id = m.conversation_id
+            GROUP BY c.user_id
+          ) m_agg ON m_agg.user_id = u.id
+          LEFT JOIN (
+            SELECT user_id, COUNT(*) as total_reminders
+            FROM reminders
+            GROUP BY user_id
+          ) r_agg ON r_agg.user_id::text = u.id::text
           WHERE ${whereSql}
-          GROUP BY u.id, u.phone_number, wc.wa_id, u.name, wc.profile_name, u.is_vip, u.is_banned, u.banned_at, u.ban_reason, u.daily_message_count
-          ORDER BY last_active DESC NULLS LAST, u.created_at DESC
+          ORDER BY m_agg.last_active DESC NULLS LAST, u.created_at DESC
           LIMIT $${pIdx} OFFSET $${pIdx + 1}
         `;
         params.push(limit, offset);
@@ -575,9 +626,12 @@ export class AnalyticsRepository {
           const pt = parseInt(r.prompt_tokens || '0', 10);
           const ct = parseInt(r.completion_tokens || '0', 10);
           const cost = Number(((pt / 1_000_000) * 0.1 + (ct / 1_000_000) * 0.4).toFixed(4));
+          const phoneVal = (r.phone || '').replace(/^wa_/, '');
           return {
+            id: r.user_id,
             userId: r.user_id,
-            phone: (r.phone || '').replace(/^wa_/, ''),
+            phone: phoneVal,
+            phoneNumber: phoneVal,
             name: r.name || 'User',
             isVip: !!r.is_vip,
             isBanned: !!r.is_banned,
@@ -585,10 +639,15 @@ export class AnalyticsRepository {
             banReason: r.ban_reason || undefined,
             dailyMessageCount: parseInt(r.daily_message_count || '0', 10),
             totalMessages: parseInt(r.total_messages || '0', 10),
+            messageCount: parseInt(r.total_messages || '0', 10),
+            conversationCount: parseInt(r.total_conversations || '0', 10),
+            reminderCount: parseInt(r.total_reminders || '0', 10),
             tokensUsed: parseInt(r.tokens_used || '0', 10),
             estimatedCostUsd: cost,
-            firstActive: r.first_active ? new Date(r.first_active).toISOString() : new Date().toISOString(),
-            lastActive: r.last_active ? new Date(r.last_active).toISOString() : new Date().toISOString(),
+            firstActive: r.first_active ? new Date(r.first_active).toISOString() : (r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()),
+            lastActive: r.last_active ? new Date(r.last_active).toISOString() : undefined,
+            lastActiveAt: r.last_active ? new Date(r.last_active).toISOString() : undefined,
+            createdAt: r.created_at ? new Date(r.created_at).toISOString() : undefined,
           };
         });
 
@@ -674,33 +733,44 @@ export class AnalyticsRepository {
             COALESCE(SUM(m.tokens_used), 0) as tokens_used,
             (SELECT m2.text FROM messages m2 WHERE m2.conversation_id = c.id ORDER BY m2.created_at DESC LIMIT 1) as last_message,
             (SELECT m2.created_at FROM messages m2 WHERE m2.conversation_id = c.id ORDER BY m2.created_at DESC LIMIT 1) as last_message_at,
-            c.created_at
+            c.created_at,
+            c.updated_at
           FROM conversations c
           LEFT JOIN users u ON u.id = c.user_id OR u.phone_number = c.user_id::text
           LEFT JOIN whatsapp_contacts wc ON wc.user_id = c.user_id
           LEFT JOIN messages m ON m.conversation_id = c.id
           ${whereSql}
-          GROUP BY c.id, c.user_id, u.phone_number, wc.wa_id, u.name, wc.profile_name, c.channel, c.title, c.is_archived, c.created_at
-          ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC
+          GROUP BY c.id, c.user_id, u.phone_number, wc.wa_id, u.name, wc.profile_name, c.channel, c.title, c.is_archived, c.created_at, c.updated_at
+          ORDER BY last_message_at DESC NULLS LAST, c.updated_at DESC NULLS LAST, c.created_at DESC
           LIMIT $${pIdx} OFFSET $${pIdx + 1}
         `;
         params.push(limit, offset);
 
         const res = await pool.query(query, params);
-        return res.rows.map((r: any) => ({
-          id: r.id,
-          userId: r.user_id,
-          phone: (r.phone || '').replace(/^wa_/, ''),
-          userName: r.user_name || 'User',
-          channel: r.channel,
-          title: r.title,
-          isArchived: !!r.is_archived,
-          messagesCount: parseInt(r.messages_count || '0', 10),
-          tokensUsed: parseInt(r.tokens_used || '0', 10),
-          lastMessage: r.last_message || '',
-          lastMessageAt: r.last_message_at ? new Date(r.last_message_at).toISOString() : new Date().toISOString(),
-          createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
-        }));
+        return res.rows.map((r: any) => {
+          const lastMsgAt = r.last_message_at || r.updated_at || r.created_at;
+          const phoneVal = (r.phone || '').replace(/^wa_/, '');
+          const status = r.is_archived ? 'archived' : 'active';
+          return {
+            id: r.id,
+            userId: r.user_id,
+            phone: phoneVal,
+            userPhone: phoneVal,
+            userName: r.user_name || 'User',
+            channel: r.channel,
+            title: r.title || 'Untitled Conversation',
+            isArchived: !!r.is_archived,
+            status,
+            messagesCount: parseInt(r.messages_count || '0', 10),
+            messageCount: parseInt(r.messages_count || '0', 10),
+            tokensUsed: parseInt(r.tokens_used || '0', 10),
+            lastMessage: r.last_message || '',
+            lastMessageSnippet: r.last_message || '',
+            lastMessageAt: lastMsgAt ? new Date(lastMsgAt).toISOString() : new Date().toISOString(),
+            updatedAt: lastMsgAt ? new Date(lastMsgAt).toISOString() : (r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString()),
+            createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+          };
+        });
       } catch (err: any) {
         logger.warn('Database query failed in getConversationsList', { error: err.message });
       }
@@ -715,18 +785,25 @@ export class AnalyticsRepository {
     return convs.slice(offset, offset + limit).map((c) => {
       const msgs = this.chatRepo.getInMemoryMessages().get(c.id) || [];
       const lastMsg = msgs[msgs.length - 1];
+      const phoneVal = c.userId.replace(/^wa_/, '');
+      const lastMsgAt = lastMsg?.createdAt ? lastMsg.createdAt.toISOString() : (c.updatedAt ? c.updatedAt.toISOString() : (c.createdAt ? c.createdAt.toISOString() : new Date().toISOString()));
       return {
         id: c.id,
         userId: c.userId,
-        phone: c.userId.replace(/^wa_/, ''),
+        phone: phoneVal,
+        userPhone: phoneVal,
         userName: 'User',
         channel: c.channel,
         title: c.title,
         isArchived: !!c.isArchived,
+        status: c.isArchived ? 'archived' : 'active',
         messagesCount: msgs.length,
+        messageCount: msgs.length,
         tokensUsed: msgs.reduce((acc, m) => acc + (m.tokensUsed || 0), 0),
         lastMessage: lastMsg?.text || '',
-        lastMessageAt: lastMsg?.createdAt ? lastMsg.createdAt.toISOString() : new Date().toISOString(),
+        lastMessageSnippet: lastMsg?.text || '',
+        lastMessageAt: lastMsgAt,
+        updatedAt: lastMsgAt,
         createdAt: c.createdAt ? c.createdAt.toISOString() : new Date().toISOString(),
       };
     });
@@ -792,9 +869,11 @@ export class AnalyticsRepository {
           id: r.id,
           conversationId: r.conversationId,
           timestamp: new Date(r.timestamp).toISOString(),
+          createdAt: new Date(r.timestamp).toISOString(),
           role: r.role,
-          sender: r.sender,
+          sender: r.sender || (r.role === 'user' ? 'user' : 'assistant'),
           text: r.text,
+          content: r.text,
           model: r.model,
           latencyMs: r.latencyMs,
           tokens: r.tokens,
@@ -814,9 +893,11 @@ export class AnalyticsRepository {
       id: m.id,
       conversationId: m.conversationId,
       timestamp: (m.createdAt || new Date()).toISOString(),
+      createdAt: (m.createdAt || new Date()).toISOString(),
       role: m.senderRole,
-      sender: m.senderName,
+      sender: m.senderName || (m.senderRole === 'user' ? 'user' : 'assistant'),
       text: m.text,
+      content: m.text,
       model: m.modelName,
       latencyMs: m.latencyMs,
       tokens: m.tokensUsed,
@@ -903,7 +984,7 @@ export class AnalyticsRepository {
 
         // Memories (bounded top 20 for User 360 overview)
         const memRes = await pool.query(
-          `SELECT id, fact_text as "factText", category, created_at as "createdAt"
+          `SELECT id, fact_key as "factKey", fact_text as "factText", category, created_at as "createdAt"
            FROM memory_items WHERE user_id::text = $1::text ORDER BY created_at DESC LIMIT 20`,
           [userId]
         );
@@ -917,6 +998,30 @@ export class AnalyticsRepository {
 
         // User Conversations (bounded top 10)
         const convList = await this.getConversationsList({ userId, limit: 10 });
+
+        const stats = {
+          totalConversations: parseInt(mRow.total_conversations || '0', 10),
+          totalMessages: parseInt(mRow.total_messages || '0', 10),
+          totalReminders: remRes.rows.length,
+          activeReminders: remRes.rows.filter((r: any) => !r.isCompleted).length,
+          memoryCount: memRes.rows.length,
+          tokenCount: parseInt(mRow.tokens_used || '0', 10),
+          costUsd: cost,
+        };
+
+        const metrics = {
+          totalConversations: parseInt(mRow.total_conversations || '0', 10),
+          totalMessages: parseInt(mRow.total_messages || '0', 10),
+          tokensUsed: parseInt(mRow.tokens_used || '0', 10),
+          promptTokens: pt,
+          completionTokens: ct,
+          estimatedCostUsd: cost,
+          dailyMessageCount: user.dailyMessageCount ? parseInt(user.dailyMessageCount, 10) : 0,
+          lastActive: mRow.last_active ? new Date(mRow.last_active).toISOString() : undefined,
+          memoryCount: memRes.rows.length,
+          reminderCount: remRes.rows.length,
+          activeRemindersCount: remRes.rows.filter((r: any) => !r.isCompleted).length,
+        };
 
         return {
           user: {
@@ -933,21 +1038,12 @@ export class AnalyticsRepository {
           },
           whatsappContact,
           preferences,
-          metrics: {
-            totalConversations: parseInt(mRow.total_conversations || '0', 10),
-            totalMessages: parseInt(mRow.total_messages || '0', 10),
-            tokensUsed: parseInt(mRow.tokens_used || '0', 10),
-            promptTokens: pt,
-            completionTokens: ct,
-            estimatedCostUsd: cost,
-            dailyMessageCount: user.dailyMessageCount ? parseInt(user.dailyMessageCount, 10) : 0,
-            lastActive: mRow.last_active ? new Date(mRow.last_active).toISOString() : undefined,
-            memoryCount: memRes.rows.length,
-            reminderCount: remRes.rows.length,
-            activeRemindersCount: remRes.rows.filter((r: any) => !r.isCompleted).length,
-          },
+          stats,
+          metrics,
           memories: memRes.rows.map((r: any) => ({
             id: r.id,
+            key: r.factKey || r.category || 'fact',
+            value: r.factText,
             factText: r.factText,
             category: r.category,
             createdAt: new Date(r.createdAt).toISOString(),
@@ -956,11 +1052,14 @@ export class AnalyticsRepository {
             id: r.id,
             title: r.title,
             dueAt: r.dueAt ? new Date(r.dueAt).toISOString() : undefined,
+            scheduledTime: r.dueAt ? new Date(r.dueAt).toISOString() : undefined,
             recurrence: r.recurrence || 'none',
             isCompleted: !!r.isCompleted,
             state: r.state || (r.isCompleted ? 'sent' : 'scheduled'),
+            status: r.state || (r.isCompleted ? 'sent' : 'scheduled'),
             createdAt: new Date(r.createdAt).toISOString(),
           })),
+          recentConversations: convList,
           conversations: convList,
         };
       } catch (err: any) {
@@ -969,6 +1068,16 @@ export class AnalyticsRepository {
     }
 
     // In-memory fallback
+    const fallbackStats = {
+      totalConversations: 1,
+      totalMessages: 5,
+      totalReminders: 0,
+      activeReminders: 0,
+      memoryCount: 1,
+      tokenCount: 1200,
+      costUsd: 0.00036,
+    };
+
     return {
       user: {
         id: userIdOrPhone,
@@ -976,22 +1085,29 @@ export class AnalyticsRepository {
         phoneNumber: cleanPhone,
         createdAt: new Date().toISOString(),
       },
+      stats: fallbackStats,
       metrics: {
-        totalConversations: 1,
-        totalMessages: 5,
+        ...fallbackStats,
         tokensUsed: 1200,
         promptTokens: 400,
         completionTokens: 800,
         estimatedCostUsd: 0.00036,
         dailyMessageCount: 0,
-        memoryCount: 1,
         reminderCount: 0,
         activeRemindersCount: 0,
       },
       memories: [
-        { id: '1', factText: 'المستخدم يفضل التحدث بالعامية المصرية', category: 'preference', createdAt: new Date().toISOString() },
+        {
+          id: '1',
+          key: 'preference',
+          value: 'المستخدم يفضل التحدث بالعامية المصرية',
+          factText: 'المستخدم يفضل التحدث بالعامية المصرية',
+          category: 'preference',
+          createdAt: new Date().toISOString(),
+        },
       ],
       reminders: [],
+      recentConversations: [],
       conversations: [],
     };
   }

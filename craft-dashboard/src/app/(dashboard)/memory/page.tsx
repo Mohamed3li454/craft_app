@@ -153,12 +153,12 @@ export default function MemoryPage() {
               {
                 header: t('memory.colKey'),
                 accessorKey: 'key',
-                cell: (m) => <span className="text-slate-100 font-medium">{m.key}</span>,
+                cell: (m) => <span className="text-slate-100 font-medium">{m.key || (m as any).factKey || m.category || 'fact'}</span>,
               },
               {
                 header: t('memory.colValue'),
                 accessorKey: 'value',
-                cell: (m) => <span className="text-slate-300">{m.value}</span>,
+                cell: (m) => <span className="text-slate-300">{m.value || (m as any).factText}</span>,
               },
               {
                 header: t('memory.colConfidence'),

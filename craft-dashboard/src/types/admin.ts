@@ -231,13 +231,14 @@ export interface AdminCacheMetrics {
 export interface AdminAgentRunItem {
   id: string;
   conversationId: string;
-  userId: string;
+  userId?: string;
   status: 'completed' | 'failed' | 'running' | 'interrupted';
-  model: string;
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  latencyMs: number;
+  model?: string | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  latencyMs?: number;
+  durationMs?: number;
   toolCallsCount: number;
   createdAt: string;
   hasRedactedReasoning: boolean;
@@ -249,7 +250,8 @@ export interface AdminAgentRunDetails extends AdminAgentRunItem {
   toolCalls: {
     id: string;
     toolName: string;
-    args: any;
+    args?: any;
+    arguments?: any;
     result: any;
     durationMs: number;
     status: 'success' | 'error';

@@ -60,7 +60,8 @@ export function formatCurrency(amount: number | undefined | null): string {
 }
 
 export function formatTokens(tokens: number | undefined | null): string {
-  if (!tokens) return '0';
+  if (tokens === undefined || tokens === null) return '—';
+  if (tokens === 0) return '0';
   if (tokens >= 1_000_000) {
     return `${(tokens / 1_000_000).toFixed(2)}M`;
   }

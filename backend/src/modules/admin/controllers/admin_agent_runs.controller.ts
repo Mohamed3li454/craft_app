@@ -77,7 +77,8 @@ export class AdminAgentRunsController {
           r.error_details as "errorDetails",
           r.created_at as "createdAt",
           r.completed_at as "completedAt",
-          ROUND(EXTRACT(EPOCH FROM (COALESCE(r.completed_at, NOW()) - r.created_at)) * 1000) as "durationMs"
+          ROUND(EXTRACT(EPOCH FROM (COALESCE(r.completed_at, NOW()) - r.created_at)) * 1000) as "durationMs",
+          (SELECT COUNT(*) FROM tool_calls t WHERE t.agent_run_id = r.id) as "toolCallsCount"
         FROM agent_runs r
         WHERE ${whereSql}
         ORDER BY r.created_at DESC
@@ -88,17 +89,28 @@ export class AdminAgentRunsController {
       const listRes = await pool.query(listQuery, params);
 
       // Sanitize items (explicitly redact any secrets or potential reasoning leakage)
-      const sanitizedRuns = listRes.rows.map((r: any) => ({
-        id: r.id,
-        conversationId: r.conversationId,
-        status: r.status,
-        userPrompt: r.userPrompt,
-        iterationsCount: r.iterationsCount || 0,
-        durationMs: r.durationMs ? Math.max(0, parseInt(r.durationMs, 10)) : 0,
-        errorDetails: r.errorDetails || undefined,
-        createdAt: new Date(r.createdAt).toISOString(),
-        completedAt: r.completedAt ? new Date(r.completedAt).toISOString() : undefined,
-      }));
+      const sanitizedRuns = listRes.rows.map((r: any) => {
+        const dur = r.durationMs ? Math.max(0, parseInt(r.durationMs, 10)) : 0;
+        const toolCount = parseInt(r.toolCallsCount || '0', 10);
+        return {
+          id: r.id,
+          conversationId: r.conversationId,
+          status: r.status,
+          userPrompt: r.userPrompt,
+          iterationsCount: r.iterationsCount || 0,
+          durationMs: dur,
+          latencyMs: dur,
+          toolCallsCount: toolCount,
+          model: null, // Untracked on agent_runs level; render null without fake model strings
+          promptTokens: null,
+          completionTokens: null,
+          totalTokens: null,
+          hasRedactedReasoning: true,
+          errorDetails: r.errorDetails || undefined,
+          createdAt: new Date(r.createdAt).toISOString(),
+          completedAt: r.completedAt ? new Date(r.completedAt).toISOString() : undefined,
+        };
+      });
 
       sendAdminSuccess(res, sanitizedRuns, { nextCursor: null, total });
     } catch (err: any) {
@@ -183,6 +195,7 @@ export class AdminAgentRunsController {
           id: t.id,
           toolName: t.toolName,
           arguments: sanitizedArgs,
+          args: sanitizedArgs,
           status: t.status,
           result: sanitizedResult,
           errorMessage: t.errorMessage || undefined,
@@ -192,13 +205,21 @@ export class AdminAgentRunsController {
         };
       });
 
+      const dur = r.durationMs ? Math.max(0, parseInt(r.durationMs, 10)) : 0;
       sendAdminSuccess(res, {
         id: r.id,
         conversationId: r.conversationId,
         status: r.status,
         userPrompt: r.userPrompt,
+        promptSnippet: r.userPrompt,
+        responseSnippet: '',
+        model: null,
+        totalTokens: null,
         iterationsCount: r.iterationsCount || 0,
-        durationMs: r.durationMs ? Math.max(0, parseInt(r.durationMs, 10)) : 0,
+        durationMs: dur,
+        latencyMs: dur,
+        toolCallsCount: sanitizedTools.length,
+        hasRedactedReasoning: true,
         errorDetails: r.errorDetails || undefined,
         createdAt: new Date(r.createdAt).toISOString(),
         completedAt: r.completedAt ? new Date(r.completedAt).toISOString() : undefined,

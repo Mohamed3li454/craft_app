@@ -1197,12 +1197,16 @@ export class MemoryRepository {
         const total = parseInt(countRes.rows[0]?.total || '0', 10);
 
         const listQuery = `
-          SELECT m.id, m.user_id as "userId", m.fact_text as "factText",
+          SELECT m.id, m.user_id as "userId",
+                 COALESCE(u.phone_number, wc.wa_id, '') as "userPhone",
+                 m.fact_text as "factText",
                  m.category, m.status, m.fact_key as "factKey",
                  m.source, m.confidence, m.importance, m.temporal_state as "temporalState",
                  m.valid_from as "validFrom", m.valid_until as "validUntil",
                  m.metadata, m.created_at as "createdAt", m.updated_at as "updatedAt"
           FROM memory_items m
+          LEFT JOIN users u ON u.id::text = m.user_id::text
+          LEFT JOIN whatsapp_contacts wc ON wc.user_id::text = m.user_id::text
           WHERE ${whereSql}
           ORDER BY m.created_at DESC
           LIMIT $${pIdx} OFFSET $${pIdx + 1}
@@ -1210,7 +1214,13 @@ export class MemoryRepository {
         params.push(limit, offset);
 
         const listRes = await pool.query(listQuery, params);
-        return { items: listRes.rows, total };
+        const items: MemoryItemEntity[] = listRes.rows.map((r: any) => ({
+          ...r,
+          userPhone: (r.userPhone || '').replace(/^wa_/, ''),
+          key: r.factKey || r.category || 'fact',
+          value: r.factText,
+        }));
+        return { items, total };
       } catch (err: any) {
         logger.warn('Failed to list memory items from database', { error: err.message });
       }
@@ -1234,7 +1244,13 @@ export class MemoryRepository {
 
     const total = allItems.length;
     allItems.sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
-    return { items: allItems.slice(offset, offset + limit), total };
+    const items = allItems.slice(offset, offset + limit).map(i => ({
+      ...i,
+      key: i.factKey || (typeof i.category === 'string' ? i.category : 'fact'),
+      value: i.factText,
+      userPhone: i.userId.replace(/^wa_/, ''),
+    }));
+    return { items, total };
   }
 
   /**
@@ -1246,16 +1262,27 @@ export class MemoryRepository {
       try {
         await this.ensureSchema();
         const res = await pool.query(
-          `SELECT m.id, m.user_id as "userId", m.fact_text as "factText",
+          `SELECT m.id, m.user_id as "userId",
+                  COALESCE(u.phone_number, wc.wa_id, '') as "userPhone",
+                  m.fact_text as "factText",
                   m.category, m.status, m.fact_key as "factKey",
                   m.source, m.confidence, m.importance, m.temporal_state as "temporalState",
                   m.valid_from as "validFrom", m.valid_until as "validUntil",
                   m.metadata, m.created_at as "createdAt", m.updated_at as "updatedAt"
            FROM memory_items m
+           LEFT JOIN users u ON u.id::text = m.user_id::text
+           LEFT JOIN whatsapp_contacts wc ON wc.user_id::text = m.user_id::text
            WHERE m.id = $1 LIMIT 1`,
           [id]
         );
-        return res.rows[0] || null;
+        if (res.rows.length === 0) return null;
+        const r = res.rows[0];
+        return {
+          ...r,
+          userPhone: (r.userPhone || '').replace(/^wa_/, ''),
+          key: r.factKey || r.category || 'fact',
+          value: r.factText,
+        };
       } catch (err: any) {
         logger.warn('Failed to get memory by ID from database', { error: err.message, id });
       }
@@ -1263,7 +1290,13 @@ export class MemoryRepository {
 
     for (const items of this.inMemoryItems.values()) {
       const item = items.find(i => i.id === id);
-      if (item) return item;
+      if (item) {
+        return {
+          ...item,
+          key: item.factKey || (typeof item.category === 'string' ? item.category : 'fact'),
+          value: item.factText,
+        };
+      }
     }
     return null;
   }

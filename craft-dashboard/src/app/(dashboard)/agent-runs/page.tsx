@@ -98,7 +98,7 @@ export default function AgentRunsPage() {
           {
             header: t('agentRuns.colModel'),
             accessorKey: 'model',
-            cell: (r) => <span className="text-brand-300 font-semibold">{r.model}</span>,
+            cell: (r) => <span className="text-brand-300 font-semibold">{r.model || '—'}</span>,
           },
           {
             header: t('agentRuns.colStatus'),
@@ -111,23 +111,35 @@ export default function AgentRunsPage() {
             cell: (r) => (
               <div>
                 <span className="font-bold text-slate-100">{formatTokens(r.totalTokens)}</span>
-                <span className="text-[10px] text-slate-400 block">
-                  {r.promptTokens || 0} in / {r.completionTokens || 0} out
-                </span>
+                {r.totalTokens !== null && r.totalTokens !== undefined ? (
+                  <span className="text-[10px] text-slate-400 block">
+                    {r.promptTokens || 0} in / {r.completionTokens || 0} out
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-500 block">—</span>
+                )}
               </div>
             ),
           },
           {
             header: t('agentRuns.latency'),
             accessorKey: 'latencyMs',
-            cell: (r) => <span className="text-slate-200">{r.latencyMs || 0}ms</span>,
+            cell: (r) => (
+              <span className="text-slate-200">
+                {r.latencyMs !== undefined && r.latencyMs !== null
+                  ? `${r.latencyMs}ms`
+                  : r.durationMs !== undefined && r.durationMs !== null
+                  ? `${r.durationMs}ms`
+                  : '—'}
+              </span>
+            ),
           },
           {
             header: t('agentRuns.colToolCalls'),
             accessorKey: 'toolCallsCount',
             cell: (r) => (
-              <Badge variant={r.toolCallsCount > 0 ? 'purple' : 'neutral'}>
-                {t('agentRuns.toolsCount', { count: r.toolCallsCount })}
+              <Badge variant={(r.toolCallsCount ?? 0) > 0 ? 'purple' : 'neutral'}>
+                {t('agentRuns.toolsCount', { count: r.toolCallsCount ?? 0 })}
               </Badge>
             ),
           },
@@ -184,7 +196,7 @@ export default function AgentRunsPage() {
             <div className="grid grid-cols-3 gap-2">
               <div className="p-3 rounded bg-surface-elevated/40 border border-border">
                 <span className="text-[10px] text-slate-400 uppercase block">{t('agentRuns.modelArch')}</span>
-                <span className="text-xs font-bold text-brand-300 mt-1 block">{runDetails.model}</span>
+                <span className="text-xs font-bold text-brand-300 mt-1 block">{runDetails.model || '—'}</span>
               </div>
               <div className="p-3 rounded bg-surface-elevated/40 border border-border">
                 <span className="text-[10px] text-slate-400 uppercase block">{t('agentRuns.totalTokens')}</span>
@@ -192,7 +204,13 @@ export default function AgentRunsPage() {
               </div>
               <div className="p-3 rounded bg-surface-elevated/40 border border-border">
                 <span className="text-[10px] text-slate-400 uppercase block">{t('agentRuns.latency')}</span>
-                <span className="text-xs font-bold text-cyan-300 mt-1 block">{runDetails.latencyMs}ms</span>
+                <span className="text-xs font-bold text-cyan-300 mt-1 block">
+                  {runDetails.latencyMs !== undefined && runDetails.latencyMs !== null
+                    ? `${runDetails.latencyMs}ms`
+                    : runDetails.durationMs !== undefined && runDetails.durationMs !== null
+                    ? `${runDetails.durationMs}ms`
+                    : '—'}
+                </span>
               </div>
             </div>
 
@@ -246,7 +264,7 @@ export default function AgentRunsPage() {
                         <div>
                           <span className="text-slate-400 block mb-0.5">{t('agentRuns.arguments')}</span>
                           <pre className="p-2 rounded bg-surface border border-border/40 text-slate-300 overflow-x-auto">
-                            {safeJsonStringify(tc.args)}
+                            {safeJsonStringify(tc.args || tc.arguments)}
                           </pre>
                         </div>
                         <div>

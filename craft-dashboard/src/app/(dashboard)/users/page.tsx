@@ -190,7 +190,7 @@ export default function UsersPage() {
             accessorKey: 'phoneNumber',
             cell: (u) => (
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-100">{u.phoneNumber || u.id}</span>
+                <span className="font-semibold text-slate-100">{u.phoneNumber || (u as any).phone || u.id}</span>
                 {u.isVip && (
                   <Badge variant="warning" className="text-[10px] py-0 px-1">
                     <Star className="h-2.5 w-2.5 me-0.5 fill-amber-400" />
@@ -210,22 +210,22 @@ export default function UsersPage() {
           {
             header: t('overview.messages'),
             accessorKey: 'messageCount',
-            cell: (u) => formatNumber(u.messageCount),
+            cell: (u) => formatNumber(u.messageCount ?? (u as any).totalMessages ?? 0),
           },
           {
             header: t('navigation.conversations'),
             accessorKey: 'conversationCount',
-            cell: (u) => formatNumber(u.conversationCount),
+            cell: (u) => formatNumber(u.conversationCount ?? 0),
           },
           {
             header: t('navigation.reminders'),
             accessorKey: 'reminderCount',
-            cell: (u) => formatNumber(u.reminderCount),
+            cell: (u) => formatNumber(u.reminderCount ?? 0),
           },
           {
             header: t('users.colLastActive'),
             accessorKey: 'lastActiveAt',
-            cell: (u) => formatRelativeTime(u.lastActiveAt),
+            cell: (u) => formatRelativeTime(u.lastActiveAt || (u as any).lastActive),
           },
           {
             header: t('users.colActions'),
@@ -332,15 +332,15 @@ export default function UsersPage() {
             <div className="grid grid-cols-3 gap-2">
               <div className="p-3 rounded bg-surface-elevated/30 border border-border">
                 <span className="text-[10px] text-slate-400 uppercase block">{t('overview.messages')}</span>
-                <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.totalMessages)}</span>
+                <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.totalMessages ?? (userDetails as any).metrics?.totalMessages)}</span>
               </div>
               <div className="p-3 rounded bg-surface-elevated/30 border border-border">
                 <span className="text-[10px] text-slate-400 uppercase block">{t('overview.tokenUsage')}</span>
-                <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.tokenCount)}</span>
+                <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.tokenCount ?? (userDetails as any).metrics?.tokensUsed)}</span>
               </div>
               <div className="p-3 rounded bg-surface-elevated/30 border border-border">
                 <span className="text-[10px] text-slate-400 uppercase block">{t('users.colCost')}</span>
-                <span className="text-base font-bold text-slate-100">{formatCurrency(userDetails.stats?.costUsd)}</span>
+                <span className="text-base font-bold text-slate-100">{formatCurrency(userDetails.stats?.costUsd ?? (userDetails as any).metrics?.estimatedCostUsd)}</span>
               </div>
             </div>
 
@@ -362,9 +362,9 @@ export default function UsersPage() {
                     <div key={rem.id} className="p-2.5 rounded bg-surface-elevated/30 border border-border flex items-center justify-between">
                       <div>
                         <p className="font-semibold text-slate-200">{rem.title}</p>
-                        <p className="text-[10px] text-slate-400">{formatDate(rem.scheduledTime)}</p>
+                        <p className="text-[10px] text-slate-400">{formatDate(rem.scheduledTime || rem.dueAt)}</p>
                       </div>
-                      <StatusPill status={rem.status} />
+                      <StatusPill status={rem.status || rem.state} />
                     </div>
                   ))}
                 </div>
@@ -399,12 +399,12 @@ export default function UsersPage() {
                     <div key={mem.id} className="p-2.5 rounded bg-surface-elevated/30 border border-border flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-200">{mem.key}</span>
+                          <span className="font-semibold text-slate-200">{mem.key || mem.factKey || mem.category || 'fact'}</span>
                           <span className="text-[10px] px-1 rounded bg-purple-950 text-purple-300 border border-purple-800">
                             {mem.category}
                           </span>
                         </div>
-                        <p className="text-slate-300 mt-1">{mem.value}</p>
+                        <p className="text-slate-300 mt-1">{mem.value || mem.factText}</p>
                       </div>
                     </div>
                   ))}

@@ -155,31 +155,37 @@ export default function RemindersPage() {
           {
             header: t('reminders.recipientContact'),
             accessorKey: 'userPhone',
-            cell: (r) => <span className="text-slate-200">{r.userPhone || truncate(r.userId, 16)}</span>,
+            cell: (r) => <span className="text-slate-200">{r.userPhone || ((r as any).userId ? (r as any).userId.replace(/^wa_/, '') : '') || truncate(r.userId, 16)}</span>,
           },
           {
             header: t('reminders.scheduledFor'),
             accessorKey: 'scheduledTime',
-            cell: (r) => (
-              <div>
-                <span className="text-slate-200">{formatDate(r.scheduledTime)}</span>
-                <span className="text-[10px] text-slate-400 block">{formatRelativeTime(r.scheduledTime)}</span>
-              </div>
-            ),
+            cell: (r) => {
+              const time = r.scheduledTime || (r as any).dueAt;
+              return (
+                <div>
+                  <span className="text-slate-200">{formatDate(time)}</span>
+                  <span className="text-[10px] text-slate-400 block">{formatRelativeTime(time)}</span>
+                </div>
+              );
+            },
           },
           {
             header: t('reminders.colStatus'),
             accessorKey: 'status',
-            cell: (r) => <StatusPill status={r.status} />,
+            cell: (r) => <StatusPill status={r.status || (r as any).state || 'scheduled'} />,
           },
           {
             header: t('reminders.colRetries'),
             accessorKey: 'retryCount',
-            cell: (r) => (
-              <span className={`font-mono text-xs ${r.retryCount > 0 ? 'text-amber-400 font-bold' : 'text-slate-400'}`}>
-                {r.retryCount}
-              </span>
-            ),
+            cell: (r) => {
+              const retries = r.retryCount ?? (r as any).attempts ?? 0;
+              return (
+                <span className={`font-mono text-xs ${retries > 0 ? 'text-amber-400 font-bold' : 'text-slate-400'}`}>
+                  {retries}
+                </span>
+              );
+            },
           },
           {
             header: t('reminders.colActions'),
@@ -187,7 +193,7 @@ export default function RemindersPage() {
               <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                 {canMutate && (
                   <>
-                    {(r.status === 'failed' || r.status === 'cancelled') && (
+                    {(r.status === 'failed' || r.status === 'cancelled' || (r as any).state === 'failed' || (r as any).state === 'cancelled') && (
                       <Button
                         variant="secondary"
                         size="sm"

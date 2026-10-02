@@ -156,7 +156,7 @@ export default function ToolsPage() {
                 {t('tools.sanitizedInput')}
               </span>
               <pre className="p-3 rounded-md bg-surface-elevated border border-border/70 text-slate-200 overflow-x-auto text-[11px]">
-                {safeJsonStringify(selectedToolCall.argumentsSanitized)}
+                {safeJsonStringify(selectedToolCall.argumentsSanitized ?? (selectedToolCall as any).arguments)}
               </pre>
             </div>
 
@@ -165,7 +165,7 @@ export default function ToolsPage() {
                 {t('tools.sanitizedOutput')}
               </span>
               <pre className="p-3 rounded-md bg-surface-elevated border border-border/70 text-slate-200 overflow-x-auto text-[11px]">
-                {safeJsonStringify(selectedToolCall.resultSanitized)}
+                {safeJsonStringify(selectedToolCall.resultSanitized ?? (selectedToolCall as any).result)}
               </pre>
             </div>
           </div>

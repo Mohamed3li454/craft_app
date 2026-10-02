@@ -76,12 +76,16 @@ export type ReminderState =
 export interface ReminderEntity {
   id: string;
   userId: string;
+  userPhone?: string;
   title: string;
   dueAt?: Date | null;
+  scheduledTime?: string;
   recurrence?: 'none' | 'daily' | 'weekly' | 'monthly' | string;
   isCompleted: boolean;
   state: ReminderState;
+  status?: string;
   attempts: number;
+  retryCount?: number;
   lockedUntil?: Date | null;
   lastError?: string | null;
   wamid?: string | null;
@@ -101,6 +105,9 @@ import {
 export interface MemoryItemEntity {
   id: string;
   userId: string;
+  userPhone?: string;
+  key?: string;
+  value?: string;
   factText: string;
   category: MemoryCategory | string;
   status?: MemoryStatus;

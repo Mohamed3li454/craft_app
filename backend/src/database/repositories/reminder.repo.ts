@@ -256,15 +256,26 @@ export class ReminderRepository {
     if (pool) {
       try {
         const res = await pool.query(
-          `SELECT id, user_id as "userId", title, due_at as "dueAt", COALESCE(recurrence, 'none') as "recurrence",
-                  is_completed as "isCompleted", state, attempts, locked_until as "lockedUntil",
-                  last_error as "lastError", wamid, created_at as "createdAt", updated_at as "updatedAt"
-           FROM reminders
-           WHERE id = $1`,
+          `SELECT r.id, r.user_id as "userId",
+                  COALESCE(u.phone_number, wc.wa_id, '') as "userPhone",
+                  r.title, r.due_at as "dueAt", COALESCE(r.recurrence, 'none') as "recurrence",
+                  r.is_completed as "isCompleted", r.state, r.attempts, r.locked_until as "lockedUntil",
+                  r.last_error as "lastError", r.wamid, r.created_at as "createdAt", r.updated_at as "updatedAt"
+           FROM reminders r
+           LEFT JOIN users u ON u.id::text = r.user_id::text
+           LEFT JOIN whatsapp_contacts wc ON wc.user_id::text = r.user_id::text
+           WHERE r.id = $1`,
           [id]
         );
         if (res.rows.length > 0) {
-          return res.rows[0];
+          const r = res.rows[0];
+          return {
+            ...r,
+            userPhone: (r.userPhone || '').replace(/^wa_/, ''),
+            scheduledTime: r.dueAt ? new Date(r.dueAt).toISOString() : undefined,
+            status: r.state || (r.isCompleted ? 'sent' : 'scheduled'),
+            retryCount: parseInt(r.attempts || '0', 10),
+          };
         }
       } catch (err: any) {
         logger.warn('Failed to query reminder by id from database', { error: err.message, id });
@@ -273,7 +284,15 @@ export class ReminderRepository {
 
     for (const items of this.inMemoryReminders.values()) {
       const item = items.find((r) => r.id === id);
-      if (item) return item;
+      if (item) {
+        return {
+          ...item,
+          userPhone: item.userId.replace(/^wa_/, ''),
+          scheduledTime: item.dueAt ? item.dueAt.toISOString() : undefined,
+          status: item.state || (item.isCompleted ? 'sent' : 'scheduled'),
+          retryCount: item.attempts || 0,
+        };
+      }
     }
     return null;
   }
@@ -766,11 +785,15 @@ export class ReminderRepository {
         const total = parseInt(countRes.rows[0]?.total || '0', 10);
 
         const listQuery = `
-          SELECT r.id, r.user_id as "userId", r.title, r.due_at as "dueAt",
+          SELECT r.id, r.user_id as "userId",
+                 COALESCE(u.phone_number, wc.wa_id, '') as "userPhone",
+                 r.title, r.due_at as "dueAt",
                  r.recurrence, r.is_completed as "isCompleted", r.state,
                  r.attempts, r.locked_until as "lockedUntil", r.last_error as "lastError",
                  r.wamid, r.created_at as "createdAt", r.updated_at as "updatedAt"
           FROM reminders r
+          LEFT JOIN users u ON u.id::text = r.user_id::text
+          LEFT JOIN whatsapp_contacts wc ON wc.user_id::text = r.user_id::text
           WHERE ${whereSql}
           ORDER BY r.due_at ASC NULLS LAST, r.created_at DESC
           LIMIT $${pIdx} OFFSET $${pIdx + 1}
@@ -778,7 +801,14 @@ export class ReminderRepository {
         params.push(limit, offset);
 
         const listRes = await pool.query(listQuery, params);
-        return { items: listRes.rows, total };
+        const items: ReminderEntity[] = listRes.rows.map((r: any) => ({
+          ...r,
+          userPhone: (r.userPhone || '').replace(/^wa_/, ''),
+          scheduledTime: r.dueAt ? new Date(r.dueAt).toISOString() : undefined,
+          status: r.state || (r.isCompleted ? 'sent' : 'scheduled'),
+          retryCount: parseInt(r.attempts || '0', 10),
+        }));
+        return { items, total };
       } catch (err: any) {
         logger.warn('Failed to list all reminders from database', { error: err.message });
       }
@@ -798,7 +828,14 @@ export class ReminderRepository {
     }
     const total = all.length;
     all.sort((a, b) => ((a.dueAt?.getTime() || 0) - (b.dueAt?.getTime() || 0)));
-    return { items: all.slice(offset, offset + limit), total };
+    const items = all.slice(offset, offset + limit).map(r => ({
+      ...r,
+      userPhone: r.userId.replace(/^wa_/, ''),
+      scheduledTime: r.dueAt ? r.dueAt.toISOString() : undefined,
+      status: r.state || (r.isCompleted ? 'sent' : 'scheduled'),
+      retryCount: r.attempts || 0,
+    }));
+    return { items, total };
   }
 
   /**

@@ -96,11 +96,14 @@ export class AdminToolCallsController {
 
         return {
           id: t.id,
+          runId: t.agentRunId,
           agentRunId: t.agentRunId,
           toolName: t.toolName,
           arguments: sanitizedArgs,
+          argumentsSanitized: sanitizedArgs,
           status: t.status,
           result: sanitizedResult,
+          resultSanitized: sanitizedResult,
           errorMessage: t.errorMessage || undefined,
           durationMs: t.durationMs ? Math.max(0, parseInt(t.durationMs, 10)) : 0,
           createdAt: new Date(t.createdAt).toISOString(),
@@ -165,11 +168,14 @@ export class AdminToolCallsController {
 
       sendAdminSuccess(res, {
         id: t.id,
+        runId: t.agentRunId,
         agentRunId: t.agentRunId,
         toolName: t.toolName,
         arguments: sanitizedArgs,
+        argumentsSanitized: sanitizedArgs,
         status: t.status,
         result: sanitizedResult,
+        resultSanitized: sanitizedResult,
         errorMessage: t.errorMessage || undefined,
         durationMs: t.durationMs ? Math.max(0, parseInt(t.durationMs, 10)) : 0,
         createdAt: new Date(t.createdAt).toISOString(),

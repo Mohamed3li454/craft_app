@@ -121,22 +121,22 @@ export default function ConversationsPage() {
           {
             header: t('conversations.colStatus'),
             accessorKey: 'status',
-            cell: (c) => <StatusPill status={c.status} />,
+            cell: (c) => <StatusPill status={c.status || ((c as any).isArchived ? 'archived' : 'active')} />,
           },
           {
             header: t('conversations.colMessages'),
             accessorKey: 'messageCount',
-            cell: (c) => formatNumber(c.messageCount),
+            cell: (c) => formatNumber(c.messageCount ?? (c as any).messagesCount ?? 0),
           },
           {
             header: t('conversations.lastSnippet'),
             accessorKey: 'lastMessageSnippet',
-            cell: (c) => <span className="text-slate-400 text-xs italic">{truncate(c.lastMessageSnippet, 40)}</span>,
+            cell: (c) => <span className="text-slate-400 text-xs italic">{truncate(c.lastMessageSnippet || (c as any).lastMessage, 40)}</span>,
           },
           {
             header: t('conversations.updated'),
             accessorKey: 'updatedAt',
-            cell: (c) => formatRelativeTime(c.updatedAt),
+            cell: (c) => formatRelativeTime(c.updatedAt || (c as any).lastMessageAt || c.createdAt),
           },
           {
             header: t('conversations.colActions'),
@@ -146,7 +146,7 @@ export default function ConversationsPage() {
                   <Eye className="h-3.5 w-3.5 me-1" />
                   {t('conversations.btnTranscript')}
                 </Button>
-                {canMutate && c.status !== 'archived' && (
+                {canMutate && c.status !== 'archived' && !(c as any).isArchived && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -198,7 +198,7 @@ export default function ConversationsPage() {
                   <div className="flex items-center gap-1.5 text-[11px] text-slate-400 px-1">
                     {isUser ? (
                       <>
-                        <span>{formatDate(msg.createdAt)}</span>
+                        <span>{formatDate(msg.createdAt || (msg as any).timestamp)}</span>
                         <span className="font-semibold text-slate-300 flex items-center gap-1">
                           {t('conversations.user')} <User className="h-3 w-3" />
                         </span>
@@ -209,7 +209,7 @@ export default function ConversationsPage() {
                           <Bot className="h-3 w-3" /> {t('conversations.assistant')}
                         </span>
                         {msg.model && <span className="text-[10px] text-slate-400">({msg.model})</span>}
-                        <span>• {formatDate(msg.createdAt)}</span>
+                        <span>• {formatDate(msg.createdAt || (msg as any).timestamp)}</span>
                       </>
                     )}
                   </div>
@@ -221,7 +221,7 @@ export default function ConversationsPage() {
                         : 'bg-surface-elevated border-border text-slate-200 rounded-ts-none'
                     }`}
                   >
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    <p className="whitespace-pre-wrap">{msg.content || (msg as any).text}</p>
                     {msg.tokens !== undefined && (
                       <div className="mt-2 pt-2 border-t border-border/40 text-[10px] text-slate-400 flex items-center justify-between">
                         <span>{t('conversations.tokens', { tokens: String(msg.tokens) })}</span>
