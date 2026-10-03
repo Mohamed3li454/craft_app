@@ -48,6 +48,9 @@ export function Drawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-title"
         className={cn(
           'w-full h-full bg-surface border-s border-border flex flex-col shadow-2xl animate-in slide-in-from-right rtl:slide-in-from-left duration-200 overflow-hidden',
           widthClasses[width]
@@ -56,7 +59,7 @@ export function Drawer({
         {/* Drawer Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-surface-elevated/40">
           <div>
-            <h2 className="text-sm font-semibold text-slate-100 font-mono tracking-tight">{title}</h2>
+            <h2 id="drawer-title" className="text-sm font-semibold text-slate-100 font-mono tracking-tight">{title}</h2>
             {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
           </div>
           <button

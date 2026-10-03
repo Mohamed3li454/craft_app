@@ -77,10 +77,20 @@ export function truncate(text: string | undefined | null, length: number = 40): 
   return `${text.slice(0, length)}...`;
 }
 
-export function safeJsonStringify(data: any, space = 2): string {
-  try {
-    return JSON.stringify(data, null, space);
-  } catch {
-    return String(data);
-  }
+export function formatLatency(ms: number | undefined | null): string {
+  if (ms === undefined || ms === null || isNaN(ms)) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
 }
+
+export {
+  isTelemetryKey,
+  isSensitiveKey,
+  sanitizeSafeString,
+  sanitizeSafeMetadata,
+  sanitizeSafeErrorDetails,
+  safeJsonStringify,
+} from '@/lib/safety/trace-sanitizer';
+
+
+

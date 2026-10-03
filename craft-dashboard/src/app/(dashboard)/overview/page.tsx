@@ -3,198 +3,153 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin-client';
-import { MetricCard } from '@/components/ui/metric-card';
-import { ErrorAlert } from '@/components/ui/error-alert';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { DataTable } from '@/components/ui/data-table';
-import {
-  Users,
-  MessageSquare,
-  Clock,
-  Cpu,
-  Zap,
-  RefreshCw,
-  TrendingUp,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/lib/i18n/language-context';
-import Link from 'next/link';
+import { RefreshCw, LayoutDashboard } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/ui/error-state';
+import { KpiGrid } from '@/components/overview/kpi-grid';
+import { OperationalSignals } from '@/components/overview/operational-signals';
+import { ActivityChart } from '@/components/overview/activity-chart';
+import { ModelBreakdownCard } from '@/components/overview/model-breakdown-card';
+import { RecentConversations } from '@/components/overview/recent-conversations';
+import { TopUsersCard } from '@/components/overview/top-users-card';
 
 export default function OverviewPage() {
   const [days, setDays] = useState(14);
-  const { t, formatNumber, formatCurrency, formatTokens, formatRelativeTime } = useLanguage();
+  const { t, formatRelativeTime } = useLanguage();
 
-  const { data, isLoading, error, refetch, isRefetching } = useQuery({
+  // 1. Primary Overview Query (Real metrics only, zero fake data)
+  const {
+    data: overviewRes,
+    isLoading: isOverviewLoading,
+    error: overviewError,
+    refetch: refetchOverview,
+    isRefetching,
+    dataUpdatedAt,
+  } = useQuery({
     queryKey: ['admin-overview', days],
     queryFn: () => adminApi.getOverview(days),
-    refetchInterval: 30000,
+    refetchInterval: 60000,
+    staleTime: 30000,
   });
 
-  const overview = data?.data?.overview;
-  const modelBreakdown = data?.data?.modelBreakdown || [];
-  const topUsers = data?.data?.topUsers || [];
-  const dailyTrends = data?.data?.dailyTrends || [];
+  // 2. Real System Health Query
+  const { data: healthRes, isLoading: isHealthLoading } = useQuery({
+    queryKey: ['admin-health-overview'],
+    queryFn: () => adminApi.getHealth(),
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  const overview = overviewRes?.data?.overview;
+  const modelBreakdown = overviewRes?.data?.modelBreakdown || [];
+  const topUsers = overviewRes?.data?.topUsers || [];
+  const dailyTrends = overviewRes?.data?.dailyTrends || [];
+  const health = healthRes?.data;
+
+  const lastUpdatedText = dataUpdatedAt
+    ? formatRelativeTime(new Date(dataUpdatedAt).toISOString())
+    : t('overview.justNow');
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* A. Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1 border-b border-border/60">
         <div>
-          <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            {t('overview.title')}
-          </h1>
-          <p className="text-xs text-slate-400 font-mono mt-0.5">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-md bg-brand-500/10 text-brand-600 dark:text-brand-400 border border-brand-500/20">
+              <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <h1 className="text-lg sm:text-xl font-bold font-mono tracking-tight text-foreground">
+              {t('overview.title')}
+            </h1>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1">
             {t('overview.subtitle')}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Right Header Controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {dataUpdatedAt > 0 && (
+            <span className="text-[11px] font-mono text-slate-400 dark:text-slate-400 me-1 hidden md:inline">
+              {t('overview.lastUpdated', { time: lastUpdatedText })}
+            </span>
+          )}
+
           <select
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
-            className="h-8 rounded-md border border-border bg-surface-elevated px-2.5 text-xs font-mono text-slate-200 focus:outline-none"
+            aria-label={t('overview.metricFilter')}
+            className="h-8 rounded-md border border-border bg-surface-elevated/70 px-2.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
           >
             <option value={7}>{t('common.last7Days')}</option>
             <option value={14}>{t('common.last14Days')}</option>
             <option value={30}>{t('common.last30Days')}</option>
           </select>
+
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refetch()}
+            onClick={() => refetchOverview()}
             isLoading={isRefetching}
             className="font-mono text-xs"
+            aria-label={t('common.refresh')}
           >
-            <RefreshCw className="h-3.5 w-3.5 me-1" />
+            <RefreshCw className="h-3.5 w-3.5 me-1.5" />
             {t('common.refresh')}
           </Button>
         </div>
       </div>
 
-      {error && (
-        <ErrorAlert
-          error={error}
+      {/* Global Error Banner (Isolated) */}
+      {overviewError && (
+        <ErrorState
+          error={overviewError}
           title={t('overview.failedToLoad')}
-          onRetry={() => refetch()}
+          onRetry={() => refetchOverview()}
         />
       )}
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <MetricCard
-          title={t('overview.totalUsers')}
-          value={isLoading ? '...' : formatNumber(overview?.totalUsers)}
-          subtext={t('overview.active24h', { count: formatNumber(overview?.activeUsers24h) })}
-          icon={<Users className="h-4 w-4" />}
-        />
-        <MetricCard
-          title={t('overview.activeUsers7d')}
-          value={isLoading ? '...' : formatNumber(overview?.activeUsers7d)}
-          subtext={t('overview.weeklyReach')}
-          icon={<TrendingUp className="h-4 w-4" />}
-        />
-        <MetricCard
-          title={t('overview.messages')}
-          value={isLoading ? '...' : formatNumber(overview?.totalMessages)}
-          subtext={t('overview.conversationsCount', { count: formatNumber(overview?.totalConversations) })}
-          icon={<MessageSquare className="h-4 w-4" />}
-        />
-        <MetricCard
-          title={t('overview.reminders')}
-          value={isLoading ? '...' : formatNumber(overview?.totalReminders)}
-          subtext={t('overview.pendingReminders', { count: formatNumber(overview?.pendingReminders) })}
-          icon={<Clock className="h-4 w-4" />}
-        />
-        <MetricCard
-          title={t('overview.tokenUsage')}
-          value={isLoading ? '...' : formatTokens(overview?.totalTokens)}
-          subtext={formatCurrency(overview?.totalCostUsd)}
-          icon={<Cpu className="h-4 w-4" />}
-        />
-        <MetricCard
-          title={t('overview.cacheHitRate')}
-          value={isLoading ? '...' : `${overview?.cacheHitRatePercent ?? 0}%`}
-          subtext={t('overview.semanticCacheSubtitle')}
-          icon={<Zap className="h-4 w-4" />}
-        />
-      </div>
+      {/* B. KPI Grid (6 Cards) */}
+      <KpiGrid
+        overview={overview}
+        healthStatus={health?.status}
+        isLoading={isOverviewLoading}
+      />
 
-      {/* Split View: Daily Activity & Model Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Daily Trends Summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              <TrendingUp className="h-4 w-4 text-brand-400" />
-              {t('overview.dailyVolumeTitle', { days: String(days) })}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <DataTable
-              columns={[
-                { header: t('overview.dateCol'), accessorKey: 'date', cell: (r) => <span className="text-slate-200">{r.date}</span> },
-                { header: t('overview.messagesCol'), accessorKey: 'messageCount', cell: (r) => formatNumber(r.messageCount) },
-                { header: t('overview.activeUsersCol'), accessorKey: 'activeUsers', cell: (r) => formatNumber(r.activeUsers) },
-                { header: t('overview.tokensCol'), accessorKey: 'tokenCount', cell: (r) => formatTokens(r.tokenCount) },
-                { header: t('overview.costCol'), accessorKey: 'costUsd', cell: (r) => formatCurrency(r.costUsd) },
-              ]}
-              data={dailyTrends}
-              isLoading={isLoading}
-              emptyMessage={t('overview.noTrendHistory')}
-            />
-          </CardContent>
-        </Card>
+      {/* C. Operational Signals (Live telemetry across subsystems) */}
+      <OperationalSignals
+        health={health}
+        isLoading={isHealthLoading}
+      />
 
-        {/* AI Model Breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              <Cpu className="h-4 w-4 text-cyan-400" />
-              {t('overview.modelDistributionTitle')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <DataTable
-              columns={[
-                { header: t('overview.modelCol'), accessorKey: 'model', cell: (r) => <span className="font-semibold text-slate-100">{r.model}</span> },
-                { header: t('overview.callsCol'), accessorKey: 'calls', cell: (r) => formatNumber(r.calls) },
-                { header: t('overview.tokensCol'), accessorKey: 'tokens', cell: (r) => formatTokens(r.tokens) },
-                { header: t('overview.costCol'), accessorKey: 'costUsd', cell: (r) => formatCurrency(r.costUsd) },
-                { header: t('overview.avgLatencyCol'), accessorKey: 'avgLatencyMs', cell: (r) => `${r.avgLatencyMs || 0}ms` },
-              ]}
-              data={modelBreakdown}
-              isLoading={isLoading}
-              emptyMessage={t('overview.noModelRecords')}
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Top Users Table */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>
-            <Users className="h-4 w-4 text-emerald-400" />
-            {t('overview.topUsersTitle')}
-          </CardTitle>
-          <Link href="/users" className="text-xs font-mono text-brand-400 hover:text-brand-300">
-            {t('overview.viewAllUsers')}
-          </Link>
-        </CardHeader>
-        <CardContent className="p-0">
-          <DataTable
-            columns={[
-              { header: t('overview.userIdentifierCol'), accessorKey: 'userId', cell: (r) => <span className="text-slate-300">{r.userId}</span> },
-              { header: t('overview.phoneCol'), accessorKey: 'phone', cell: (r) => <span className="text-slate-200">{r.phone || '—'}</span> },
-              { header: t('overview.totalMessagesCol'), accessorKey: 'messageCount', cell: (r) => formatNumber(r.messageCount) },
-              { header: t('overview.lastActiveCol'), accessorKey: 'lastActive', cell: (r) => formatRelativeTime(r.lastActive) },
-            ]}
-            data={topUsers}
-            isLoading={isLoading}
-            emptyMessage={t('overview.noActiveUsers')}
+      {/* D. Main Analytics Split Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column (7 cols): Activity Volume Chart & Recent Conversations */}
+        <div className="lg:col-span-7 space-y-6">
+          <ActivityChart
+            data={dailyTrends}
+            isLoading={isOverviewLoading}
+            days={days}
           />
-        </CardContent>
-      </Card>
+
+          <RecentConversations />
+        </div>
+
+        {/* Right Column (5 cols): AI Model Breakdown & Top Active Users */}
+        <div className="lg:col-span-5 space-y-6">
+          <ModelBreakdownCard
+            data={modelBreakdown}
+            isLoading={isOverviewLoading}
+          />
+
+          <TopUsersCard
+            data={topUsers}
+            isLoading={isOverviewLoading}
+          />
+        </div>
+      </div>
     </div>
   );
 }

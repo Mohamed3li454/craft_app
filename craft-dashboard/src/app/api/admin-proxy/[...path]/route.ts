@@ -226,6 +226,15 @@ function normalizeAdminResponse(subPath: string, data: any): any {
     }));
   }
 
+  // 10. Settings normalization
+  if (root === 'settings' && data.data && typeof data.data === 'object') {
+    if (data.data.runtimeSettings && !data.data.runtime) {
+      data.data.runtime = data.data.runtimeSettings;
+    } else if (data.data.runtime && !data.data.runtimeSettings) {
+      data.data.runtimeSettings = data.data.runtime;
+    }
+  }
+
   return data;
 }
 

@@ -39,7 +39,12 @@ export function ConfirmModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
-      <div className="relative w-full max-w-md rounded-lg border border-border bg-surface p-6 shadow-xl space-y-4 text-start">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        className="relative w-full max-w-md rounded-lg border border-border bg-surface p-6 shadow-xl space-y-4 text-start"
+      >
         <button
           onClick={onClose}
           disabled={isLoading}
@@ -61,7 +66,7 @@ export function ConfirmModal({
             <AlertTriangle className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+            <h3 id="modal-title" className="text-sm font-semibold text-slate-100">{title}</h3>
             <p className="mt-1 text-xs text-slate-400 leading-relaxed">{description}</p>
           </div>
         </div>

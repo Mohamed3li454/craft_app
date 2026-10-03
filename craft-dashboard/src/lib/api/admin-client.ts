@@ -247,11 +247,23 @@ class AdminApiClient {
   }
 
   // 8. Agent Runs (Zero Reasoning Leakage)
-  async getAgentRuns(params: { limit?: number; offset?: number; status?: string } = {}) {
+  async getAgentRuns(
+    params: {
+      limit?: number;
+      offset?: number;
+      status?: string;
+      conversationId?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}
+  ) {
     const qs = new URLSearchParams();
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.offset) qs.set('offset', String(params.offset));
     if (params.status) qs.set('status', params.status);
+    if (params.conversationId) qs.set('conversationId', params.conversationId);
+    if (params.startDate) qs.set('startDate', params.startDate);
+    if (params.endDate) qs.set('endDate', params.endDate);
     return this.request<AdminAgentRunItem[]>(`/agent-runs?${qs.toString()}`);
   }
 
@@ -260,12 +272,28 @@ class AdminApiClient {
   }
 
   // 9. Tool Calls
-  async getToolCalls(params: { limit?: number; offset?: number; toolName?: string } = {}) {
+  async getToolCalls(params: {
+    limit?: number;
+    offset?: number;
+    toolName?: string;
+    status?: string;
+    agentRunId?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {}) {
     const qs = new URLSearchParams();
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.offset) qs.set('offset', String(params.offset));
     if (params.toolName) qs.set('toolName', params.toolName);
+    if (params.status) qs.set('status', params.status);
+    if (params.agentRunId) qs.set('agentRunId', params.agentRunId);
+    if (params.startDate) qs.set('startDate', params.startDate);
+    if (params.endDate) qs.set('endDate', params.endDate);
     return this.request<AdminToolCallItem[]>(`/tool-calls?${qs.toString()}`);
+  }
+
+  async getToolCallDetails(id: string) {
+    return this.request<AdminToolCallItem>(`/tool-calls/${encodeURIComponent(id)}`);
   }
 
   // 10. Proactive Intelligence
@@ -322,13 +350,25 @@ class AdminApiClient {
   }
 
   // 13. Audit Logs
-  async getAuditLogs(params: { limit?: number; offset?: number; actorId?: string; action?: string; resourceType?: string } = {}) {
+  async getAuditLogs(params: {
+    limit?: number;
+    offset?: number;
+    cursor?: string;
+    actorId?: string;
+    action?: string;
+    resourceType?: string;
+    resourceId?: string;
+    status?: string;
+  } = {}) {
     const qs = new URLSearchParams();
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.offset) qs.set('offset', String(params.offset));
+    if (params.cursor) qs.set('cursor', params.cursor);
     if (params.actorId) qs.set('actorId', params.actorId);
     if (params.action) qs.set('action', params.action);
     if (params.resourceType) qs.set('resourceType', params.resourceType);
+    if (params.resourceId) qs.set('resourceId', params.resourceId);
+    if (params.status) qs.set('status', params.status);
     return this.request<AdminAuditItem[]>(`/audit?${qs.toString()}`);
   }
 }

@@ -81,23 +81,75 @@ export interface AdminOverviewData {
 }
 
 // 2. Observability Types
+export interface SystemHealthSnapshot {
+  status: 'healthy' | 'degraded' | 'unhealthy' | string;
+  timestamp: string;
+  uptimeSeconds: number;
+  requests?: {
+    total: number;
+    success: number;
+    error: number;
+    cancelled: number;
+    errorRate: number;
+  };
+  ai?: {
+    requests: number;
+    failures: number;
+    fallbacks: number;
+    tokensTotal: number;
+    providerHealth: Record<string, { status: string; circuitBreaker: string }>;
+  };
+  agent?: {
+    runs: number;
+    steps: number;
+    partial: number;
+    failed: number;
+  };
+  tools?: {
+    calls: number;
+    failures: number;
+    confirmations: number;
+  };
+  memory?: {
+    retrievalCount: number;
+    selectedCount: number;
+    blockedCount: number;
+  };
+  proactive?: {
+    candidates: number;
+    sent: number;
+    blocked: number;
+  };
+  components?: Record<string, { status: string; latencyMs?: number; details?: any }>;
+}
+
 export interface SystemHealthData {
   service: string;
   environment: string;
   status: 'healthy' | 'degraded' | 'unhealthy';
   uptimeSeconds: number;
-  snapshot: {
-    status: string;
-    uptimeSeconds: number;
-    timestamp: string;
-    components: Record<string, { status: string; latencyMs?: number; details?: any }>;
-  };
+  snapshot: SystemHealthSnapshot;
+}
+
+export interface HistogramMetric {
+  count: number;
+  sum?: number;
+  min?: number;
+  max?: number;
+  avg?: number;
+  p50: number;
+  p90?: number;
+  p95: number;
+  p99: number;
 }
 
 export interface ObservabilityMetrics {
-  counters: Record<string, number>;
-  gauges: Record<string, number>;
-  latencies: Record<string, { p50: number; p95: number; p99: number; count: number }>;
+  timestamp?: string;
+  uptimeSeconds?: number;
+  counters?: Record<string, { value: number; tags?: Record<string, string> } | number>;
+  gauges?: Record<string, number>;
+  histograms?: Record<string, HistogramMetric>;
+  latencies?: Record<string, { p50: number; p95: number; p99: number; count: number }>;
 }
 
 // 3. User Types
@@ -106,6 +158,7 @@ export interface AdminUserListItem {
   userId?: string;
   phoneNumber?: string;
   phone?: string;
+  channel?: string;
   name?: string;
   isVip: boolean;
   isBanned: boolean;
@@ -299,15 +352,20 @@ export interface AdminAgentRunItem {
   id: string;
   conversationId: string;
   userId?: string;
-  status: 'completed' | 'failed' | 'running' | 'interrupted';
+  status: 'completed' | 'failed' | 'running' | 'interrupted' | string;
   model?: string | null;
+  provider?: string | null;
   promptTokens?: number | null;
   completionTokens?: number | null;
   totalTokens?: number | null;
   latencyMs?: number;
   durationMs?: number;
   toolCallsCount: number;
+  iterationsCount?: number;
+  userPrompt?: string;
+  errorDetails?: string;
   createdAt: string;
+  completedAt?: string;
   hasRedactedReasoning: boolean;
 }
 
@@ -321,7 +379,10 @@ export interface AdminAgentRunDetails extends AdminAgentRunItem {
     arguments?: any;
     result: any;
     durationMs: number;
-    status: 'success' | 'error';
+    status: 'success' | 'error' | string;
+    errorMessage?: string;
+    createdAt?: string;
+    completedAt?: string;
   }[];
   reasoningNote?: string; // Strictly redacted note
 }
@@ -330,12 +391,17 @@ export interface AdminAgentRunDetails extends AdminAgentRunItem {
 export interface AdminToolCallItem {
   id: string;
   runId: string;
+  agentRunId?: string;
   toolName: string;
   durationMs: number;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'failed' | 'running';
   createdAt: string;
-  argumentsSanitized: any;
-  resultSanitized: any;
+  completedAt?: string;
+  arguments?: any;
+  argumentsSanitized?: any;
+  result?: any;
+  resultSanitized?: any;
+  errorMessage?: string;
 }
 
 // 10. Proactive Types
@@ -363,9 +429,14 @@ export interface AdminSearchItem {
   id: string;
   query: string;
   intent?: string;
-  resultCount: number;
+  provider?: string;
+  resultCount?: number;
+  sourceCount?: number;
   latencyMs: number;
+  status?: string;
+  freshness?: string;
   createdAt: string;
+  error?: string;
 }
 
 export interface SearchDiagnosticResult {
@@ -380,6 +451,13 @@ export interface SearchDiagnosticResult {
 // 12. Settings Types (Safe, 0 secrets)
 export interface AdminSafeSettings {
   runtime: {
+    maintenanceMode: boolean;
+    debugLogging: boolean;
+    searchEnabled: boolean;
+    proactiveEnabled: boolean;
+    defaultMemoryRetentionDays: number;
+  };
+  runtimeSettings?: {
     maintenanceMode: boolean;
     debugLogging: boolean;
     searchEnabled: boolean;
@@ -404,13 +482,17 @@ export interface AdminSafeSettings {
 // 13. Audit Types
 export interface AdminAuditItem {
   id: string;
-  actorId: string;
-  actorRole: string;
+  adminActor?: string;
+  actorId?: string;
+  actorRole?: string;
   action: string;
   resourceType: string;
-  resourceId?: string;
+  resourceId?: string | null;
+  status?: 'success' | 'failure' | string;
+  metadata?: Record<string, any>;
   details?: any;
   ipAddress?: string;
-  correlationId: string;
+  correlationId?: string | null;
+  errorMessage?: string | null;
   createdAt: string;
 }

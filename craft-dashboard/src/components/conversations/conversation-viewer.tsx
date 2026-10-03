@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/language-context';
 import { adminApi } from '@/lib/api/admin-client';
 import { AdminConversationItem, AdminMessageItem } from '@/types/admin';
-import { StatusPill } from '@/components/ui/status-pill';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { ErrorAlert } from '@/components/ui/error-alert';
 import {
@@ -24,6 +25,13 @@ import {
   MessageSquare,
   Sparkles,
   AlertCircle,
+  Globe,
+  ExternalLink,
+  PanelRight,
+  Archive,
+  Info,
+  Cpu,
+  Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -45,6 +53,7 @@ export function ConversationViewer({
   onLoadOlder: externalLoadOlder,
 }: ConversationViewerProps) {
   const { t, formatNumber, formatDate, formatRelativeTime } = useLanguage();
+  const router = useRouter();
 
   const [messages, setMessages] = useState<AdminMessageItem[]>(initialMessages || []);
   const [totalCount, setTotalCount] = useState<number>(conversation?.messageCount ?? initialMessages?.length ?? 0);
@@ -58,6 +67,9 @@ export function ConversationViewer({
   // Expanded tool call ID for viewing tool args/result
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
 
+  // Mobile sidebar drawer state
+  const [showMobileInfo, setShowMobileInfo] = useState<boolean>(false);
+
   // Copy feedback
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -69,26 +81,30 @@ export function ConversationViewer({
   const PAGE_SIZE = 50;
 
   // 1. Initial load for selected conversation (fetches latest 50 messages)
-  const fetchInitialMessages = useCallback(async (convId: string) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const res = await adminApi.getConversationMessages(convId, { limit: PAGE_SIZE, offset: 0 });
-      const fetched = res.data || [];
-      const total = res.pagination?.total ?? (conversation?.messageCount ?? fetched.length);
-      setMessages(fetched);
-      setTotalCount(total);
-    } catch (err: any) {
-      setError(err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [conversation?.messageCount]);
+  const fetchInitialMessages = useCallback(
+    async (convId: string) => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const res = await adminApi.getConversationMessages(convId, { limit: PAGE_SIZE, offset: 0 });
+        const fetched = res.data || [];
+        const total = res.pagination?.total ?? (conversation?.messageCount ?? fetched.length);
+        setMessages(fetched);
+        setTotalCount(total);
+      } catch (err: any) {
+        setError(err);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [conversation?.messageCount]
+  );
 
   useEffect(() => {
     if (isOpen && conversation?.id) {
       setSearchQuery('');
       setExpandedToolId(null);
+      setShowMobileInfo(false);
       if (initialMessages && initialMessages.length > 0) {
         setMessages(initialMessages);
         setTotalCount(conversation.messageCount || initialMessages.length);
@@ -100,6 +116,21 @@ export function ConversationViewer({
       setTotalCount(0);
     }
   }, [isOpen, conversation?.id, conversation?.messageCount, initialMessages, fetchInitialMessages]);
+
+  // Handle escape key to close
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        if (showMobileInfo) {
+          setShowMobileInfo(false);
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, showMobileInfo, onClose]);
 
   // 2. Load older messages (prepends previous page)
   const handleLoadOlder = async () => {
@@ -126,7 +157,7 @@ export function ConversationViewer({
   // 3. Scroll to bottom on initial load
   useEffect(() => {
     if (!isLoading && messages.length > 0 && !isScrolledUp) {
-      bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+      bottomRef.current?.scrollIntoView?.({ behavior: 'auto' });
     }
   }, [isLoading, messages.length, isScrolledUp]);
 
@@ -139,13 +170,15 @@ export function ConversationViewer({
   };
 
   const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    bottomRef.current?.scrollIntoView?.({ behavior: 'smooth' });
     setIsScrolledUp(false);
   };
 
   // 5. Copy message content
   const handleCopy = (id: string, text: string) => {
-    navigator.clipboard.writeText(text);
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+    }
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
@@ -160,7 +193,7 @@ export function ConversationViewer({
   // Helper to render text with search highlights
   const renderHighlightedText = (text: string) => {
     if (!trimmedSearch) return text;
-    const parts = text.split(new RegExp(`(${trimmedSearch.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')})`, 'gi'));
+    const parts = text.split(new RegExp(`(${trimmedSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
     return (
       <>
         {parts.map((part, i) =>
@@ -176,46 +209,371 @@ export function ConversationViewer({
     );
   };
 
+  // 7. Date Separator Helper
+  const getDateLabel = (dateStr?: string | null): string => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const msgDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diffDays = Math.round((today.getTime() - msgDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      return t('conversations.today');
+    } else if (diffDays === 1) {
+      return t('conversations.yesterday');
+    } else {
+      return formatDate(dateStr);
+    }
+  };
+
+  // 8. AI Telemetry & Thread Statistics computed from messages
+  const aiStats = useMemo(() => {
+    const models = new Set<string>();
+    let totalTokens = 0;
+    let totalLatency = 0;
+    let assistantTurnsCount = 0;
+    const tools = new Set<string>();
+    let hasCacheHit = false;
+    let hasWebSearch = false;
+
+    messages.forEach((msg) => {
+      const rawRole = (msg.role || msg.senderRole || '').toLowerCase();
+      const isAssistant = rawRole === 'assistant' || (msg.sender && msg.sender.toLowerCase() === 'craft');
+      if (isAssistant) {
+        assistantTurnsCount++;
+        const isCache =
+          msg.source === 'semantic-cache' ||
+          msg.model === 'semantic-cache' ||
+          msg.metadata?.source === 'semantic-cache';
+        if (isCache) {
+          hasCacheHit = true;
+        }
+        const model = msg.model || msg.metadata?.model;
+        if (model && !isCache) {
+          models.add(model);
+        }
+        const tok =
+          typeof msg.tokens === 'number'
+            ? msg.tokens
+            : typeof msg.metadata?.tokens === 'number'
+            ? msg.metadata.tokens
+            : typeof msg.tokensUsed === 'number'
+            ? msg.tokensUsed
+            : 0;
+        totalTokens += tok;
+
+        const lat =
+          typeof msg.latencyMs === 'number'
+            ? msg.latencyMs
+            : typeof msg.metadata?.latencyMs === 'number'
+            ? msg.metadata.latencyMs
+            : null;
+        if (lat !== null && lat > 0) {
+          totalLatency += lat;
+        }
+
+        const tList =
+          msg.metadata?.tools ||
+          (msg.toolsUsed
+            ? msg.toolsUsed
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
+            : []);
+        tList.forEach((tName) => {
+          tools.add(tName);
+          if (tName === 'web_search') hasWebSearch = true;
+        });
+
+        if (msg.toolCalls) {
+          msg.toolCalls.forEach((tc) => {
+            tools.add(tc.toolName);
+            if (tc.toolName === 'web_search') hasWebSearch = true;
+          });
+        }
+        if (msg.metadata?.toolCalls) {
+          msg.metadata.toolCalls.forEach((tc) => {
+            tools.add(tc.toolName);
+            if (tc.toolName === 'web_search') hasWebSearch = true;
+          });
+        }
+      }
+    });
+
+    const avgLatency =
+      assistantTurnsCount > 0 && totalLatency > 0
+        ? (totalLatency / assistantTurnsCount / 1000).toFixed(2) + 's'
+        : '—';
+
+    return {
+      models: Array.from(models),
+      totalTokens,
+      avgLatency,
+      tools: Array.from(tools),
+      hasCacheHit,
+      hasWebSearch,
+      assistantTurnsCount,
+    };
+  }, [messages]);
+
   if (!isOpen || !conversation) return null;
 
   const hasMoreOlder = totalCount > messages.length;
   const remainingOlderCount = Math.max(0, totalCount - messages.length);
+  const userIdentifier =
+    conversation.userPhone || conversation.phone || conversation.userName || conversation.userId;
+
+  const navigateToUser360 = () => {
+    const searchTarget = conversation.userPhone || conversation.phone || conversation.userId;
+    if (searchTarget) {
+      router.push(`/users?search=${encodeURIComponent(searchTarget)}`);
+    }
+  };
+
+  // Reusable Info Sidebar Content
+  const renderSidebarContent = () => (
+    <div className="space-y-6 font-mono text-xs">
+      {/* 1. User Profile Card */}
+      <div className="p-4 rounded-lg bg-surface border border-border space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-full bg-brand-500/15 border border-brand-500/30 flex items-center justify-center text-brand-400 font-bold text-sm shrink-0">
+            {userIdentifier ? userIdentifier.slice(-2).toUpperCase() : 'U'}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-foreground truncate text-xs">{userIdentifier}</h3>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+              {conversation.userName && conversation.userName !== 'User' ? conversation.userName : conversation.userId}
+            </p>
+          </div>
+        </div>
+
+        <div className="pt-2 border-t border-border/60 flex items-center justify-between text-[11px]">
+          <span className="text-slate-500 dark:text-slate-400">{t('conversations.channel')}:</span>
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-950/60 border border-emerald-800 text-emerald-300">
+            {conversation.channel || 'whatsapp'}
+          </span>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={navigateToUser360}
+          className="w-full h-8 text-xs font-mono flex items-center justify-center gap-1.5 mt-1 border-brand-500/40 hover:border-brand-500 text-brand-600 dark:text-brand-400"
+        >
+          <ExternalLink className="h-3 w-3" />
+          <span>{t('conversations.viewUser360')}</span>
+        </Button>
+      </div>
+
+      {/* 2. Thread Summary */}
+      <div className="p-4 rounded-lg bg-surface border border-border space-y-3">
+        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5 text-slate-400" />
+          {t('conversations.threadDetails')}
+        </h4>
+
+        <div className="space-y-2 text-[11px]">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 dark:text-slate-400">{t('conversations.status')}:</span>
+            <StatusBadge status={conversation.status || 'active'} size="xs" showDot={true} />
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 dark:text-slate-400">{t('conversations.colMessages')}:</span>
+            <span className="font-bold text-foreground">
+              {formatNumber(totalCount || conversation.messageCount || messages.length)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 dark:text-slate-400">{t('conversations.created')}:</span>
+            <span className="text-slate-400 text-[10px]">
+              {formatDate(conversation.createdAt)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 dark:text-slate-400">{t('conversations.lastActive')}:</span>
+            <span className="text-slate-400 text-[10px]">
+              {formatRelativeTime(conversation.updatedAt || conversation.lastMessageAt || conversation.createdAt)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. AI Telemetry & Operations */}
+      <div className="p-4 rounded-lg bg-surface border border-border space-y-3">
+        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <Cpu className="h-3.5 w-3.5 text-brand-400" />
+          {t('conversations.aiTelemetry')}
+        </h4>
+
+        <div className="space-y-2.5 text-[11px]">
+          {/* Models */}
+          <div>
+            <span className="text-slate-500 dark:text-slate-400 text-[10px] block mb-1">
+              {t('conversations.modelsUsed')}:
+            </span>
+            {aiStats.models.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {aiStats.models.map((m, idx) => (
+                  <span
+                    key={idx}
+                    className="px-1.5 py-0.5 rounded bg-surface-elevated border border-border text-[10px] text-slate-300 font-mono"
+                  >
+                    {m.includes('/') ? m.split('/').pop() : m}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="text-slate-500 text-[11px]">—</span>
+            )}
+          </div>
+
+          {/* Tokens & Latency */}
+          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border/40">
+            <div>
+              <span className="text-slate-500 dark:text-slate-400 text-[10px] block">
+                {t('conversations.totalTokens')}:
+              </span>
+              <span className="font-bold text-foreground text-xs">
+                {formatNumber(aiStats.totalTokens)}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-500 dark:text-slate-400 text-[10px] block">
+                {t('conversations.avgLatency')}:
+              </span>
+              <span className="font-bold text-amber-500 dark:text-amber-400 text-xs">
+                {aiStats.avgLatency}
+              </span>
+            </div>
+          </div>
+
+          {/* Tools Executed */}
+          <div className="pt-1 border-t border-border/40">
+            <span className="text-slate-500 dark:text-slate-400 text-[10px] block mb-1">
+              {t('conversations.toolsExecuted')}:
+            </span>
+            {aiStats.tools.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {aiStats.tools.map((tName, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-950/40 border border-purple-800 text-[10px] text-purple-300 font-mono"
+                  >
+                    <Wrench className="h-2.5 w-2.5" />
+                    <span>tool: {tName}</span>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="text-slate-500 text-[11px]">—</span>
+            )}
+          </div>
+
+          {/* Semantic Cache Indicator */}
+          {aiStats.hasCacheHit && (
+            <div className="pt-1 border-t border-border/40 flex items-center justify-between">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                {t('conversations.semanticCacheBadge')}:
+              </span>
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-950/50 border border-amber-800 text-amber-300">
+                <Sparkles className="h-2.5 w-2.5 text-amber-400" />
+                Active
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 4. Action Shortcuts */}
+      <div className="space-y-2">
+        {onArchiveToggle && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onArchiveToggle(conversation.id, conversation.status !== 'archived')}
+            className="w-full h-8 text-xs font-mono justify-center"
+          >
+            <Archive className="h-3.5 w-3.5 me-1.5 text-slate-400" />
+            {conversation.status === 'archived'
+              ? t('conversations.unarchiveTitle')
+              : t('conversations.btnArchive')}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="w-full h-full max-w-4xl bg-surface border-s border-border flex flex-col shadow-2xl animate-in slide-in-from-right rtl:slide-in-from-left duration-200 overflow-hidden">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="conversation-viewer-title"
+        className="w-full h-full max-w-6xl 2xl:max-w-7xl bg-surface border-s border-border flex flex-col shadow-2xl animate-in slide-in-from-right rtl:slide-in-from-left duration-200 overflow-hidden"
+      >
         {/* ========================================================= */}
-        {/* 1. Conversation Header                                    */}
+        {/* 1. Conversation Workspace Header                          */}
         {/* ========================================================= */}
-        <div className="px-6 py-3.5 border-b border-border bg-surface-elevated/70 flex flex-col gap-2 shrink-0">
+        <div className="px-4 sm:px-6 py-3 border-b border-border bg-surface-elevated/70 flex flex-col gap-2 shrink-0">
           <div className="flex items-center justify-between gap-3">
-            {/* User identification & channel */}
+            {/* User identification & channel info */}
             <div className="flex items-center gap-2.5 min-w-0">
-              <span className="p-2 rounded-lg bg-emerald-950/60 border border-emerald-800/80 text-emerald-400 shrink-0">
+              <span className="p-2 rounded-lg bg-brand-500/10 border border-brand-500/25 text-brand-600 dark:text-brand-400 shrink-0">
                 <MessageSquare className="h-4 w-4" />
               </span>
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-bold text-slate-100 font-mono tracking-tight truncate">
-                    {conversation.userPhone || conversation.phone || conversation.userName || conversation.userId}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 id="conversation-viewer-title" className="text-sm font-bold text-foreground font-mono tracking-tight truncate">
+                    {userIdentifier}
                   </h2>
                   <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-950/70 border border-emerald-800 text-emerald-300">
                     {conversation.channel || 'whatsapp'}
                   </span>
-                  <StatusPill status={conversation.status || 'active'} />
+                  <StatusBadge status={conversation.status || 'active'} size="xs" showDot={true} />
                 </div>
-                <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono mt-0.5">
-                  <span className="text-slate-300 font-semibold">
-                    {formatNumber(totalCount || conversation.messageCount || messages.length)} {t('conversations.colMessages')}
+                <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                  <span className="text-foreground font-semibold">
+                    {formatNumber(totalCount || conversation.messageCount || messages.length)}{' '}
+                    {t('conversations.colMessages')}
                   </span>
                   <span>•</span>
-                  <span>{t('conversations.updated')}: {formatRelativeTime(conversation.updatedAt || conversation.lastMessageAt || conversation.createdAt)}</span>
+                  <span>
+                    {t('conversations.updated')}:{' '}
+                    {formatRelativeTime(
+                      conversation.updatedAt || conversation.lastMessageAt || conversation.createdAt
+                    )}
+                  </span>
                 </div>
               </div>
             </div>
 
             {/* Header Action Buttons */}
             <div className="flex items-center gap-1.5 shrink-0">
+              {/* Mobile Info Toggle */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowMobileInfo(!showMobileInfo)}
+                className="h-8 px-2.5 lg:hidden"
+                title={t('conversations.toggleInfo')}
+                aria-label={t('conversations.toggleInfo')}
+              >
+                <PanelRight className="h-3.5 w-3.5 text-slate-400" />
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={navigateToUser360}
+                title={t('conversations.viewUser360')}
+                className="h-8 px-2.5 text-xs font-mono hidden sm:inline-flex items-center gap-1"
+              >
+                <ExternalLink className="h-3.5 w-3.5 text-brand-500" />
+                <span className="hidden md:inline">{t('conversations.viewUser360')}</span>
+              </Button>
+
               <Button
                 variant="outline"
                 size="sm"
@@ -223,23 +581,28 @@ export function ConversationViewer({
                 disabled={isLoading}
                 title={t('common.refresh')}
                 className="h-8 px-2.5"
+                aria-label={t('common.refresh')}
               >
                 <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
               </Button>
+
               {onArchiveToggle && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => onArchiveToggle(conversation.id, conversation.status !== 'archived')}
-                  className="h-8 text-xs font-mono"
+                  className="h-8 text-xs font-mono hidden sm:inline-flex"
                 >
-                  {conversation.status === 'archived' ? t('conversations.unarchiveTitle') : t('conversations.btnArchive')}
+                  {conversation.status === 'archived'
+                    ? t('conversations.unarchiveTitle')
+                    : t('conversations.btnArchive')}
                 </Button>
               )}
+
               <button
                 onClick={onClose}
                 aria-label={t('common.close')}
-                className="p-1.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-surface-elevated transition-colors"
+                className="p-1.5 rounded-md text-slate-400 hover:text-foreground hover:bg-surface-elevated transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -255,12 +618,13 @@ export function ConversationViewer({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('conversations.searchInConversation')}
-                className="w-full h-8 ps-8 pe-8 text-xs bg-surface-elevated/90 border border-border rounded-md text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono"
+                className="w-full h-8 ps-8 pe-8 text-xs bg-surface-elevated/90 border border-border rounded-md text-foreground placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute end-2 top-2 p-0.5 text-slate-400 hover:text-slate-200"
+                  className="absolute end-2 top-2 p-0.5 text-slate-400 hover:text-foreground"
+                  aria-label="Clear in-conversation search"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -275,310 +639,396 @@ export function ConversationViewer({
         </div>
 
         {/* ========================================================= */}
-        {/* 2. Messages Stream Area                                   */}
+        {/* 2. Workspace Body: Timeline + Info Sidebar                */}
         {/* ========================================================= */}
-        <div
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
-          className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-background/50 relative font-mono text-xs"
-        >
-          {/* Error Banner */}
-          {error && (
-            <div className="p-3">
-              <ErrorAlert
-                error={error}
-                title={t('conversations.failedToLoad')}
-                onRetry={() => fetchInitialMessages(conversation.id)}
-              />
-            </div>
-          )}
+        <div className="flex-1 flex overflow-hidden min-h-0 relative">
+          {/* Main Message Timeline */}
+          <div
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-background/50 relative font-mono text-xs"
+          >
+            {/* Error Banner */}
+            {error && (
+              <div className="p-3">
+                <ErrorAlert
+                  error={error}
+                  title={t('conversations.failedToLoad')}
+                  onRetry={() => fetchInitialMessages(conversation.id)}
+                />
+              </div>
+            )}
 
-          {/* Loading Skeleton */}
-          {isLoading ? (
-            <div className="space-y-4 py-8">
-              <div className="flex flex-col items-end space-y-1.5 ms-auto max-w-md">
-                <div className="h-3 w-24 bg-surface-elevated/70 rounded animate-pulse" />
-                <div className="h-14 w-64 bg-brand-950/30 border border-brand-800/40 rounded-lg animate-pulse" />
-              </div>
-              <div className="flex flex-col items-start space-y-1.5 me-auto max-w-lg">
-                <div className="h-3 w-28 bg-surface-elevated/70 rounded animate-pulse" />
-                <div className="h-20 w-80 bg-surface-elevated/50 border border-border/60 rounded-lg animate-pulse" />
-              </div>
-              <div className="flex flex-col items-end space-y-1.5 ms-auto max-w-md">
-                <div className="h-3 w-20 bg-surface-elevated/70 rounded animate-pulse" />
-                <div className="h-10 w-48 bg-brand-950/30 border border-brand-800/40 rounded-lg animate-pulse" />
-              </div>
-              <div className="text-center text-xs text-slate-400 font-mono py-4">
-                {t('conversations.loadingTranscript')}
-              </div>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 font-mono space-y-2">
-              <AlertCircle className="h-8 w-8 mx-auto text-slate-500" />
-              <p>{t('conversations.noMessages')}</p>
-            </div>
-          ) : (
-            <>
-              {/* Load Older Messages Button */}
-              {hasMoreOlder && (
-                <div className="text-center py-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={externalLoadOlder || handleLoadOlder}
-                    disabled={isLoadingOlder}
-                    className="h-8 text-xs font-mono bg-surface-elevated/50 border-dashed border-border hover:bg-surface-elevated"
-                  >
-                    {isLoadingOlder ? (
-                      <>
-                        <RefreshCw className="h-3.5 w-3.5 me-1.5 animate-spin text-brand-400" />
-                        {t('conversations.loadingOlder')}
-                      </>
-                    ) : (
-                      <>
-                        <ChevronUp className="h-3.5 w-3.5 me-1 text-slate-400" />
-                        {t('conversations.loadOlder', { count: String(remainingOlderCount) })}
-                      </>
-                    )}
-                  </Button>
+            {/* Loading Skeleton */}
+            {isLoading ? (
+              <div className="space-y-4 py-8">
+                <div className="flex flex-col items-end space-y-1.5 ms-auto max-w-md">
+                  <div className="h-3 w-24 bg-surface-elevated/70 rounded animate-pulse" />
+                  <div className="h-14 w-64 bg-brand-950/30 border border-brand-800/40 rounded-lg animate-pulse" />
                 </div>
-              )}
-
-              {/* Messages Feed */}
-              {messages.map((msg, index) => {
-                const rawRole = (msg.role || msg.senderRole || '').toLowerCase();
-                const rawSender = (msg.sender || msg.senderName || '').toLowerCase();
-                const isUser =
-                  rawRole === 'user' ||
-                  rawSender === 'user' ||
-                  rawSender.includes('whatsapp') ||
-                  rawSender.includes('user');
-
-                const isSystem = rawRole === 'system';
-                const isSemanticCache =
-                  msg.source === 'semantic-cache' ||
-                  msg.model === 'semantic-cache' ||
-                  msg.metadata?.source === 'semantic-cache';
-
-                const textContent = msg.content || msg.text || '';
-                const timestamp = msg.createdAt || msg.timestamp;
-
-                // Rich assistant metadata
-                const meta = msg.metadata || {};
-                const modelName = isSemanticCache ? null : (msg.model || meta.model || null);
-                const tokensUsed = isSemanticCache ? 0 : (msg.tokens ?? meta.tokens ?? null);
-                const latencyMs = msg.latencyMs ?? meta.latencyMs ?? null;
-                const toolsList =
-                  meta.tools ||
-                  (msg.toolsUsed
-                    ? msg.toolsUsed.split(',').map((s) => s.trim()).filter(Boolean)
-                    : undefined);
-                const toolCallsList = msg.toolCalls || meta.toolCalls || [];
-
-                // System / Confirmation / Internal Workflow Event
-                if (isSystem) {
-                  return (
-                    <div key={msg.id || index} className="flex justify-center my-3">
-                      <div className="px-3.5 py-2 rounded-lg bg-surface-elevated/40 border border-border/70 text-slate-400 text-[11px] flex items-center gap-2 max-w-md">
-                        <ShieldCheck className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                        <span className="truncate">{textContent}</span>
-                        <span className="text-[10px] text-slate-500 ms-auto shrink-0">{formatDate(timestamp)}</span>
-                      </div>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div
-                    key={msg.id || index}
-                    className={cn(
-                      'flex flex-col group',
-                      isUser ? 'items-end ms-auto max-w-[85%] sm:max-w-[75%]' : 'items-start me-auto max-w-[90%] sm:max-w-[82%]'
-                    )}
-                  >
-                    {/* Message Header (Sender & Timestamp) */}
-                    <div
-                      className={cn(
-                        'flex items-center gap-1.5 text-[11px] px-1 mb-1 font-mono',
-                        isUser ? 'text-slate-400 flex-row-reverse' : 'text-slate-400'
-                      )}
+                <div className="flex flex-col items-start space-y-1.5 me-auto max-w-lg">
+                  <div className="h-3 w-28 bg-surface-elevated/70 rounded animate-pulse" />
+                  <div className="h-20 w-80 bg-surface-elevated/50 border border-border/60 rounded-lg animate-pulse" />
+                </div>
+                <div className="flex flex-col items-end space-y-1.5 ms-auto max-w-md">
+                  <div className="h-3 w-20 bg-surface-elevated/70 rounded animate-pulse" />
+                  <div className="h-10 w-48 bg-brand-950/30 border border-brand-800/40 rounded-lg animate-pulse" />
+                </div>
+                <div className="text-center text-xs text-slate-400 font-mono py-4">
+                  {t('conversations.loadingTranscript')}
+                </div>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 font-mono space-y-2">
+                <AlertCircle className="h-8 w-8 mx-auto text-slate-500" />
+                <p>{t('conversations.noMessages')}</p>
+              </div>
+            ) : (
+              <>
+                {/* Load Older Messages Button */}
+                {hasMoreOlder && (
+                  <div className="text-center py-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={externalLoadOlder || handleLoadOlder}
+                      disabled={isLoadingOlder}
+                      className="h-8 text-xs font-mono bg-surface-elevated/50 border-dashed border-border hover:bg-surface-elevated"
                     >
-                      {isUser ? (
+                      {isLoadingOlder ? (
                         <>
-                          <span className="font-semibold text-slate-200 flex items-center gap-1">
-                            <User className="h-3 w-3 text-emerald-400" />
-                            {msg.sender || 'WhatsApp User'}
-                          </span>
-                          <span className="text-slate-500">•</span>
-                          <span className="text-[10px] text-slate-400">{formatDate(timestamp)}</span>
+                          <RefreshCw className="h-3.5 w-3.5 me-1.5 animate-spin text-brand-400" />
+                          {t('conversations.loadingOlder')}
                         </>
                       ) : (
                         <>
-                          <span className="font-semibold text-brand-300 flex items-center gap-1">
-                            <Bot className="h-3.5 w-3.5 text-brand-400" />
-                            Craft
-                          </span>
-
-                          {/* Semantic Cache Source Badge */}
-                          {isSemanticCache && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-950/50 border border-amber-800 text-amber-300">
-                              <Sparkles className="h-2.5 w-2.5 text-amber-400" />
-                              {t('conversations.semanticCacheBadge')}
-                            </span>
-                          )}
-
-                          <span className="text-slate-500">•</span>
-                          <span className="text-[10px] text-slate-400">{formatDate(timestamp)}</span>
+                          <ChevronUp className="h-3.5 w-3.5 me-1 text-slate-400" />
+                          {t('conversations.loadOlder', { count: String(remainingOlderCount) })}
                         </>
                       )}
+                    </Button>
+                  </div>
+                )}
 
-                      {/* Copy message button on hover */}
-                      <button
-                        onClick={() => handleCopy(msg.id || String(index), textContent)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-slate-200 transition-opacity"
-                        title="Copy text"
-                      >
-                        {copiedId === (msg.id || String(index)) ? (
-                          <Check className="h-3 w-3 text-emerald-400" />
-                        ) : (
-                          <Copy className="h-3 w-3" />
+                {/* Messages Feed with Date Separators */}
+                {messages.map((msg, index) => {
+                  const rawRole = (msg.role || msg.senderRole || '').toLowerCase();
+                  const rawSender = (msg.sender || msg.senderName || '').toLowerCase();
+                  const isUser =
+                    rawRole === 'user' ||
+                    rawSender === 'user' ||
+                    rawSender.includes('whatsapp') ||
+                    rawSender.includes('user');
+
+                  const isSystem = rawRole === 'system';
+                  const isSemanticCache =
+                    msg.source === 'semantic-cache' ||
+                    msg.model === 'semantic-cache' ||
+                    msg.metadata?.source === 'semantic-cache';
+
+                  const textContent = msg.content || msg.text || '';
+                  const timestamp = msg.createdAt || msg.timestamp;
+
+                  // Rich assistant metadata
+                  const meta = msg.metadata || {};
+                  const modelName = isSemanticCache ? null : msg.model || meta.model || null;
+                  const tokensUsed = isSemanticCache ? 0 : msg.tokens ?? meta.tokens ?? null;
+                  const latencyMs = msg.latencyMs ?? meta.latencyMs ?? null;
+                  const toolsList =
+                    meta.tools ||
+                    (msg.toolsUsed
+                      ? msg.toolsUsed
+                          .split(',')
+                          .map((s) => s.trim())
+                          .filter(Boolean)
+                      : undefined);
+                  const toolCallsList = msg.toolCalls || meta.toolCalls || [];
+                  const hasWebSearch =
+                    !isSemanticCache &&
+                    (Boolean(toolsList?.includes('web_search')) ||
+                      toolCallsList.some((tc) => tc.toolName === 'web_search'));
+
+                  // Determine if a Date Separator is needed before this message
+                  const currentDateStr = timestamp ? new Date(timestamp).toDateString() : '';
+                  const prevMsg = index > 0 ? messages[index - 1] : null;
+                  const prevTimestamp = prevMsg ? prevMsg.createdAt || prevMsg.timestamp : null;
+                  const prevDateStr = prevTimestamp ? new Date(prevTimestamp).toDateString() : null;
+                  const showDateSeparator = currentDateStr && currentDateStr !== prevDateStr;
+
+                  // System / Confirmation / Internal Workflow Event
+                  if (isSystem) {
+                    return (
+                      <React.Fragment key={msg.id || index}>
+                        {showDateSeparator && (
+                          <div className="flex items-center justify-center my-4">
+                            <span className="px-3 py-1 rounded-full text-[10px] font-mono font-semibold bg-surface-elevated/80 border border-border text-slate-400">
+                              {getDateLabel(timestamp)}
+                            </span>
+                          </div>
                         )}
-                      </button>
-                    </div>
+                        <div className="flex justify-center my-3">
+                          <div className="px-3.5 py-2 rounded-lg bg-surface-elevated/40 border border-border text-slate-400 text-[11px] flex items-center gap-2 max-w-md">
+                            <ShieldCheck className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                            <span className="truncate">{textContent}</span>
+                            <span className="text-[10px] text-slate-500 ms-auto shrink-0">
+                              {formatDate(timestamp)}
+                            </span>
+                          </div>
+                        </div>
+                      </React.Fragment>
+                    );
+                  }
 
-                    {/* Speech Bubble */}
-                    <div
-                      className={cn(
-                        'p-4 rounded-xl border leading-relaxed break-words whitespace-pre-wrap transition-shadow',
-                        isUser
-                          ? 'bg-brand-950/40 border-brand-800/60 text-slate-100 rounded-se-none shadow-xs'
-                          : 'bg-surface-elevated/90 border-slate-800/90 text-slate-200 rounded-ss-none shadow-sm'
+                  return (
+                    <React.Fragment key={msg.id || index}>
+                      {showDateSeparator && (
+                        <div className="flex items-center justify-center my-4">
+                          <div className="h-px bg-border/60 flex-1 me-3" />
+                          <span className="px-3 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-surface-elevated border border-border text-slate-400">
+                            {getDateLabel(timestamp)}
+                          </span>
+                          <div className="h-px bg-border/60 flex-1 ms-3" />
+                        </div>
                       )}
-                    >
-                      {/* Message Content */}
-                      <div className="text-[12px] font-sans antialiased leading-relaxed">
-                        {renderHighlightedText(textContent)}
-                      </div>
 
-                      {/* ========================================================= */}
-                      {/* Assistant Response Metadata Row                           */}
-                      {/* ========================================================= */}
-                      {!isUser && (
-                        <div className="mt-3 pt-2.5 border-t border-border/60 flex flex-wrap items-center gap-2 text-[10px] font-mono text-slate-400">
-                          {/* Model Badge */}
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-border text-slate-300">
-                            <span className="text-slate-500">Model:</span>
-                            <span className="text-slate-200 font-semibold">{modelName || '—'}</span>
+                      <div
+                        className={cn(
+                          'flex flex-col group',
+                          isUser
+                            ? 'items-end ms-auto max-w-[85%] sm:max-w-[75%]'
+                            : 'items-start me-auto max-w-[90%] sm:max-w-[82%]'
+                        )}
+                      >
+                        {/* Message Header (Sender, Badges & Timestamp) */}
+                        <div
+                          className={cn(
+                            'flex items-center gap-1.5 text-[11px] px-1 mb-1 font-mono',
+                            isUser ? 'text-slate-400 flex-row-reverse' : 'text-slate-400'
+                          )}
+                        >
+                          {isUser ? (
+                            <>
+                              <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                                <User className="h-3 w-3 text-emerald-500 dark:text-emerald-400" />
+                                {msg.sender || 'WhatsApp User'}
+                              </span>
+                              <span className="text-slate-500">•</span>
+                              <span className="text-[10px] text-slate-400">{formatDate(timestamp)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-semibold text-brand-600 dark:text-brand-300 flex items-center gap-1">
+                                <Bot className="h-3.5 w-3.5 text-brand-500 dark:text-brand-400" />
+                                Craft
+                              </span>
+
+                              {/* Semantic Cache Source Badge */}
+                              {isSemanticCache && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-950/50 border border-amber-800 text-amber-300">
+                                  <Sparkles className="h-2.5 w-2.5 text-amber-400" />
+                                  {t('conversations.semanticCacheBadge')}
+                                </span>
+                              )}
+
+                              {/* Web Search Badge */}
+                              {hasWebSearch && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-cyan-950/50 border border-cyan-800 text-cyan-300">
+                                  <Globe className="h-2.5 w-2.5 text-cyan-400" />
+                                  {t('conversations.webSearchBadge')}
+                                </span>
+                              )}
+
+                              <span className="text-slate-500">•</span>
+                              <span className="text-[10px] text-slate-400">{formatDate(timestamp)}</span>
+                            </>
+                          )}
+
+                          {/* Copy message button on hover */}
+                          <button
+                            onClick={() => handleCopy(msg.id || String(index), textContent)}
+                            className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-foreground transition-opacity"
+                            title={t('conversations.copyText')}
+                            aria-label={t('conversations.copyText')}
+                          >
+                            {copiedId === (msg.id || String(index)) ? (
+                              <Check className="h-3 w-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Speech Bubble */}
+                        <div
+                          className={cn(
+                            'p-4 rounded-xl border leading-relaxed break-words whitespace-pre-wrap transition-shadow',
+                            isUser
+                              ? 'bg-brand-500/10 border-brand-500/30 text-slate-900 dark:bg-brand-950/40 dark:border-brand-800/60 dark:text-slate-100 rounded-se-none shadow-xs'
+                              : 'bg-surface-elevated/90 border-border text-foreground rounded-ss-none shadow-sm'
+                          )}
+                        >
+                          {/* Message Content */}
+                          <div className="text-[12px] font-sans antialiased leading-relaxed">
+                            {renderHighlightedText(textContent)}
                           </div>
 
-                          {/* Tokens Badge */}
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-border text-slate-300">
-                            <span className="text-slate-500">Tokens:</span>
-                            <span className="text-slate-200 font-semibold">
-                              {tokensUsed !== null ? formatNumber(tokensUsed) : '—'}
-                            </span>
-                          </div>
+                          {/* ========================================================= */}
+                          {/* Assistant Response Metadata Row                           */}
+                          {/* ========================================================= */}
+                          {!isUser && (
+                            <div className="mt-3 pt-2.5 border-t border-border/60 flex flex-wrap items-center gap-2 text-[10px] font-mono text-slate-400">
+                              {/* Model Badge */}
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-border text-slate-300">
+                                <span className="text-slate-500">Model:</span>
+                                <span className="text-slate-200 font-semibold">{modelName || '—'}</span>
+                              </div>
 
-                          {/* Latency Badge */}
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-border text-slate-300">
-                            <Zap className="h-3 w-3 text-amber-400" />
-                            <span className="text-slate-200 font-semibold">
-                              {latencyMs !== null ? `${(latencyMs / 1000).toFixed(2)}s` : '—'}
-                            </span>
-                          </div>
+                              {/* Tokens Badge */}
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-border text-slate-300">
+                                <span className="text-slate-500">Tokens:</span>
+                                <span className="text-slate-200 font-semibold">
+                                  {tokensUsed !== null ? formatNumber(tokensUsed) : '—'}
+                                </span>
+                              </div>
 
-                          {/* Tools Badges (Clickable to inspect details) */}
-                          {toolsList && toolsList.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1">
-                              {toolsList.map((toolName, tIdx) => {
-                                const matchedTc = toolCallsList.find((tc) => tc.toolName === toolName);
-                                const isExpanded = matchedTc && expandedToolId === matchedTc.id;
+                              {/* Latency Badge */}
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-border text-slate-300">
+                                <Zap className="h-3 w-3 text-amber-400" />
+                                <span className="text-slate-200 font-semibold">
+                                  {latencyMs !== null ? `${(latencyMs / 1000).toFixed(2)}s` : '—'}
+                                </span>
+                              </div>
 
+                              {/* Tools Badges (Clickable to inspect details) */}
+                              {toolsList && toolsList.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {toolsList.map((toolName, tIdx) => {
+                                    const matchedTc = toolCallsList.find((tc) => tc.toolName === toolName);
+                                    const isExpanded = matchedTc && expandedToolId === matchedTc.id;
+
+                                    return (
+                                      <button
+                                        key={tIdx}
+                                        onClick={() => {
+                                          if (matchedTc) {
+                                            setExpandedToolId(isExpanded ? null : matchedTc.id);
+                                          }
+                                        }}
+                                        className={cn(
+                                          'inline-flex items-center gap-1 px-2 py-0.5 rounded border transition-colors',
+                                          matchedTc
+                                            ? 'bg-purple-950/60 border-purple-800 text-purple-300 hover:bg-purple-900/60 cursor-pointer'
+                                            : 'bg-surface border-border text-slate-400'
+                                        )}
+                                        title={matchedTc ? t('conversations.inspectTool') : undefined}
+                                      >
+                                        <Wrench className="h-2.5 w-2.5 text-purple-400" />
+                                        <span>{toolName}</span>
+                                        {matchedTc &&
+                                          (isExpanded ? (
+                                            <ChevronUp className="h-2.5 w-2.5 ms-0.5" />
+                                          ) : (
+                                            <ChevronDown className="h-2.5 w-2.5 ms-0.5" />
+                                          ))}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Tool Execution Details Expandable Drawer/Card */}
+                          {!isUser && toolCallsList.length > 0 && (
+                            <div className="mt-2 space-y-2">
+                              {toolCallsList.map((tc) => {
+                                if (expandedToolId !== tc.id) return null;
                                 return (
-                                  <button
-                                    key={tIdx}
-                                    onClick={() => {
-                                      if (matchedTc) {
-                                        setExpandedToolId(isExpanded ? null : matchedTc.id);
-                                      }
-                                    }}
-                                    className={cn(
-                                      'inline-flex items-center gap-1 px-2 py-0.5 rounded border transition-colors',
-                                      matchedTc
-                                        ? 'bg-purple-950/60 border-purple-800 text-purple-300 hover:bg-purple-900/60 cursor-pointer'
-                                        : 'bg-surface border-border text-slate-400'
-                                    )}
-                                    title={matchedTc ? 'Click to inspect tool execution' : undefined}
+                                  <div
+                                    key={tc.id}
+                                    className="p-3 rounded-lg bg-surface/90 border border-purple-800/80 text-[11px] font-mono space-y-2 animate-in fade-in duration-150"
                                   >
-                                    <Wrench className="h-2.5 w-2.5 text-purple-400" />
-                                    <span>{toolName}</span>
-                                    {matchedTc && (
-                                      isExpanded ? <ChevronUp className="h-2.5 w-2.5 ms-0.5" /> : <ChevronDown className="h-2.5 w-2.5 ms-0.5" />
+                                    <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
+                                      <span className="font-bold text-purple-300 flex items-center gap-1.5">
+                                        <Wrench className="h-3 w-3 text-purple-400" />
+                                        {tc.toolName}
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <StatusBadge status={tc.status} size="xs" showDot={true} />
+                                        {tc.durationMs !== undefined && (
+                                          <span className="text-[10px] text-slate-400">{tc.durationMs}ms</span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Arguments */}
+                                    <div>
+                                      <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">
+                                        {t('conversations.toolInput')}
+                                      </span>
+                                      <pre className="p-2 rounded bg-background/80 border border-border text-[10px] text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-36">
+                                        {JSON.stringify(tc.arguments, null, 2)}
+                                      </pre>
+                                    </div>
+
+                                    {/* Results */}
+                                    {tc.result && (
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">
+                                          {t('conversations.toolOutput')}
+                                        </span>
+                                        <pre className="p-2 rounded bg-background/80 border border-border text-[10px] text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-40">
+                                          {JSON.stringify(tc.result, null, 2)}
+                                        </pre>
+                                      </div>
                                     )}
-                                  </button>
+                                  </div>
                                 );
                               })}
                             </div>
                           )}
                         </div>
-                      )}
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
 
-                      {/* Tool Execution Details Expandable Drawer/Card */}
-                      {!isUser && toolCallsList.length > 0 && (
-                        <div className="mt-2 space-y-2">
-                          {toolCallsList.map((tc) => {
-                            if (expandedToolId !== tc.id) return null;
-                            return (
-                              <div
-                                key={tc.id}
-                                className="p-3 rounded-lg bg-surface/90 border border-purple-800/80 text-[11px] font-mono space-y-2 animate-in fade-in duration-150"
-                              >
-                                <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
-                                  <span className="font-bold text-purple-300 flex items-center gap-1.5">
-                                    <Wrench className="h-3 w-3 text-purple-400" />
-                                    {tc.toolName}
-                                  </span>
-                                  <div className="flex items-center gap-2">
-                                    <StatusPill status={tc.status} />
-                                    {tc.durationMs !== undefined && (
-                                      <span className="text-[10px] text-slate-400">{tc.durationMs}ms</span>
-                                    )}
-                                  </div>
-                                </div>
+                <div ref={bottomRef} className="h-1" />
+              </>
+            )}
+          </div>
 
-                                {/* Arguments */}
-                                <div>
-                                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">
-                                    {t('conversations.toolInput')}
-                                  </span>
-                                  <pre className="p-2 rounded bg-background/80 border border-border text-[10px] text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-36">
-                                    {JSON.stringify(tc.arguments, null, 2)}
-                                  </pre>
-                                </div>
+          {/* Column 2: Desktop Conversation Info Sidebar */}
+          <div className="hidden lg:flex w-72 2xl:w-80 border-s border-border bg-surface-elevated/30 flex-col shrink-0 overflow-y-auto p-4 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border/60">
+              <span className="text-xs font-mono font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Info className="h-3.5 w-3.5 text-brand-500" />
+                {t('conversations.workspaceInfo')}
+              </span>
+            </div>
+            {renderSidebarContent()}
+          </div>
 
-                                {/* Results */}
-                                {tc.result && (
-                                  <div>
-                                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">
-                                      {t('conversations.toolOutput')}
-                                    </span>
-                                    <pre className="p-2 rounded bg-background/80 border border-border text-[10px] text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-40">
-                                      {JSON.stringify(tc.result, null, 2)}
-                                    </pre>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-
-              <div ref={bottomRef} className="h-1" />
-            </>
+          {/* Mobile Info Drawer / Modal */}
+          {showMobileInfo && (
+            <div className="lg:hidden absolute inset-0 z-20 bg-black/60 backdrop-blur-xs flex justify-end animate-in fade-in duration-150">
+              <div className="w-full max-w-sm h-full bg-surface border-s border-border p-5 overflow-y-auto flex flex-col space-y-4 shadow-xl animate-in slide-in-from-right rtl:slide-in-from-left duration-200">
+                <div className="flex items-center justify-between pb-2 border-b border-border">
+                  <h3 className="text-sm font-mono font-bold text-foreground flex items-center gap-1.5">
+                    <Info className="h-4 w-4 text-brand-500" />
+                    {t('conversations.workspaceInfo')}
+                  </h3>
+                  <button
+                    onClick={() => setShowMobileInfo(false)}
+                    className="p-1 rounded-md text-slate-400 hover:text-foreground"
+                    aria-label={t('common.close')}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                {renderSidebarContent()}
+              </div>
+            </div>
           )}
         </div>
 
@@ -586,12 +1036,12 @@ export function ConversationViewer({
         {/* 3. Floating "Jump to Latest" Button                       */}
         {/* ========================================================= */}
         {isScrolledUp && (
-          <div className="absolute bottom-6 end-8 z-10 animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <div className="absolute bottom-6 end-8 lg:end-80 z-10 animate-in fade-in slide-in-from-bottom-2 duration-150">
             <Button
               onClick={scrollToBottom}
               variant="outline"
               size="sm"
-              className="shadow-lg font-mono text-xs bg-surface-elevated/95 border-brand-500/80 text-brand-300 hover:bg-brand-950 hover:text-white"
+              className="shadow-lg font-mono text-xs bg-surface-elevated/95 border-brand-500/80 text-brand-600 dark:text-brand-300 hover:bg-brand-950 hover:text-white"
             >
               <ArrowDown className="h-3.5 w-3.5 me-1.5 animate-bounce" />
               {t('conversations.jumpToLatest')}

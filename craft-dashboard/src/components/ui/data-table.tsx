@@ -2,9 +2,11 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './button';
 import { useLanguage } from '@/lib/i18n/language-context';
+import { Skeleton } from './skeleton-loader';
+import { EmptyState } from './empty-state';
 
 export interface Column<T> {
   header: string;
@@ -46,10 +48,10 @@ export function DataTable<T extends Record<string, any>>({
   const NextIcon = isRtl ? ChevronLeft : ChevronRight;
 
   return (
-    <div className={cn('w-full flex flex-col rounded-lg border border-border bg-surface overflow-hidden', className)}>
+    <div className={cn('w-full flex flex-col rounded-lg border border-border bg-surface overflow-hidden transition-colors', className)}>
       <div className="overflow-x-auto">
         <table className="w-full text-start text-xs sm:text-sm">
-          <thead className="bg-surface-elevated/70 text-slate-400 uppercase font-mono text-[11px] tracking-wider border-b border-border">
+          <thead className="bg-surface-elevated/70 text-slate-600 dark:text-slate-400 uppercase font-mono text-[11px] tracking-wider border-b border-border">
             <tr>
               {columns.map((col, idx) => (
                 <th key={idx} className={cn('px-4 py-3 font-semibold select-none text-start', col.className)}>
@@ -64,18 +66,19 @@ export function DataTable<T extends Record<string, any>>({
                 <tr key={rIdx} className="animate-pulse">
                   {columns.map((_, cIdx) => (
                     <td key={cIdx} className="px-4 py-3">
-                      <div className="h-4 bg-surface-elevated rounded w-3/4" />
+                      <Skeleton className="h-4 w-3/4" />
                     </td>
                   ))}
                 </tr>
               ))
             ) : data.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-12 text-center text-slate-400">
-                  <div className="flex flex-col items-center justify-center space-y-2">
-                    <Inbox className="h-8 w-8 text-slate-400" />
-                    <span>{effectiveEmptyMessage}</span>
-                  </div>
+                <td colSpan={columns.length} className="p-0">
+                  <EmptyState
+                    title={effectiveEmptyMessage}
+                    description=""
+                    className="border-none rounded-none py-12 bg-transparent"
+                  />
                 </td>
               </tr>
             ) : (
@@ -89,7 +92,7 @@ export function DataTable<T extends Record<string, any>>({
                   )}
                 >
                   {columns.map((col, colIdx) => (
-                    <td key={colIdx} className={cn('px-4 py-3 text-slate-200 text-xs sm:text-sm align-middle text-start', col.className)}>
+                    <td key={colIdx} className={cn('px-4 py-3 text-slate-800 dark:text-slate-200 text-xs sm:text-sm align-middle text-start', col.className)}>
                       {col.cell ? col.cell(item) : (col.accessorKey ? String(item[col.accessorKey] ?? '—') : '—')}
                     </td>
                   ))}

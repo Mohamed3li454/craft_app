@@ -18,6 +18,9 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
               return failureCount < 2;
             },
           },
+          mutations: {
+            retry: false,
+          },
         },
       })
   );

@@ -22,25 +22,25 @@ export function MetricCard({
   className,
 }: MetricCardProps) {
   return (
-    <Card className={cn('p-5 flex flex-col justify-between hover:border-slate-700 transition-all', className)}>
+    <Card className={cn('p-5 flex flex-col justify-between hover:border-slate-400 dark:hover:border-slate-700 transition-all', className)}>
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wider text-slate-400">{title}</span>
-        {icon && <div className="text-slate-400 p-1.5 rounded-md bg-surface-elevated border border-border">{icon}</div>}
+        <span className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">{title}</span>
+        {icon && <div className="text-slate-500 dark:text-slate-400 p-1.5 rounded-md bg-surface-elevated border border-border">{icon}</div>}
       </div>
       <div className="mt-4 flex items-baseline gap-2">
-        <span className="text-2xl font-bold font-mono tracking-tight text-slate-100">{value}</span>
+        <span className="text-2xl font-bold font-mono tracking-tight text-foreground">{value}</span>
         {change && (
           <span
             className={cn(
               'text-xs font-mono font-medium',
-              isPositive ? 'text-emerald-400' : 'text-rose-400'
+              isPositive ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'
             )}
           >
             {change}
           </span>
         )}
       </div>
-      {subtext && <p className="mt-1 text-xs text-slate-400">{subtext}</p>}
+      {subtext && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{subtext}</p>}
     </Card>
   );
 }

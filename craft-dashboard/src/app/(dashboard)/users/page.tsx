@@ -1,58 +1,57 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin-client';
 import { useAuth } from '@/lib/auth/auth-context';
 import { useLanguage } from '@/lib/i18n/language-context';
 import { Card } from '@/components/ui/card';
 import { DataTable } from '@/components/ui/data-table';
-import { StatusPill } from '@/components/ui/status-pill';
-import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Drawer } from '@/components/ui/drawer';
 import { ConfirmModal } from '@/components/ui/confirm-modal';
 import { ErrorAlert } from '@/components/ui/error-alert';
-import { Tabs } from '@/components/ui/tabs';
+import { EmptyState } from '@/components/ui/empty-state';
+import { User360Workspace } from '@/components/users/user-360-workspace';
 import {
   Search,
   Star,
   Ban,
   CheckCircle,
   Eye,
-  Trash2,
-  Clock,
-  Brain,
-  User,
-  MessageSquare,
-  Cpu,
-  ExternalLink,
-  ShieldCheck,
+  RefreshCw,
+  X,
+  RotateCcw,
+  Users,
 } from 'lucide-react';
-import Link from 'next/link';
+import { cn, truncate } from '@/lib/utils';
 import { AdminUserListItem } from '@/types/admin';
 
-export default function UsersPage() {
-  const { canMutate, canPurgeData } = useAuth();
-  const { t, formatNumber, formatCurrency, formatDate, formatRelativeTime } = useLanguage();
+function UsersDirectoryContent() {
+  const searchParams = useSearchParams();
+  const initialSearch = searchParams.get('search') || '';
+  const initialUserId = searchParams.get('userId') || null;
+
+  const { canMutate, canBanUsers } = useAuth();
+  const { t, formatNumber, formatRelativeTime } = useLanguage();
   const queryClient = useQueryClient();
 
   // Search & Filter state
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch);
   const [filterVip, setFilterVip] = useState<string>('all');
   const [filterBanned, setFilterBanned] = useState<string>('all');
+  const [filterChannel, setFilterChannel] = useState<string>('all');
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  // Selected User for 360 Drawer
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [drawerTab, setDrawerTab] = useState<'overview' | 'conversations' | 'memory' | 'reminders' | 'agent-runs'>('overview');
+  // Selected User for 360 Workspace
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(initialUserId);
 
-  // Modal states
+  // Ban confirmation modal
   const [banModalUser, setBanModalUser] = useState<AdminUserListItem | null>(null);
   const [banReason, setBanReason] = useState('');
-  const [purgeModalUserId, setPurgeModalUserId] = useState<string | null>(null);
 
   const queryParams = {
     search: search.trim() || undefined,
@@ -67,17 +66,49 @@ export default function UsersPage() {
     queryFn: () => adminApi.getUsers(queryParams),
   });
 
-  const users = data?.data || [];
-  const total = data?.pagination?.total;
+  const rawUsers = useMemo(() => data?.data || [], [data?.data]);
 
-  // User 360 Details Query
-  const detailsQuery = useQuery({
-    queryKey: ['admin-user-details', selectedUserId],
-    queryFn: () => adminApi.getUserDetails(selectedUserId!),
-    enabled: Boolean(selectedUserId),
-  });
+  // Client-side channel filtering if channel filter is set
+  const users = useMemo(() => {
+    if (filterChannel === 'all') return rawUsers;
+    return rawUsers.filter((u: any) => {
+      const ch = (u.channel || 'whatsapp').toLowerCase();
+      return ch === filterChannel.toLowerCase();
+    });
+  }, [rawUsers, filterChannel]);
 
-  const userDetails = detailsQuery.data?.data;
+  const total = data?.pagination?.total ?? users.length;
+
+  const isFiltered = Boolean(
+    search.trim() || filterVip !== 'all' || filterBanned !== 'all' || filterChannel !== 'all'
+  );
+
+  const activeFiltersCount =
+    (search.trim() ? 1 : 0) +
+    (filterVip !== 'all' ? 1 : 0) +
+    (filterBanned !== 'all' ? 1 : 0) +
+    (filterChannel !== 'all' ? 1 : 0);
+
+  const handleClearFilters = () => {
+    setSearch('');
+    setFilterVip('all');
+    setFilterBanned('all');
+    setFilterChannel('all');
+    setPage(1);
+  };
+
+  // KPI computations from loaded records
+  const { activeCount, vipCount, bannedCount } = useMemo(() => {
+    let act = 0;
+    let vip = 0;
+    let ban = 0;
+    rawUsers.forEach((u) => {
+      if (u.isBanned) ban++;
+      else act++;
+      if (u.isVip) vip++;
+    });
+    return { activeCount: act, vipCount: vip, bannedCount: ban };
+  }, [rawUsers]);
 
   // Mutations
   const toggleVipMutation = useMutation({
@@ -106,25 +137,55 @@ export default function UsersPage() {
     },
   });
 
-  const purgeMemoryMutation = useMutation({
-    mutationFn: (userId: string) => adminApi.purgeUserMemories(userId),
-    onSuccess: () => {
-      setPurgeModalUserId(null);
-      if (selectedUserId) queryClient.invalidateQueries({ queryKey: ['admin-user-details', selectedUserId] });
-    },
-  });
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-6 font-mono text-xs">
+      {/* 1. Header & Operational Summary */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
-            {t('users.title')}
-          </h1>
-          <p className="text-xs text-slate-400 font-mono mt-0.5">
+          <div className="flex items-center gap-2">
+            <span className="p-2 rounded-lg bg-brand-500/10 border border-brand-500/25 text-brand-600 dark:text-brand-400">
+              <Users className="h-5 w-5" />
+            </span>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
+              {t('users.title')}
+            </h1>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             {t('users.subtitle')}
           </p>
+        </div>
+
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <div className="hidden md:flex items-center gap-2 text-[11px] font-mono me-2">
+            <span className="px-2.5 py-1 rounded-md bg-surface border border-border text-slate-400">
+              {t('users.totalUsers')}: <strong className="text-foreground">{formatNumber(total)}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-500 dark:text-emerald-400">
+              {t('users.activeUsers')}: <strong>{formatNumber(activeCount)}</strong>
+            </span>
+            {vipCount > 0 && (
+              <span className="px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/25 text-amber-500">
+                VIP: <strong>{formatNumber(vipCount)}</strong>
+              </span>
+            )}
+            {bannedCount > 0 && (
+              <span className="px-2.5 py-1 rounded-md bg-rose-500/10 border border-rose-500/25 text-rose-500">
+                Banned: <strong>{formatNumber(bannedCount)}</strong>
+              </span>
+            )}
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isLoading}
+            className="h-8 text-xs font-mono"
+            aria-label={t('common.refresh')}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 me-1.5 ${isLoading ? 'animate-spin' : ''}`} />
+            {t('common.refresh')}
+          </Button>
         </div>
       </div>
 
@@ -145,464 +206,323 @@ export default function UsersPage() {
         <ErrorAlert error={unbanMutation.error} title={t('users.failedToUnban')} />
       )}
 
-      {/* Filters Bar */}
-      <Card className="p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <div className="sm:col-span-2">
-            <Input
-              placeholder={t('users.searchPlaceholder')}
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              icon={<Search className="h-4 w-4" />}
-            />
+      {/* 2. Filter Bar */}
+      <Card className="p-4 transition-colors shadow-xs">
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {/* Search input */}
+            <div className="sm:col-span-2 relative">
+              <Input
+                placeholder={t('users.searchPlaceholder')}
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                icon={<Search className="h-4 w-4" />}
+                className="pe-8"
+              />
+              {search && (
+                <button
+                  onClick={() => {
+                    setSearch('');
+                    setPage(1);
+                  }}
+                  className="absolute end-2.5 top-2.5 p-0.5 text-slate-400 hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* VIP selector */}
+            <div>
+              <select
+                value={filterVip}
+                onChange={(e) => {
+                  setFilterVip(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
+              >
+                <option value="all">{t('users.allVip')}</option>
+                <option value="vip">{t('users.vipOnly')}</option>
+                <option value="standard">{t('users.standardUsers')}</option>
+              </select>
+            </div>
+
+            {/* Status selector */}
+            <div>
+              <select
+                value={filterBanned}
+                onChange={(e) => {
+                  setFilterBanned(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
+              >
+                <option value="all">{t('users.allStatus')}</option>
+                <option value="active">{t('users.activeOnly')}</option>
+                <option value="banned">{t('users.bannedOnly')}</option>
+              </select>
+            </div>
+
+            {/* Channel selector */}
+            <div className="flex items-center gap-2">
+              <select
+                value={filterChannel}
+                onChange={(e) => {
+                  setFilterChannel(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
+              >
+                <option value="all">{t('users.filterAllChannels')}</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="flutter">Flutter</option>
+                <option value="web">Web</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <select
-              value={filterVip}
-              onChange={(e) => {
-                setFilterVip(e.target.value);
-                setPage(1);
-              }}
-              className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-slate-200 focus:outline-none"
-            >
-              <option value="all">{t('users.allVip')}</option>
-              <option value="vip">{t('users.vipOnly')}</option>
-              <option value="standard">{t('users.standardUsers')}</option>
-            </select>
-          </div>
-          <div>
-            <select
-              value={filterBanned}
-              onChange={(e) => {
-                setFilterBanned(e.target.value);
-                setPage(1);
-              }}
-              className="w-full h-9 rounded-md border border-border bg-surface-elevated px-3 text-xs font-mono text-slate-200 focus:outline-none"
-            >
-              <option value="all">{t('users.allStatus')}</option>
-              <option value="active">{t('users.activeOnly')}</option>
-              <option value="banned">{t('users.bannedOnly')}</option>
-            </select>
-          </div>
+
+          {/* Active Filters Pill Strip */}
+          {isFiltered && (
+            <div className="flex items-center justify-between pt-2 border-t border-border/50 text-[11px] font-mono text-slate-500 dark:text-slate-400 flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span>{t('users.activeFilters', { count: String(activeFiltersCount) })}:</span>
+                {search.trim() && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-elevated border border-border text-foreground">
+                    <span>&quot;{truncate(search.trim(), 16)}&quot;</span>
+                    <button onClick={() => setSearch('')} aria-label="Remove search filter">
+                      <X className="h-3 w-3 hover:text-rose-400" />
+                    </button>
+                  </span>
+                )}
+                {filterVip !== 'all' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-elevated border border-border text-foreground uppercase">
+                    <span>{filterVip}</span>
+                    <button onClick={() => setFilterVip('all')} aria-label="Remove VIP filter">
+                      <X className="h-3 w-3 hover:text-rose-400" />
+                    </button>
+                  </span>
+                )}
+                {filterBanned !== 'all' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-elevated border border-border text-foreground uppercase">
+                    <span>{filterBanned}</span>
+                    <button onClick={() => setFilterBanned('all')} aria-label="Remove status filter">
+                      <X className="h-3 w-3 hover:text-rose-400" />
+                    </button>
+                  </span>
+                )}
+                {filterChannel !== 'all' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-elevated border border-border text-foreground uppercase">
+                    <span>{filterChannel}</span>
+                    <button onClick={() => setFilterChannel('all')} aria-label="Remove channel filter">
+                      <X className="h-3 w-3 hover:text-rose-400" />
+                    </button>
+                  </span>
+                )}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleClearFilters}
+                className="h-7 text-xs font-mono border-dashed text-slate-500 dark:text-slate-400 hover:text-foreground"
+              >
+                <RotateCcw className="h-3 w-3 me-1.5" />
+                {t('users.clearFilters')}
+              </Button>
+            </div>
+          )}
         </div>
       </Card>
 
-      {/* Users Table */}
-      <DataTable
-        columns={[
-          {
-            header: t('users.colUser'),
-            accessorKey: 'phoneNumber',
-            cell: (u) => (
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-100">{u.phoneNumber || (u as any).phone || u.id}</span>
-                {u.isVip && (
-                  <Badge variant="warning" className="text-[10px] py-0 px-1">
-                    <Star className="h-2.5 w-2.5 me-0.5 fill-amber-400" />
-                    {t('common.vip')}
-                  </Badge>
-                )}
-              </div>
-            ),
-          },
-          {
-            header: t('users.colStatus'),
-            accessorKey: 'isBanned',
-            cell: (u) => (
-              <StatusPill status={u.isBanned ? 'banned' : 'active'} />
-            ),
-          },
-          {
-            header: t('overview.messages'),
-            accessorKey: 'messageCount',
-            cell: (u) => formatNumber(u.messageCount ?? (u as any).totalMessages ?? 0),
-          },
-          {
-            header: t('navigation.conversations'),
-            accessorKey: 'conversationCount',
-            cell: (u) => formatNumber(u.conversationCount ?? 0),
-          },
-          {
-            header: t('navigation.reminders'),
-            accessorKey: 'reminderCount',
-            cell: (u) => formatNumber(u.reminderCount ?? 0),
-          },
-          {
-            header: t('users.colLastActive'),
-            accessorKey: 'lastActiveAt',
-            cell: (u) => formatRelativeTime(u.lastActiveAt || (u as any).lastActive),
-          },
-          {
-            header: t('users.colActions'),
-            cell: (u) => (
-              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedUserId(u.id)}
-                  title={t('users.btnView360')}
-                >
-                  <Eye className="h-3.5 w-3.5 me-1" />
-                  360°
-                </Button>
+      {/* 3. Users Table with Visual Priority */}
+      {users.length === 0 && !isLoading && isFiltered ? (
+        <Card className="p-8">
+          <EmptyState
+            title={t('users.noFilteredUsers')}
+            description=""
+            action={{
+              label: t('users.clearFilters'),
+              onClick: handleClearFilters,
+              icon: RotateCcw,
+            }}
+            className="border-none bg-transparent"
+          />
+        </Card>
+      ) : (
+        <DataTable
+          columns={[
+            {
+              header: t('users.colUser'),
+              accessorKey: 'phoneNumber',
+              className: 'min-w-[200px]',
+              cell: (u) => {
+                const phoneDisplay = u.phoneNumber || (u as any).phone || u.id;
+                return (
+                  <div className="font-mono flex items-center gap-2.5">
+                    <div className="h-8 w-8 rounded-full bg-brand-500/15 border border-brand-500/30 flex items-center justify-center text-brand-400 font-bold text-xs shrink-0">
+                      {phoneDisplay ? phoneDisplay.slice(-2).toUpperCase() : 'U'}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-foreground truncate" dir="ltr">
+                          {phoneDisplay}
+                        </span>
+                        {u.isVip && (
+                          <span
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/15 border border-amber-500/30 text-amber-500"
+                            title={t('common.vip')}
+                          >
+                            <Star className="h-2.5 w-2.5 fill-amber-500" />
+                            {t('common.vip')}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate" dir="ltr">
+                        {truncate(u.id, 14)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              },
+            },
+            {
+              header: t('users.colStatus'),
+              accessorKey: 'isBanned',
+              className: 'w-24',
+              cell: (u) => (
+                <StatusBadge status={u.isBanned ? 'banned' : 'active'} size="xs" showDot={true} />
+              ),
+            },
+            {
+              header: t('users.colLastActive'),
+              accessorKey: 'lastActiveAt',
+              className: 'w-28',
+              cell: (u) => (
+                <span className="text-slate-500 dark:text-slate-400 text-xs">
+                  {formatRelativeTime(u.lastActiveAt || (u as any).lastActive || u.createdAt)}
+                </span>
+              ),
+            },
+            {
+              header: t('navigation.conversations'),
+              accessorKey: 'conversationCount',
+              className: 'w-28 text-center',
+              cell: (u) => (
+                <span className="font-bold text-foreground">
+                  {formatNumber(u.conversationCount ?? 0)}
+                </span>
+              ),
+            },
+            {
+              header: t('overview.messages'),
+              accessorKey: 'messageCount',
+              className: 'w-24 text-center',
+              cell: (u) => (
+                <span className="font-bold text-foreground">
+                  {formatNumber(u.messageCount ?? (u as any).totalMessages ?? 0)}
+                </span>
+              ),
+            },
+            {
+              header: t('navigation.reminders'),
+              accessorKey: 'reminderCount',
+              className: 'w-24 text-center',
+              cell: (u) => (
+                <span className="font-bold text-slate-400">
+                  {formatNumber(u.reminderCount ?? 0)}
+                </span>
+              ),
+            },
+            {
+              header: t('users.colActions'),
+              className: 'w-36 text-end',
+              cell: (u) => (
+                <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedUserId(u.id)}
+                    className="h-7 text-xs font-mono"
+                    title={t('users.btnView360')}
+                  >
+                    <Eye className="h-3 w-3 me-1" />
+                    <span>360°</span>
+                  </Button>
 
-                {canMutate && (
-                  <>
+                  {canMutate && (
                     <Button
                       variant={u.isVip ? 'outline' : 'secondary'}
                       size="sm"
                       onClick={() => toggleVipMutation.mutate({ id: u.id, isVip: !u.isVip })}
                       isLoading={toggleVipMutation.isPending}
+                      className="h-7 w-7 p-0"
                       title={u.isVip ? t('users.btnUnvip') : t('users.btnVip')}
                     >
-                      <Star className={`h-3.5 w-3.5 ${u.isVip ? 'text-amber-400 fill-amber-400' : 'text-slate-400'}`} />
+                      <Star
+                        className={cn(
+                          'h-3.5 w-3.5',
+                          u.isVip ? 'text-amber-500 fill-amber-500' : 'text-slate-400'
+                        )}
+                      />
                     </Button>
+                  )}
 
-                    {u.isBanned ? (
+                  {canBanUsers && (
+                    u.isBanned ? (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => unbanMutation.mutate(u.id)}
                         isLoading={unbanMutation.isPending}
+                        className="h-7 w-7 p-0 text-emerald-400 border-emerald-500/30 hover:border-emerald-500"
                         title={t('users.btnUnban')}
                       >
-                        <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
+                        <CheckCircle className="h-3.5 w-3.5" />
                       </Button>
                     ) : (
                       <Button
                         variant="destructive"
                         size="sm"
                         onClick={() => setBanModalUser(u)}
+                        className="h-7 w-7 p-0"
                         title={t('users.btnBan')}
                       >
                         <Ban className="h-3.5 w-3.5" />
                       </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            ),
-          },
-        ]}
-        data={users}
-        isLoading={isLoading}
-        emptyMessage={t('common.noData')}
-        pagination={{
-          currentPage: page,
-          hasMore: total !== undefined ? page * limit < total : users.length === limit,
-          onNext: () => setPage((p) => p + 1),
-          onPrev: () => setPage((p) => Math.max(1, p - 1)),
-          total,
-        }}
-      />
-
-      {/* User 360 Drawer */}
-      <Drawer
-        isOpen={Boolean(selectedUserId)}
-        onClose={() => setSelectedUserId(null)}
-        title={`${t('users.drawerTitle')}: ${userDetails?.user?.phoneNumber || selectedUserId || ''}`}
-        subtitle={t('users.systemId', { id: selectedUserId || '' })}
-        width="xl"
-      >
-        {detailsQuery.isLoading ? (
-          <div className="p-8 text-center text-xs font-mono text-slate-400">{t('users.loadingTelemetry')}</div>
-        ) : detailsQuery.error ? (
-          <div className="p-4">
-            <ErrorAlert
-              error={detailsQuery.error}
-              title={t('users.failedToLoad')}
-              onRetry={() => detailsQuery.refetch()}
-            />
-          </div>
-        ) : !userDetails ? (
-          <div className="p-8 text-center text-xs font-mono text-slate-400">{t('users.userNotFound')}</div>
-        ) : (
-          <div className="space-y-4 font-mono text-xs">
-            {/* Tabs Bar */}
-            <Tabs
-              tabs={[
-                { id: 'overview', label: t('users.tabOverview'), icon: <User className="h-3.5 w-3.5" /> },
-                {
-                  id: 'conversations',
-                  label: t('users.tabConversations'),
-                  badge: userDetails.recentConversations?.length ?? userDetails.conversations?.length ?? 0,
-                  icon: <MessageSquare className="h-3.5 w-3.5" />,
-                },
-                {
-                  id: 'memory',
-                  label: t('users.tabMemory'),
-                  badge: userDetails.memories?.length ?? 0,
-                  icon: <Brain className="h-3.5 w-3.5" />,
-                },
-                {
-                  id: 'reminders',
-                  label: t('users.tabReminders'),
-                  badge: userDetails.reminders?.length ?? 0,
-                  icon: <Clock className="h-3.5 w-3.5" />,
-                },
-                {
-                  id: 'agent-runs',
-                  label: t('users.tabAgentRuns'),
-                  icon: <Cpu className="h-3.5 w-3.5" />,
-                },
-              ]}
-              activeTab={drawerTab}
-              onChange={(id) => setDrawerTab(id as any)}
-            />
-
-            {/* TAB 1: OVERVIEW */}
-            {drawerTab === 'overview' && (
-              <div className="space-y-4">
-                {/* Status & Quick Tags */}
-                <div className="flex items-center justify-between p-4 rounded-lg bg-surface-elevated/40 border border-border">
-                  <div className="space-y-1">
-                    <span className="text-[11px] text-slate-400 uppercase">{t('users.colStatus')}</span>
-                    <div className="flex items-center gap-2">
-                      <StatusPill status={userDetails.user.isBanned ? 'banned' : 'active'} />
-                      {userDetails.user.isVip && <Badge variant="warning">{t('users.vipContact')}</Badge>}
-                    </div>
-                    {userDetails.user.isBanned && userDetails.user.banReason && (
-                      <p className="text-[11px] text-red-400 mt-1">
-                        {userDetails.user.banReason}
-                      </p>
-                    )}
-                  </div>
-                  <div className="text-end">
-                    <span className="text-[11px] text-slate-400 uppercase">{t('users.firstSeen')}</span>
-                    <p className="text-slate-200 mt-1">{formatDate(userDetails.user.createdAt)}</p>
-                  </div>
-                </div>
-
-                {/* Metrics Breakdown */}
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="p-3 rounded bg-surface-elevated/30 border border-border">
-                    <span className="text-[10px] text-slate-400 uppercase block">{t('overview.messages')}</span>
-                    <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.totalMessages ?? (userDetails as any).metrics?.totalMessages ?? 0)}</span>
-                  </div>
-                  <div className="p-3 rounded bg-surface-elevated/30 border border-border">
-                    <span className="text-[10px] text-slate-400 uppercase block">{t('overview.tokenUsage')}</span>
-                    <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.tokenCount ?? (userDetails as any).metrics?.tokensUsed ?? 0)}</span>
-                  </div>
-                  <div className="p-3 rounded bg-surface-elevated/30 border border-border">
-                    <span className="text-[10px] text-slate-400 uppercase block">{t('users.colCost')}</span>
-                    <span className="text-base font-bold text-slate-100">{formatCurrency(userDetails.stats?.costUsd ?? (userDetails as any).metrics?.estimatedCostUsd ?? 0)}</span>
-                  </div>
-                </div>
-
-                {/* WhatsApp Contact Details */}
-                {userDetails.whatsappContact && (
-                  <div className="p-3.5 rounded-lg bg-surface-elevated/30 border border-border space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-200 flex items-center gap-1.5">
-                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                        WhatsApp Identity
-                      </span>
-                      {userDetails.whatsappContact.verified && (
-                        <Badge variant="success" className="text-[10px]">Verified</Badge>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-[11px]">
-                      <div>
-                        <span className="text-slate-400 block">Profile Name</span>
-                        <span className="text-slate-200">{userDetails.whatsappContact.profileName || '—'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">WA ID</span>
-                        <span className="text-slate-200">{userDetails.whatsappContact.waId || '—'}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* User Preferences */}
-                {userDetails.preferences && Object.keys(userDetails.preferences).length > 0 && (
-                  <div className="p-3.5 rounded-lg bg-surface-elevated/30 border border-border space-y-2">
-                    <span className="font-semibold text-slate-200 block">User Preferences</span>
-                    <div className="space-y-1">
-                      {Object.entries(userDetails.preferences).map(([k, v]) => (
-                        <div key={k} className="flex items-center justify-between text-[11px] py-1 border-b border-border/40 last:border-0">
-                          <span className="text-slate-400">{k}</span>
-                          <span className="text-slate-200 font-medium">{String(v)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TAB 2: CONVERSATIONS */}
-            {drawerTab === 'conversations' && (
-              <div className="space-y-3">
-                {(!userDetails.recentConversations || userDetails.recentConversations.length === 0) &&
-                 (!userDetails.conversations || userDetails.conversations.length === 0) ? (
-                  <p className="p-6 text-center rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
-                    {t('users.noConversationsFound')}
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {(userDetails.recentConversations || userDetails.conversations || []).map((c: any) => (
-                      <div key={c.id} className="p-3 rounded-lg bg-surface-elevated/30 border border-border hover:border-border-strong transition-colors space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="default" className="text-[10px] uppercase">{c.channel || 'whatsapp'}</Badge>
-                            <StatusPill status={c.status || 'active'} />
-                          </div>
-                          <span className="text-[10px] text-slate-400">
-                            {formatRelativeTime(c.updatedAt || c.lastMessageAt || c.createdAt)}
-                          </span>
-                        </div>
-                        {c.lastMessageSnippet && (
-                          <p className="text-slate-300 text-[11px] line-clamp-2 bg-surface/50 p-2 rounded border border-border/30">
-                            {c.lastMessageSnippet}
-                          </p>
-                        )}
-                        <div className="flex items-center justify-between pt-1">
-                          <span className="text-[10px] text-slate-400">
-                            {formatNumber(c.messageCount || c.messagesCount || 0)} {t('overview.messages')}
-                          </span>
-                          <Link
-                            href={`/conversations?id=${c.id}`}
-                            className="inline-flex items-center gap-1 text-[11px] text-brand-400 hover:text-brand-300 font-medium"
-                          >
-                            {t('users.openConversation')}
-                            <ExternalLink className="h-3 w-3" />
-                          </Link>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TAB 3: MEMORY */}
-            {drawerTab === 'memory' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
-                    <Brain className="h-3.5 w-3.5 text-purple-400" />
-                    {t('users.profileMemoriesCount', { count: userDetails.memories?.length || 0 })}
-                  </h4>
-                  {canPurgeData && (userDetails.memories?.length || 0) > 0 && (
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => setPurgeModalUserId(selectedUserId)}
-                    >
-                      <Trash2 className="h-3 w-3 me-1" />
-                      {t('users.purgeMemoryBtn')}
-                    </Button>
+                    )
                   )}
                 </div>
-                {userDetails.memories?.length === 0 ? (
-                  <p className="p-6 text-center rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
-                    {t('users.noMemoriesFound')}
-                  </p>
-                ) : (
-                  <div className="space-y-1.5 max-h-[60vh] overflow-y-auto pe-1">
-                    {userDetails.memories?.map((mem: any) => (
-                      <div key={mem.id} className="p-2.5 rounded bg-surface-elevated/30 border border-border flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-slate-200">{mem.key || mem.factKey || mem.category || 'fact'}</span>
-                            <span className="text-[10px] px-1 rounded bg-purple-950 text-purple-300 border border-purple-800">
-                              {mem.category}
-                            </span>
-                          </div>
-                          <p className="text-slate-300 mt-1">{mem.value || mem.factText}</p>
-                          {mem.createdAt && (
-                            <span className="text-[9px] text-slate-500 mt-1 block">
-                              {formatDate(mem.createdAt)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+              ),
+            },
+          ]}
+          data={users}
+          isLoading={isLoading}
+          emptyMessage={t('common.noData')}
+          onRowClick={(u) => setSelectedUserId(u.id)}
+          pagination={{
+            currentPage: page,
+            hasMore: total !== undefined ? page * limit < total : users.length === limit,
+            onNext: () => setPage((p) => p + 1),
+            onPrev: () => setPage((p) => Math.max(1, p - 1)),
+            total,
+          }}
+        />
+      )}
 
-            {/* TAB 4: REMINDERS */}
-            {drawerTab === 'reminders' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5 text-brand-400" />
-                    {t('users.scheduledRemindersCount', { count: userDetails.reminders?.length || 0 })}
-                  </h4>
-                </div>
-                {userDetails.reminders?.length === 0 ? (
-                  <p className="p-6 text-center rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
-                    {t('users.noRemindersFound')}
-                  </p>
-                ) : (
-                  <div className="space-y-1.5 max-h-[60vh] overflow-y-auto pe-1">
-                    {userDetails.reminders?.map((rem: any) => (
-                      <div key={rem.id} className="p-2.5 rounded bg-surface-elevated/30 border border-border flex items-center justify-between">
-                        <div>
-                          <p className="font-semibold text-slate-200">{rem.title}</p>
-                          <p className="text-[10px] text-slate-400">{formatDate(rem.scheduledTime || rem.dueAt)}</p>
-                          {rem.recurrence && rem.recurrence !== 'none' && (
-                            <span className="text-[9px] text-brand-300 uppercase mt-0.5 block">
-                              ↻ {rem.recurrence}
-                            </span>
-                          )}
-                        </div>
-                        <StatusPill status={rem.status || rem.state} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+      {/* 4. User 360 Workspace Drawer */}
+      <User360Workspace
+        userId={selectedUserId}
+        isOpen={Boolean(selectedUserId)}
+        onClose={() => setSelectedUserId(null)}
+        onUserMutated={() => refetch()}
+      />
 
-            {/* TAB 5: AGENT RUNS & TELEMETRY */}
-            {drawerTab === 'agent-runs' && (
-              <div className="space-y-3">
-                <div className="p-4 rounded-lg bg-surface-elevated/30 border border-border space-y-3">
-                  <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
-                    <Cpu className="h-3.5 w-3.5 text-cyan-400" />
-                    {t('users.telemetryStats')}
-                  </h4>
-                  <div className="grid grid-cols-2 gap-3 text-[11px]">
-                    <div className="p-2.5 rounded bg-surface/50 border border-border/40">
-                      <span className="text-slate-400 block text-[10px] uppercase">Prompt Tokens</span>
-                      <span className="text-slate-200 font-bold text-sm">
-                        {formatNumber((userDetails as any).metrics?.promptTokens ?? 0)}
-                      </span>
-                    </div>
-                    <div className="p-2.5 rounded bg-surface/50 border border-border/40">
-                      <span className="text-slate-400 block text-[10px] uppercase">Completion Tokens</span>
-                      <span className="text-slate-200 font-bold text-sm">
-                        {formatNumber((userDetails as any).metrics?.completionTokens ?? 0)}
-                      </span>
-                    </div>
-                    <div className="p-2.5 rounded bg-surface/50 border border-border/40">
-                      <span className="text-slate-400 block text-[10px] uppercase">Daily Message Count</span>
-                      <span className="text-slate-200 font-bold text-sm">
-                        {formatNumber((userDetails as any).metrics?.dailyMessageCount ?? userDetails.user.dailyMessageCount ?? 0)}
-                      </span>
-                    </div>
-                    <div className="p-2.5 rounded bg-surface/50 border border-border/40">
-                      <span className="text-slate-400 block text-[10px] uppercase">Estimated Spend</span>
-                      <span className="text-slate-200 font-bold text-sm">
-                        {formatCurrency(userDetails.stats?.costUsd ?? (userDetails as any).metrics?.estimatedCostUsd ?? 0)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </Drawer>
-
-      {/* Ban User Modal */}
+      {/* 5. Ban User Confirmation Modal */}
       <ConfirmModal
         isOpen={Boolean(banModalUser)}
         onClose={() => setBanModalUser(null)}
@@ -622,18 +542,14 @@ export default function UsersPage() {
           />
         </div>
       </ConfirmModal>
-
-      {/* Purge Memory Modal */}
-      <ConfirmModal
-        isOpen={Boolean(purgeModalUserId)}
-        onClose={() => setPurgeModalUserId(null)}
-        onConfirm={() => purgeMemoryMutation.mutate(purgeModalUserId!)}
-        title={t('users.purgeModalTitle')}
-        description={t('users.purgeModalDesc')}
-        confirmText={t('users.confirmPurge')}
-        variant="destructive"
-        isLoading={purgeMemoryMutation.isPending}
-      />
     </div>
+  );
+}
+
+export default function UsersPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs font-mono text-slate-400">Loading...</div>}>
+      <UsersDirectoryContent />
+    </Suspense>
   );
 }

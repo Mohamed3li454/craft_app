@@ -10,16 +10,26 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "#080c14",
+        background: "var(--background)",
+        foreground: "var(--foreground)",
         surface: {
-          DEFAULT: "#0f172a",
-          elevated: "#1e293b",
-          highlight: "#26354a",
+          DEFAULT: "var(--surface)",
+          elevated: "var(--surface-elevated)",
+          hover: "var(--surface-hover)",
+          highlight: "var(--surface-highlight)",
         },
         border: {
-          DEFAULT: "#1e293b",
-          subtle: "#182234",
-          strong: "#334155",
+          DEFAULT: "var(--border)",
+          subtle: "var(--border-subtle)",
+          strong: "var(--border-strong)",
+        },
+        sidebar: {
+          DEFAULT: "var(--sidebar-bg)",
+        },
+        appText: {
+          primary: "var(--text-primary)",
+          secondary: "var(--text-secondary)",
+          muted: "var(--text-muted)",
         },
         brand: {
           50: "#eef2ff",
@@ -28,6 +38,9 @@ const config: Config = {
           500: "#6366f1",
           600: "#4f46e5",
           700: "#4338ca",
+          800: "#3730a3",
+          900: "#312e81",
+          950: "#1e1b4b",
         },
       },
       fontFamily: {
