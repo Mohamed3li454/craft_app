@@ -10,55 +10,60 @@ import { DataTable } from '@/components/ui/data-table';
 import { StatusPill } from '@/components/ui/status-pill';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Drawer } from '@/components/ui/drawer';
 import { ErrorAlert } from '@/components/ui/error-alert';
-import { Search, Eye, Archive, User, Bot } from 'lucide-react';
+import { ConversationViewer } from '@/components/conversations/conversation-viewer';
+import { Search, Eye, Archive, MessageSquare, Filter, RefreshCw } from 'lucide-react';
 import { truncate } from '@/lib/utils';
 import { AdminConversationItem } from '@/types/admin';
 
 export default function ConversationsPage() {
   const { canMutate } = useAuth();
-  const { t, formatNumber, formatDate, formatRelativeTime } = useLanguage();
+  const { t, formatNumber, formatRelativeTime } = useLanguage();
   const queryClient = useQueryClient();
 
-  const [userIdFilter, setUserIdFilter] = useState('');
+  const [searchFilter, setSearchFilter] = useState('');
+  const [channelFilter, setChannelFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(1);
   const limit = 20;
 
   const [selectedConv, setSelectedConv] = useState<AdminConversationItem | null>(null);
 
   const queryParams = {
-    userId: userIdFilter.trim() || undefined,
+    search: searchFilter.trim() || undefined,
+    channel: channelFilter !== 'all' ? channelFilter : undefined,
     limit,
     offset: (page - 1) * limit,
   };
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['admin-conversations', queryParams],
+    queryKey: ['admin-conversations', queryParams, statusFilter],
     queryFn: () => adminApi.getConversations(queryParams),
   });
 
-  const conversations = data?.data || [];
-  const total = data?.pagination?.total;
-
-  // Messages Query for selected conversation
-  const messagesQuery = useQuery({
-    queryKey: ['admin-messages', selectedConv?.id],
-    queryFn: () => adminApi.getConversationMessages(selectedConv!.id),
-    enabled: Boolean(selectedConv),
+  // Client-side status filter if specified
+  const rawConversations = data?.data || [];
+  const conversations = rawConversations.filter((c) => {
+    if (statusFilter === 'active') return c.status !== 'archived' && !(c as any).isArchived;
+    if (statusFilter === 'archived') return c.status === 'archived' || !!(c as any).isArchived;
+    return true;
   });
 
-  const messages = messagesQuery.data?.data || [];
+  const total = data?.pagination?.total ?? conversations.length;
 
   const archiveMutation = useMutation({
-    mutationFn: (id: string) => adminApi.archiveConversation(id),
-    onSuccess: () => {
+    mutationFn: ({ id }: { id: string }) => adminApi.archiveConversation(id),
+    onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['admin-conversations'] });
-      if (selectedConv) {
-        setSelectedConv((prev) => (prev ? { ...prev, status: 'archived' } : null));
+      if (selectedConv && selectedConv.id === vars.id) {
+        setSelectedConv((prev) => (prev ? { ...prev, status: 'archived', isArchived: true } : null));
       }
     },
   });
+
+  const handleArchiveToggle = (id: string) => {
+    archiveMutation.mutate({ id });
+  };
 
   return (
     <div className="space-y-6">
@@ -66,12 +71,24 @@ export default function ConversationsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold font-mono tracking-tight text-white flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-emerald-400" />
             {t('conversations.title')}
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
             {t('conversations.subtitle')}
           </p>
         </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          disabled={isLoading}
+          className="self-start sm:self-auto h-8 font-mono text-xs"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 me-1.5 ${isLoading ? 'animate-spin' : ''}`} />
+          {t('common.refresh')}
+        </Button>
       </div>
 
       {error && (
@@ -87,16 +104,59 @@ export default function ConversationsPage() {
 
       {/* Filter Bar */}
       <Card className="p-4">
-        <div className="max-w-md">
-          <Input
-            placeholder={t('conversations.filterPlaceholder')}
-            value={userIdFilter}
-            onChange={(e) => {
-              setUserIdFilter(e.target.value);
-              setPage(1);
-            }}
-            icon={<Search className="h-4 w-4" />}
-          />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Search input */}
+          <div className="flex-1 min-w-[240px]">
+            <Input
+              placeholder={t('conversations.filterPlaceholder')}
+              value={searchFilter}
+              onChange={(e) => {
+                setSearchFilter(e.target.value);
+                setPage(1);
+              }}
+              icon={<Search className="h-4 w-4" />}
+            />
+          </div>
+
+          {/* Channel selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-slate-400 flex items-center gap-1">
+              <Filter className="h-3.5 w-3.5" />
+              {t('conversations.colChannel')}:
+            </span>
+            <select
+              value={channelFilter}
+              onChange={(e) => {
+                setChannelFilter(e.target.value);
+                setPage(1);
+              }}
+              className="h-9 px-3 rounded-md bg-surface-elevated border border-border text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            >
+              <option value="all">{t('conversations.filterAllChannels')}</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="flutter">Flutter</option>
+              <option value="web">Web</option>
+            </select>
+          </div>
+
+          {/* Status selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-slate-400">
+              {t('conversations.colStatus')}:
+            </span>
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
+              className="h-9 px-3 rounded-md bg-surface-elevated border border-border text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            >
+              <option value="all">{t('conversations.filterAllStatus')}</option>
+              <option value="active">{t('conversations.filterActive')}</option>
+              <option value="archived">{t('conversations.filterArchived')}</option>
+            </select>
+          </div>
         </div>
       </Card>
 
@@ -104,19 +164,28 @@ export default function ConversationsPage() {
       <DataTable
         columns={[
           {
-            header: t('conversations.colConvId'),
-            accessorKey: 'id',
-            cell: (c) => <span className="font-semibold text-slate-200">{truncate(c.id, 16)}</span>,
+            header: t('conversations.colChannel'),
+            accessorKey: 'channel',
+            cell: (c) => (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold font-mono uppercase tracking-wider bg-emerald-950/60 border border-emerald-800 text-emerald-300">
+                <MessageSquare className="h-3 w-3 text-emerald-400" />
+                {c.channel || 'whatsapp'}
+              </span>
+            ),
           },
           {
             header: t('conversations.colUser'),
             accessorKey: 'userPhone',
-            cell: (c) => <span className="text-slate-100">{c.userPhone || truncate(c.userId, 16)}</span>,
-          },
-          {
-            header: t('conversations.colChannel'),
-            accessorKey: 'channel',
-            cell: (c) => <span className="uppercase text-slate-400 text-xs">{c.channel || 'whatsapp'}</span>,
+            cell: (c) => (
+              <div className="font-mono">
+                <span className="font-semibold text-slate-100 block">
+                  {c.userPhone || c.phone || truncate(c.userId, 16)}
+                </span>
+                {c.userName && c.userName !== 'User' && (
+                  <span className="text-[11px] text-slate-400">{c.userName}</span>
+                )}
+              </div>
+            ),
           },
           {
             header: t('conversations.colStatus'),
@@ -126,17 +195,29 @@ export default function ConversationsPage() {
           {
             header: t('conversations.colMessages'),
             accessorKey: 'messageCount',
-            cell: (c) => formatNumber(c.messageCount ?? (c as any).messagesCount ?? 0),
+            cell: (c) => (
+              <span className="font-bold text-slate-200 font-mono">
+                {formatNumber(c.messageCount ?? (c as any).messagesCount ?? 0)}
+              </span>
+            ),
           },
           {
             header: t('conversations.lastSnippet'),
             accessorKey: 'lastMessageSnippet',
-            cell: (c) => <span className="text-slate-400 text-xs italic">{truncate(c.lastMessageSnippet || (c as any).lastMessage, 40)}</span>,
+            cell: (c) => (
+              <span className="text-slate-400 text-xs italic block max-w-xs truncate">
+                {c.lastMessageSnippet || (c as any).lastMessage || '—'}
+              </span>
+            ),
           },
           {
             header: t('conversations.updated'),
             accessorKey: 'updatedAt',
-            cell: (c) => formatRelativeTime(c.updatedAt || (c as any).lastMessageAt || c.createdAt),
+            cell: (c) => (
+              <span className="text-slate-400 text-xs font-mono">
+                {formatRelativeTime(c.updatedAt || (c as any).lastMessageAt || c.createdAt)}
+              </span>
+            ),
           },
           {
             header: t('conversations.colActions'),
@@ -150,7 +231,7 @@ export default function ConversationsPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => archiveMutation.mutate(c.id)}
+                    onClick={() => handleArchiveToggle(c.id)}
                     isLoading={archiveMutation.isPending}
                     title={t('conversations.archiveTitle')}
                   >
@@ -173,67 +254,13 @@ export default function ConversationsPage() {
         }}
       />
 
-      {/* Transcript Drawer */}
-      <Drawer
+      {/* Redesigned Conversation Viewer */}
+      <ConversationViewer
+        conversation={selectedConv}
         isOpen={Boolean(selectedConv)}
         onClose={() => setSelectedConv(null)}
-        title={`${t('conversations.drawerTitle')}: ${selectedConv?.id}`}
-        subtitle={`${t('conversations.colUser')}: ${selectedConv?.userPhone || selectedConv?.userId || ''} • ${t('conversations.colChannel')}: ${selectedConv?.channel || 'whatsapp'}`}
-        width="2xl"
-      >
-        {messagesQuery.isLoading ? (
-          <div className="p-8 text-center text-xs font-mono text-slate-400">{t('conversations.loadingTranscript')}</div>
-        ) : messages.length === 0 ? (
-          <div className="p-8 text-center text-xs font-mono text-slate-400">{t('conversations.noMessages')}</div>
-        ) : (
-          <div className="space-y-4 font-mono text-xs">
-            {messages.map((msg) => {
-              const isUser = msg.sender === 'user';
-
-              return (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} space-y-1`}
-                >
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 px-1">
-                    {isUser ? (
-                      <>
-                        <span>{formatDate(msg.createdAt || (msg as any).timestamp)}</span>
-                        <span className="font-semibold text-slate-300 flex items-center gap-1">
-                          {t('conversations.user')} <User className="h-3 w-3" />
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="font-semibold text-brand-300 flex items-center gap-1">
-                          <Bot className="h-3 w-3" /> {t('conversations.assistant')}
-                        </span>
-                        {msg.model && <span className="text-[10px] text-slate-400">({msg.model})</span>}
-                        <span>• {formatDate(msg.createdAt || (msg as any).timestamp)}</span>
-                      </>
-                    )}
-                  </div>
-
-                  <div
-                    className={`max-w-xl p-3.5 rounded-lg border leading-relaxed text-xs ${
-                      isUser
-                        ? 'bg-brand-950/40 border-brand-800/60 text-slate-100 rounded-te-none'
-                        : 'bg-surface-elevated border-border text-slate-200 rounded-ts-none'
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap">{msg.content || (msg as any).text}</p>
-                    {msg.tokens !== undefined && (
-                      <div className="mt-2 pt-2 border-t border-border/40 text-[10px] text-slate-400 flex items-center justify-between">
-                        <span>{t('conversations.tokens', { tokens: String(msg.tokens) })}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Drawer>
+        onArchiveToggle={handleArchiveToggle}
+      />
     </div>
   );
 }

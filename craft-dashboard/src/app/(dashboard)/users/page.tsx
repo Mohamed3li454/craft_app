@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Drawer } from '@/components/ui/drawer';
 import { ConfirmModal } from '@/components/ui/confirm-modal';
 import { ErrorAlert } from '@/components/ui/error-alert';
+import { Tabs } from '@/components/ui/tabs';
 import {
   Search,
   Star,
@@ -23,7 +24,13 @@ import {
   Trash2,
   Clock,
   Brain,
+  User,
+  MessageSquare,
+  Cpu,
+  ExternalLink,
+  ShieldCheck,
 } from 'lucide-react';
+import Link from 'next/link';
 import { AdminUserListItem } from '@/types/admin';
 
 export default function UsersPage() {
@@ -40,6 +47,7 @@ export default function UsersPage() {
 
   // Selected User for 360 Drawer
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [drawerTab, setDrawerTab] = useState<'overview' | 'conversations' | 'memory' | 'reminders' | 'agent-runs'>('overview');
 
   // Modal states
   const [banModalUser, setBanModalUser] = useState<AdminUserListItem | null>(null);
@@ -312,105 +320,284 @@ export default function UsersPage() {
         ) : !userDetails ? (
           <div className="p-8 text-center text-xs font-mono text-slate-400">{t('users.userNotFound')}</div>
         ) : (
-          <div className="space-y-6 font-mono text-xs">
-            {/* Status & Quick Tags */}
-            <div className="flex items-center justify-between p-4 rounded-lg bg-surface-elevated/40 border border-border">
-              <div className="space-y-1">
-                <span className="text-[11px] text-slate-400 uppercase">{t('users.colStatus')}</span>
-                <div className="flex items-center gap-2">
-                  <StatusPill status={userDetails.user.isBanned ? 'banned' : 'active'} />
-                  {userDetails.user.isVip && <Badge variant="warning">{t('users.vipContact')}</Badge>}
-                </div>
-              </div>
-              <div className="text-end">
-                <span className="text-[11px] text-slate-400 uppercase">{t('users.firstSeen')}</span>
-                <p className="text-slate-200 mt-1">{formatDate(userDetails.user.createdAt)}</p>
-              </div>
-            </div>
+          <div className="space-y-4 font-mono text-xs">
+            {/* Tabs Bar */}
+            <Tabs
+              tabs={[
+                { id: 'overview', label: t('users.tabOverview'), icon: <User className="h-3.5 w-3.5" /> },
+                {
+                  id: 'conversations',
+                  label: t('users.tabConversations'),
+                  badge: userDetails.recentConversations?.length ?? userDetails.conversations?.length ?? 0,
+                  icon: <MessageSquare className="h-3.5 w-3.5" />,
+                },
+                {
+                  id: 'memory',
+                  label: t('users.tabMemory'),
+                  badge: userDetails.memories?.length ?? 0,
+                  icon: <Brain className="h-3.5 w-3.5" />,
+                },
+                {
+                  id: 'reminders',
+                  label: t('users.tabReminders'),
+                  badge: userDetails.reminders?.length ?? 0,
+                  icon: <Clock className="h-3.5 w-3.5" />,
+                },
+                {
+                  id: 'agent-runs',
+                  label: t('users.tabAgentRuns'),
+                  icon: <Cpu className="h-3.5 w-3.5" />,
+                },
+              ]}
+              activeTab={drawerTab}
+              onChange={(id) => setDrawerTab(id as any)}
+            />
 
-            {/* Metrics Breakdown */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="p-3 rounded bg-surface-elevated/30 border border-border">
-                <span className="text-[10px] text-slate-400 uppercase block">{t('overview.messages')}</span>
-                <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.totalMessages ?? (userDetails as any).metrics?.totalMessages)}</span>
-              </div>
-              <div className="p-3 rounded bg-surface-elevated/30 border border-border">
-                <span className="text-[10px] text-slate-400 uppercase block">{t('overview.tokenUsage')}</span>
-                <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.tokenCount ?? (userDetails as any).metrics?.tokensUsed)}</span>
-              </div>
-              <div className="p-3 rounded bg-surface-elevated/30 border border-border">
-                <span className="text-[10px] text-slate-400 uppercase block">{t('users.colCost')}</span>
-                <span className="text-base font-bold text-slate-100">{formatCurrency(userDetails.stats?.costUsd ?? (userDetails as any).metrics?.estimatedCostUsd)}</span>
-              </div>
-            </div>
-
-            {/* User Reminders Preview */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
-                  <Clock className="h-3.5 w-3.5 text-brand-400" />
-                  {t('users.scheduledRemindersCount', { count: userDetails.reminders?.length || 0 })}
-                </h4>
-              </div>
-              {userDetails.reminders?.length === 0 ? (
-                <p className="p-3 rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
-                  {t('users.noRemindersFound')}
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {userDetails.reminders?.map((rem: any) => (
-                    <div key={rem.id} className="p-2.5 rounded bg-surface-elevated/30 border border-border flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-slate-200">{rem.title}</p>
-                        <p className="text-[10px] text-slate-400">{formatDate(rem.scheduledTime || rem.dueAt)}</p>
-                      </div>
-                      <StatusPill status={rem.status || rem.state} />
+            {/* TAB 1: OVERVIEW */}
+            {drawerTab === 'overview' && (
+              <div className="space-y-4">
+                {/* Status & Quick Tags */}
+                <div className="flex items-center justify-between p-4 rounded-lg bg-surface-elevated/40 border border-border">
+                  <div className="space-y-1">
+                    <span className="text-[11px] text-slate-400 uppercase">{t('users.colStatus')}</span>
+                    <div className="flex items-center gap-2">
+                      <StatusPill status={userDetails.user.isBanned ? 'banned' : 'active'} />
+                      {userDetails.user.isVip && <Badge variant="warning">{t('users.vipContact')}</Badge>}
                     </div>
-                  ))}
+                    {userDetails.user.isBanned && userDetails.user.banReason && (
+                      <p className="text-[11px] text-red-400 mt-1">
+                        {userDetails.user.banReason}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-end">
+                    <span className="text-[11px] text-slate-400 uppercase">{t('users.firstSeen')}</span>
+                    <p className="text-slate-200 mt-1">{formatDate(userDetails.user.createdAt)}</p>
+                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* User Memories */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
-                  <Brain className="h-3.5 w-3.5 text-purple-400" />
-                  {t('users.profileMemoriesCount', { count: userDetails.memories?.length || 0 })}
-                </h4>
-                {canPurgeData && (userDetails.memories?.length || 0) > 0 && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setPurgeModalUserId(selectedUserId)}
-                  >
-                    <Trash2 className="h-3 w-3 me-1" />
-                    {t('users.purgeMemoryBtn')}
-                  </Button>
+                {/* Metrics Breakdown */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-3 rounded bg-surface-elevated/30 border border-border">
+                    <span className="text-[10px] text-slate-400 uppercase block">{t('overview.messages')}</span>
+                    <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.totalMessages ?? (userDetails as any).metrics?.totalMessages ?? 0)}</span>
+                  </div>
+                  <div className="p-3 rounded bg-surface-elevated/30 border border-border">
+                    <span className="text-[10px] text-slate-400 uppercase block">{t('overview.tokenUsage')}</span>
+                    <span className="text-base font-bold text-slate-100">{formatNumber(userDetails.stats?.tokenCount ?? (userDetails as any).metrics?.tokensUsed ?? 0)}</span>
+                  </div>
+                  <div className="p-3 rounded bg-surface-elevated/30 border border-border">
+                    <span className="text-[10px] text-slate-400 uppercase block">{t('users.colCost')}</span>
+                    <span className="text-base font-bold text-slate-100">{formatCurrency(userDetails.stats?.costUsd ?? (userDetails as any).metrics?.estimatedCostUsd ?? 0)}</span>
+                  </div>
+                </div>
+
+                {/* WhatsApp Contact Details */}
+                {userDetails.whatsappContact && (
+                  <div className="p-3.5 rounded-lg bg-surface-elevated/30 border border-border space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                        WhatsApp Identity
+                      </span>
+                      {userDetails.whatsappContact.verified && (
+                        <Badge variant="success" className="text-[10px]">Verified</Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <span className="text-slate-400 block">Profile Name</span>
+                        <span className="text-slate-200">{userDetails.whatsappContact.profileName || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">WA ID</span>
+                        <span className="text-slate-200">{userDetails.whatsappContact.waId || '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* User Preferences */}
+                {userDetails.preferences && Object.keys(userDetails.preferences).length > 0 && (
+                  <div className="p-3.5 rounded-lg bg-surface-elevated/30 border border-border space-y-2">
+                    <span className="font-semibold text-slate-200 block">User Preferences</span>
+                    <div className="space-y-1">
+                      {Object.entries(userDetails.preferences).map(([k, v]) => (
+                        <div key={k} className="flex items-center justify-between text-[11px] py-1 border-b border-border/40 last:border-0">
+                          <span className="text-slate-400">{k}</span>
+                          <span className="text-slate-200 font-medium">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
-              {userDetails.memories?.length === 0 ? (
-                <p className="p-3 rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
-                  {t('users.noMemoriesFound')}
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {userDetails.memories?.map((mem: any) => (
-                    <div key={mem.id} className="p-2.5 rounded bg-surface-elevated/30 border border-border flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-200">{mem.key || mem.factKey || mem.category || 'fact'}</span>
-                          <span className="text-[10px] px-1 rounded bg-purple-950 text-purple-300 border border-purple-800">
-                            {mem.category}
+            )}
+
+            {/* TAB 2: CONVERSATIONS */}
+            {drawerTab === 'conversations' && (
+              <div className="space-y-3">
+                {(!userDetails.recentConversations || userDetails.recentConversations.length === 0) &&
+                 (!userDetails.conversations || userDetails.conversations.length === 0) ? (
+                  <p className="p-6 text-center rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
+                    {t('users.noConversationsFound')}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {(userDetails.recentConversations || userDetails.conversations || []).map((c: any) => (
+                      <div key={c.id} className="p-3 rounded-lg bg-surface-elevated/30 border border-border hover:border-border-strong transition-colors space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="default" className="text-[10px] uppercase">{c.channel || 'whatsapp'}</Badge>
+                            <StatusPill status={c.status || 'active'} />
+                          </div>
+                          <span className="text-[10px] text-slate-400">
+                            {formatRelativeTime(c.updatedAt || c.lastMessageAt || c.createdAt)}
                           </span>
                         </div>
-                        <p className="text-slate-300 mt-1">{mem.value || mem.factText}</p>
+                        {c.lastMessageSnippet && (
+                          <p className="text-slate-300 text-[11px] line-clamp-2 bg-surface/50 p-2 rounded border border-border/30">
+                            {c.lastMessageSnippet}
+                          </p>
+                        )}
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[10px] text-slate-400">
+                            {formatNumber(c.messageCount || c.messagesCount || 0)} {t('overview.messages')}
+                          </span>
+                          <Link
+                            href={`/conversations?id=${c.id}`}
+                            className="inline-flex items-center gap-1 text-[11px] text-brand-400 hover:text-brand-300 font-medium"
+                          >
+                            {t('users.openConversation')}
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 3: MEMORY */}
+            {drawerTab === 'memory' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
+                    <Brain className="h-3.5 w-3.5 text-purple-400" />
+                    {t('users.profileMemoriesCount', { count: userDetails.memories?.length || 0 })}
+                  </h4>
+                  {canPurgeData && (userDetails.memories?.length || 0) > 0 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setPurgeModalUserId(selectedUserId)}
+                    >
+                      <Trash2 className="h-3 w-3 me-1" />
+                      {t('users.purgeMemoryBtn')}
+                    </Button>
+                  )}
                 </div>
-              )}
-            </div>
+                {userDetails.memories?.length === 0 ? (
+                  <p className="p-6 text-center rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
+                    {t('users.noMemoriesFound')}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-[60vh] overflow-y-auto pe-1">
+                    {userDetails.memories?.map((mem: any) => (
+                      <div key={mem.id} className="p-2.5 rounded bg-surface-elevated/30 border border-border flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-200">{mem.key || mem.factKey || mem.category || 'fact'}</span>
+                            <span className="text-[10px] px-1 rounded bg-purple-950 text-purple-300 border border-purple-800">
+                              {mem.category}
+                            </span>
+                          </div>
+                          <p className="text-slate-300 mt-1">{mem.value || mem.factText}</p>
+                          {mem.createdAt && (
+                            <span className="text-[9px] text-slate-500 mt-1 block">
+                              {formatDate(mem.createdAt)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 4: REMINDERS */}
+            {drawerTab === 'reminders' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-brand-400" />
+                    {t('users.scheduledRemindersCount', { count: userDetails.reminders?.length || 0 })}
+                  </h4>
+                </div>
+                {userDetails.reminders?.length === 0 ? (
+                  <p className="p-6 text-center rounded bg-surface-elevated/20 border border-border/40 text-slate-400">
+                    {t('users.noRemindersFound')}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-[60vh] overflow-y-auto pe-1">
+                    {userDetails.reminders?.map((rem: any) => (
+                      <div key={rem.id} className="p-2.5 rounded bg-surface-elevated/30 border border-border flex items-center justify-between">
+                        <div>
+                          <p className="font-semibold text-slate-200">{rem.title}</p>
+                          <p className="text-[10px] text-slate-400">{formatDate(rem.scheduledTime || rem.dueAt)}</p>
+                          {rem.recurrence && rem.recurrence !== 'none' && (
+                            <span className="text-[9px] text-brand-300 uppercase mt-0.5 block">
+                              ↻ {rem.recurrence}
+                            </span>
+                          )}
+                        </div>
+                        <StatusPill status={rem.status || rem.state} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 5: AGENT RUNS & TELEMETRY */}
+            {drawerTab === 'agent-runs' && (
+              <div className="space-y-3">
+                <div className="p-4 rounded-lg bg-surface-elevated/30 border border-border space-y-3">
+                  <h4 className="text-xs font-semibold text-slate-200 uppercase flex items-center gap-1.5">
+                    <Cpu className="h-3.5 w-3.5 text-cyan-400" />
+                    {t('users.telemetryStats')}
+                  </h4>
+                  <div className="grid grid-cols-2 gap-3 text-[11px]">
+                    <div className="p-2.5 rounded bg-surface/50 border border-border/40">
+                      <span className="text-slate-400 block text-[10px] uppercase">Prompt Tokens</span>
+                      <span className="text-slate-200 font-bold text-sm">
+                        {formatNumber((userDetails as any).metrics?.promptTokens ?? 0)}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded bg-surface/50 border border-border/40">
+                      <span className="text-slate-400 block text-[10px] uppercase">Completion Tokens</span>
+                      <span className="text-slate-200 font-bold text-sm">
+                        {formatNumber((userDetails as any).metrics?.completionTokens ?? 0)}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded bg-surface/50 border border-border/40">
+                      <span className="text-slate-400 block text-[10px] uppercase">Daily Message Count</span>
+                      <span className="text-slate-200 font-bold text-sm">
+                        {formatNumber((userDetails as any).metrics?.dailyMessageCount ?? userDetails.user.dailyMessageCount ?? 0)}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded bg-surface/50 border border-border/40">
+                      <span className="text-slate-400 block text-[10px] uppercase">Estimated Spend</span>
+                      <span className="text-slate-200 font-bold text-sm">
+                        {formatCurrency(userDetails.stats?.costUsd ?? (userDetails as any).metrics?.estimatedCostUsd ?? 0)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Drawer>

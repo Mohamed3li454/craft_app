@@ -55,7 +55,16 @@ export class AdminConversationsController {
       const { limit, offset } = parsePaginationQuery(req.query);
       const transcript = await this.analyticsRepo.getConversationTranscript(convId, { limit, offset });
 
-      sendAdminSuccess(res, transcript, { nextCursor: null, total: transcript.length });
+      const messages = Array.isArray(transcript) ? transcript : transcript.messages;
+      const total = Array.isArray(transcript) ? transcript.length : transcript.total;
+
+      sendAdminSuccess(res, messages, {
+        nextCursor: null,
+        total,
+        limit,
+        offset,
+        hasMoreOlder: total > (offset + limit),
+      });
     } catch (err: any) {
       logger.error('[Admin Conversations] Failed to get conversation transcript', {
         error: err.message,

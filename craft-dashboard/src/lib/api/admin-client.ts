@@ -113,8 +113,12 @@ class AdminApiClient {
     return this.request<AdminConversationItem[]>(`/conversations?${qs.toString()}`);
   }
 
-  async getConversationMessages(id: string) {
-    return this.request<AdminMessageItem[]>(`/conversations/${encodeURIComponent(id)}/messages`);
+  async getConversationMessages(id: string, params: { limit?: number; offset?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<AdminMessageItem[]>(`/conversations/${encodeURIComponent(id)}/messages${query}`);
   }
 
   async archiveConversation(id: string) {

@@ -68,6 +68,7 @@ export function createAdminRouter(): Router {
   // ==========================================
   router.get('/conversations', conversationsController.getConversations);
   router.get('/conversations/:id/messages', conversationsController.getConversationTranscript);
+  router.get('/conversations/:id/transcript', conversationsController.getConversationTranscript);
   router.post('/conversations/:id/archive', mutationGuard, conversationsController.archiveConversation);
 
   // ==========================================

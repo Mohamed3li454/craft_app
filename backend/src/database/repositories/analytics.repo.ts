@@ -95,6 +95,27 @@ export interface ConversationListItem {
   createdAt: string;
 }
 
+export interface ToolCallDetailItem {
+  id: string;
+  toolName: string;
+  arguments: Record<string, any>;
+  result: any;
+  status: string;
+  durationMs?: number;
+  createdAt?: string;
+}
+
+export interface ConversationMessageMetadata {
+  model?: string | null;
+  tokens?: number | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  latencyMs?: number | null;
+  tools?: string[];
+  source?: 'ai' | 'semantic-cache' | 'system';
+  toolCalls?: ToolCallDetailItem[];
+}
+
 export interface RecentInteractionItem {
   id: string;
   conversationId: string;
@@ -104,14 +125,22 @@ export interface RecentInteractionItem {
   sender: string;
   text: string;
   content?: string;
-  model?: string;
-  latencyMs?: number;
-  tokens?: number;
-  promptTokens?: number;
-  completionTokens?: number;
+  model?: string | null;
+  latencyMs?: number | null;
+  tokens?: number | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
   mediaType?: string;
   mediaUrl?: string;
-  toolsUsed?: string;
+  toolsUsed?: string | null;
+  source?: 'ai' | 'semantic-cache' | 'system';
+  toolCalls?: ToolCallDetailItem[];
+  metadata?: ConversationMessageMetadata;
+}
+
+export interface ConversationTranscriptResult {
+  messages: RecentInteractionItem[];
+  total: number;
 }
 
 export interface UserDetailsResponse {
@@ -198,7 +227,7 @@ export class AnalyticsRepository {
       try {
         await this.ensureSchema();
         const query = `
-          SELECT 
+          SELECT
             (SELECT COUNT(*) FROM conversations) as total_conversations,
             (SELECT COUNT(*) FROM conversations WHERE updated_at >= CURRENT_DATE) as active_conversations_today,
             (SELECT COUNT(*) FROM messages) as total_messages,
@@ -223,7 +252,7 @@ export class AnalyticsRepository {
 
         // Fetch model-specific tokens for precise cost calculation
         const modelCostQuery = `
-          SELECT 
+          SELECT
             COALESCE(model_name, 'openai/gpt-oss-120b') as model,
             COALESCE(SUM(prompt_tokens), 0) as pt,
             COALESCE(SUM(completion_tokens), 0) as ct
@@ -303,7 +332,7 @@ export class AnalyticsRepository {
               '1 day'::interval
             )::date AS day
           )
-          SELECT 
+          SELECT
             d.day::text as date,
             COALESCE(COUNT(DISTINCT c.id), 0) as conversations,
             COALESCE(COUNT(CASE WHEN m.sender_role = 'user' THEN 1 END), 0) as user_messages,
@@ -345,7 +374,7 @@ export class AnalyticsRepository {
       try {
         await this.ensureSchema();
         const query = `
-          SELECT 
+          SELECT
             EXTRACT(HOUR FROM created_at)::int as hour,
             COUNT(CASE WHEN sender_role = 'user' THEN 1 END) as user_messages,
             COUNT(CASE WHEN sender_role = 'assistant' THEN 1 END) as bot_messages,
@@ -404,7 +433,7 @@ export class AnalyticsRepository {
       try {
         await this.ensureSchema();
         const query = `
-          SELECT 
+          SELECT
             COALESCE(model_name, 'openai/gpt-oss-120b') as model,
             COUNT(*) as count,
             COALESCE(SUM(tokens_used), 0) as tokens
@@ -445,7 +474,7 @@ export class AnalyticsRepository {
       try {
         await this.ensureSchema();
         const query = `
-          SELECT 
+          SELECT
             COALESCE(media_type, 'text') as media_type,
             COUNT(*) as count
           FROM messages
@@ -473,7 +502,7 @@ export class AnalyticsRepository {
     if (pool) {
       try {
         const query = `
-          SELECT 
+          SELECT
             c.user_id::text as user_id,
             COALESCE(u.phone_number, wc.wa_id, c.user_id::text) as phone,
             COALESCE(u.name, wc.profile_name, 'User') as name,
@@ -721,7 +750,7 @@ export class AnalyticsRepository {
         const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
         const query = `
-          SELECT 
+          SELECT
             c.id,
             c.user_id::text as user_id,
             COALESCE(u.phone_number, wc.wa_id, c.user_id::text) as phone,
@@ -836,76 +865,203 @@ export class AnalyticsRepository {
   public async getConversationTranscript(
     conversationId: string,
     options: { limit?: number; offset?: number } = {}
-  ): Promise<RecentInteractionItem[]> {
+  ): Promise<ConversationTranscriptResult> {
     const pool = this.db.getPool();
-    const limit = Math.min(Math.max(options.limit || 100, 1), 500);
+    const limit = Math.min(Math.max(options.limit || 50, 1), 500);
     const offset = Math.max(options.offset || 0, 0);
 
     if (pool) {
       try {
+        const countRes = await pool.query(
+          `SELECT COUNT(*)::int as total FROM messages WHERE conversation_id = $1`,
+          [conversationId]
+        );
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
         const query = `
-          SELECT 
-            m.id,
-            m.conversation_id as "conversationId",
-            m.created_at as timestamp,
-            m.sender_role as role,
-            m.sender_name as sender,
-            m.text,
-            m.model_name as model,
-            m.latency_ms as "latencyMs",
-            m.tokens_used as tokens,
-            m.prompt_tokens as "promptTokens",
-            m.completion_tokens as "completionTokens",
-            m.media_type as "mediaType",
-            m.media_url as "mediaUrl",
-            m.tools_used as "toolsUsed"
-          FROM messages m
-          WHERE m.conversation_id = $1
-          ORDER BY m.created_at ASC
-          LIMIT $2 OFFSET $3
+          SELECT * FROM (
+            SELECT
+              m.id,
+              m.conversation_id as "conversationId",
+              m.created_at as timestamp,
+              m.sender_role as role,
+              m.sender_name as sender,
+              m.text,
+              m.model_name as model,
+              m.latency_ms as "latencyMs",
+              m.tokens_used as tokens,
+              m.prompt_tokens as "promptTokens",
+              m.completion_tokens as "completionTokens",
+              m.media_type as "mediaType",
+              m.media_url as "mediaUrl",
+              m.tools_used as "toolsUsed"
+            FROM messages m
+            WHERE m.conversation_id = $1
+            ORDER BY m.created_at DESC, m.id DESC
+            LIMIT $2 OFFSET $3
+          ) sub
+          ORDER BY sub.timestamp ASC, sub.id ASC
         `;
         const res = await pool.query(query, [conversationId, limit, offset]);
-        return res.rows.map((r: any) => ({
-          id: r.id,
-          conversationId: r.conversationId,
-          timestamp: new Date(r.timestamp).toISOString(),
-          createdAt: new Date(r.timestamp).toISOString(),
-          role: r.role,
-          sender: r.sender || (r.role === 'user' ? 'user' : 'assistant'),
-          text: r.text,
-          content: r.text,
-          model: r.model,
-          latencyMs: r.latencyMs,
-          tokens: r.tokens,
-          promptTokens: r.promptTokens,
-          completionTokens: r.completionTokens,
-          mediaType: r.mediaType,
-          mediaUrl: r.mediaUrl,
-          toolsUsed: r.toolsUsed,
-        }));
+
+        // Tool calls correlation
+        let conversationToolCalls: any[] = [];
+        const hasTools = res.rows.some((r: any) => r.toolsUsed || (r.role === 'assistant' && r.model !== 'semantic-cache'));
+        if (hasTools) {
+          try {
+            const tcRes = await pool.query(
+              `SELECT
+                 tc.id,
+                 tc.agent_run_id as "agentRunId",
+                 tc.tool_name as "toolName",
+                 tc.arguments,
+                 tc.result,
+                 tc.status,
+                 tc.created_at as "createdAt",
+                 tc.completed_at as "completedAt",
+                 ROUND(EXTRACT(EPOCH FROM (COALESCE(tc.completed_at, NOW()) - tc.created_at)) * 1000) as "durationMs"
+               FROM tool_calls tc
+               JOIN agent_runs ar ON ar.id = tc.agent_run_id
+               WHERE ar.conversation_id = $1
+               ORDER BY tc.created_at ASC`,
+              [conversationId]
+            );
+            conversationToolCalls = tcRes.rows;
+          } catch (tcErr: any) {
+            logger.warn('Failed to fetch tool calls for transcript', { error: tcErr.message });
+          }
+        }
+
+        const messages: RecentInteractionItem[] = res.rows.map((r: any) => {
+          const isUser = r.role === 'user' || r.sender_role === 'user';
+          const isSemanticCache = r.model === 'semantic-cache';
+          const sender = isUser
+            ? (r.sender || 'WhatsApp User')
+            : 'Craft';
+          const role: 'user' | 'assistant' = isUser ? 'user' : 'assistant';
+          const source: 'ai' | 'semantic-cache' | 'system' = isSemanticCache
+            ? 'semantic-cache'
+            : (isUser ? 'system' : 'ai');
+
+          // Match tool calls for assistant message if tools were used
+          let matchedToolCalls: ToolCallDetailItem[] = [];
+          if (!isUser && !isSemanticCache && conversationToolCalls.length > 0) {
+            const msgTime = new Date(r.timestamp).getTime();
+            matchedToolCalls = conversationToolCalls.filter((tc: any) => {
+              const tcTime = new Date(tc.createdAt).getTime();
+              return tcTime >= msgTime - 15000 && tcTime <= msgTime + 1000;
+            }).map((tc: any) => {
+              let parsedArgs = tc.arguments;
+              if (typeof parsedArgs === 'string') {
+                try { parsedArgs = JSON.parse(parsedArgs); } catch {}
+              }
+              let parsedResult = tc.result;
+              if (typeof parsedResult === 'string') {
+                try { parsedResult = JSON.parse(parsedResult); } catch {}
+              }
+              return {
+                id: tc.id,
+                toolName: tc.toolName,
+                arguments: parsedArgs || {},
+                result: parsedResult || {},
+                status: tc.status,
+                durationMs: tc.durationMs ? Math.max(0, parseInt(tc.durationMs, 10)) : undefined,
+                createdAt: tc.createdAt ? new Date(tc.createdAt).toISOString() : undefined,
+              };
+            });
+          }
+
+          const toolsList = r.toolsUsed
+            ? r.toolsUsed.split(',').map((s: string) => s.trim()).filter(Boolean)
+            : matchedToolCalls.map((tc) => tc.toolName);
+
+          const metadata: ConversationMessageMetadata = {
+            model: isSemanticCache ? null : (r.model || null),
+            tokens: isSemanticCache ? 0 : (r.tokens !== null && r.tokens !== undefined ? parseInt(r.tokens, 10) : null),
+            promptTokens: r.promptTokens !== null && r.promptTokens !== undefined ? parseInt(r.promptTokens, 10) : null,
+            completionTokens: r.completionTokens !== null && r.completionTokens !== undefined ? parseInt(r.completionTokens, 10) : null,
+            latencyMs: r.latencyMs !== null && r.latencyMs !== undefined ? parseInt(r.latencyMs, 10) : null,
+            tools: toolsList.length > 0 ? toolsList : undefined,
+            source,
+            toolCalls: matchedToolCalls.length > 0 ? matchedToolCalls : undefined,
+          };
+
+          return {
+            id: r.id,
+            conversationId: r.conversationId,
+            timestamp: new Date(r.timestamp).toISOString(),
+            createdAt: new Date(r.timestamp).toISOString(),
+            role,
+            sender,
+            text: r.text,
+            content: r.text,
+            model: metadata.model,
+            latencyMs: metadata.latencyMs,
+            tokens: metadata.tokens,
+            promptTokens: metadata.promptTokens,
+            completionTokens: metadata.completionTokens,
+            mediaType: r.mediaType,
+            mediaUrl: r.mediaUrl,
+            toolsUsed: r.toolsUsed,
+            source,
+            toolCalls: matchedToolCalls.length > 0 ? matchedToolCalls : undefined,
+            metadata,
+          };
+        });
+
+        return { messages, total };
       } catch (err: any) {
         logger.warn('Database query failed in getConversationTranscript', { error: err.message });
       }
     }
 
+    // In-memory fallback
     const msgs = this.chatRepo.getInMemoryMessages().get(conversationId) || [];
-    return msgs.slice(offset, offset + limit).map((m) => ({
-      id: m.id,
-      conversationId: m.conversationId,
-      timestamp: (m.createdAt || new Date()).toISOString(),
-      createdAt: (m.createdAt || new Date()).toISOString(),
-      role: m.senderRole,
-      sender: m.senderName || (m.senderRole === 'user' ? 'user' : 'assistant'),
-      text: m.text,
-      content: m.text,
-      model: m.modelName,
-      latencyMs: m.latencyMs,
-      tokens: m.tokensUsed,
-      promptTokens: m.promptTokens,
-      completionTokens: m.completionTokens,
-      mediaType: m.mediaType,
-      mediaUrl: m.mediaUrl,
-    }));
+    const total = msgs.length;
+    const start = Math.max(0, total - offset - limit);
+    const end = Math.max(0, total - offset);
+    const slice = msgs.slice(start, end);
+
+    const messages = slice.map((m) => {
+      const isUser = m.senderRole === 'user';
+      const isSemanticCache = m.modelName === 'semantic-cache';
+      const sender = isUser ? (m.senderName || 'WhatsApp User') : 'Craft';
+      const role: 'user' | 'assistant' = isUser ? 'user' : 'assistant';
+      const source: 'ai' | 'semantic-cache' | 'system' = isSemanticCache ? 'semantic-cache' : (isUser ? 'system' : 'ai');
+
+      const metadata: ConversationMessageMetadata = {
+        model: isSemanticCache ? null : (m.modelName || null),
+        tokens: isSemanticCache ? 0 : (m.tokensUsed ?? null),
+        promptTokens: m.promptTokens ?? null,
+        completionTokens: m.completionTokens ?? null,
+        latencyMs: m.latencyMs ?? null,
+        tools: m.toolsUsed ? m.toolsUsed.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+        source,
+      };
+
+      return {
+        id: m.id,
+        conversationId: m.conversationId,
+        timestamp: (m.createdAt || new Date()).toISOString(),
+        createdAt: (m.createdAt || new Date()).toISOString(),
+        role,
+        sender,
+        text: m.text,
+        content: m.text,
+        model: metadata.model,
+        latencyMs: metadata.latencyMs,
+        tokens: metadata.tokens,
+        promptTokens: metadata.promptTokens,
+        completionTokens: metadata.completionTokens,
+        mediaType: m.mediaType,
+        mediaUrl: m.mediaUrl,
+        toolsUsed: m.toolsUsed,
+        source,
+        metadata,
+      };
+    });
+
+    return { messages, total };
   }
 
   public async getUserDetails(userIdOrPhone: string): Promise<UserDetailsResponse | null> {
@@ -916,7 +1072,7 @@ export class AnalyticsRepository {
       try {
         const userQuery = `
           SELECT id, name, email, phone_number as "phoneNumber", bsuid, is_vip as "isVip", is_banned as "isBanned", banned_at as "bannedAt", ban_reason as "banReason", daily_message_count as "dailyMessageCount", created_at as "createdAt"
-          FROM users 
+          FROM users
           WHERE id::text = $1 OR phone_number = $2 OR phone_number = $3
           LIMIT 1
         `;
@@ -965,7 +1121,7 @@ export class AnalyticsRepository {
 
         // Metrics
         const metricsRes = await pool.query(
-          `SELECT 
+          `SELECT
              COUNT(DISTINCT c.id) as total_conversations,
              COUNT(m.id) as total_messages,
              COALESCE(SUM(m.tokens_used), 0) as tokens_used,
@@ -1122,10 +1278,10 @@ export class AnalyticsRepository {
         let recentSearches: { query: string; timestamp: string }[] = [];
         try {
           const searchRes = await pool.query(`
-            SELECT arguments->>'query' as query, created_at as timestamp 
-            FROM tool_calls 
-            WHERE tool_name = 'web_search' 
-            ORDER BY created_at DESC 
+            SELECT arguments->>'query' as query, created_at as timestamp
+            FROM tool_calls
+            WHERE tool_name = 'web_search'
+            ORDER BY created_at DESC
             LIMIT 10
           `);
           recentSearches = searchRes.rows.map((r: any) => ({
@@ -1143,7 +1299,7 @@ export class AnalyticsRepository {
         let recurringReminders = 0;
         try {
           const remRes = await pool.query(`
-            SELECT 
+            SELECT
               COUNT(*) as total,
               COUNT(CASE WHEN recurrence != 'none' THEN 1 END) as recurring
             FROM reminders
@@ -1165,7 +1321,7 @@ export class AnalyticsRepository {
         let confirmations = { total: 0, approved: 0, rejected: 0, pending: 0 };
         try {
           const confRes = await pool.query(`
-            SELECT 
+            SELECT
               COUNT(*) as total,
               COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved,
               COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected,
@@ -1214,7 +1370,7 @@ export class AnalyticsRepository {
       try {
         await this.ensureSchema();
         const query = `
-          SELECT 
+          SELECT
             m.id,
             m.conversation_id as "conversationId",
             m.created_at as timestamp,

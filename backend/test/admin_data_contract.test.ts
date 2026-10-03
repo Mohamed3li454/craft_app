@@ -396,4 +396,131 @@ describe('Admin Data Contract & SQL Aggregation Verification (Isolated Mock)', (
       expect(m_agg.msg_count).toBe(10);
     });
   });
+
+  describe('9. Conversation Transcript & Message Contract', () => {
+    it('executes latest-first subquery pagination and maps user vs assistant roles with tool telemetry', async () => {
+      const repo = new AnalyticsRepository();
+      (repo as any).db = mockDbManager;
+
+      const mockMsgRows = [
+        {
+          id: 'msg-u1',
+          conversationId: 'conv-test-1',
+          timestamp: new Date('2026-10-02T10:00:00Z'),
+          role: 'user',
+          sender: 'WhatsApp User',
+          text: 'صباح الخير كرافت',
+          model: null,
+          latencyMs: null,
+          tokens: 0,
+          promptTokens: null,
+          completionTokens: null,
+          mediaType: null,
+          mediaUrl: null,
+          toolsUsed: null,
+        },
+        {
+          id: 'msg-a1',
+          conversationId: 'conv-test-1',
+          timestamp: new Date('2026-10-02T10:00:02Z'),
+          role: 'assistant',
+          sender: 'Craft',
+          text: 'صباح النور! كيف يمكنني مساعدتك اليوم؟',
+          model: 'openai/gpt-oss-120b',
+          latencyMs: 1450,
+          tokens: 850,
+          promptTokens: 700,
+          completionTokens: 150,
+          mediaType: null,
+          mediaUrl: null,
+          toolsUsed: 'web_search',
+        },
+        {
+          id: 'msg-a2',
+          conversationId: 'conv-test-1',
+          timestamp: new Date('2026-10-02T10:05:00Z'),
+          role: 'assistant',
+          sender: 'Craft',
+          text: 'هذه الإجابة مسترجعة من الذاكرة الدلالية.',
+          model: 'semantic-cache',
+          latencyMs: 12,
+          tokens: 0,
+          promptTokens: null,
+          completionTokens: null,
+          mediaType: null,
+          mediaUrl: null,
+          toolsUsed: null,
+        },
+      ];
+
+      const mockToolRows = [
+        {
+          id: 'tc-99',
+          toolName: 'web_search',
+          arguments: { query: 'weather today' },
+          result: { summary: 'Sunny' },
+          status: 'completed',
+          durationMs: 420,
+          createdAt: new Date('2026-10-02T10:00:01Z'),
+        },
+      ];
+
+      mockPool.query.mockImplementation(async (sql: string) => {
+        if (sql.includes('SELECT COUNT(*)::int as total FROM messages')) {
+          return { rows: [{ total: '612' }] };
+        }
+        if (sql.includes('FROM tool_calls tc')) {
+          return { rows: mockToolRows };
+        }
+        if (sql.includes('FROM messages m')) {
+          return { rows: mockMsgRows };
+        }
+        return { rows: [] };
+      });
+
+      const res = await repo.getConversationTranscript('conv-test-1', { limit: 50, offset: 0 });
+
+      // Invariant: Total messages
+      expect(res.total).toBe(612);
+      expect(res.messages.length).toBe(3);
+
+      // Verify User Turn
+      const userMsg = res.messages[0];
+      expect(userMsg.id).toBe('msg-u1');
+      expect(userMsg.role).toBe('user');
+      expect(userMsg.sender).toBe('WhatsApp User');
+      expect(userMsg.text).toBe('صباح الخير كرافت');
+      expect(userMsg.metadata!.source).toBe('system');
+      expect(userMsg.metadata!.model).toBeNull();
+
+      // Verify Assistant Turn with LLM Inference & Tool Call
+      const assistantMsg = res.messages[1];
+      expect(assistantMsg.id).toBe('msg-a1');
+      expect(assistantMsg.role).toBe('assistant');
+      expect(assistantMsg.sender).toBe('Craft');
+      expect(assistantMsg.metadata!.source).toBe('ai');
+      expect(assistantMsg.metadata!.model).toBe('openai/gpt-oss-120b');
+      expect(assistantMsg.metadata!.tokens).toBe(850);
+      expect(assistantMsg.metadata!.latencyMs).toBe(1450);
+      expect(assistantMsg.metadata!.tools).toEqual(['web_search']);
+      expect(assistantMsg.metadata!.toolCalls?.length).toBe(1);
+      expect(assistantMsg.metadata!.toolCalls?.[0].toolName).toBe('web_search');
+      expect(assistantMsg.metadata!.toolCalls?.[0].durationMs).toBe(420);
+
+      // Verify Semantic Cache Assistant Turn
+      const cacheMsg = res.messages[2];
+      expect(cacheMsg.id).toBe('msg-a2');
+      expect(cacheMsg.role).toBe('assistant');
+      expect(cacheMsg.metadata!.source).toBe('semantic-cache');
+      expect(cacheMsg.metadata!.model).toBeNull(); // Converted from 'semantic-cache' string to null model
+      expect(cacheMsg.metadata!.tokens).toBe(0);
+
+      // Verify SQL pagination structure: latest-first inside subquery, chronological outside
+      const queryCall = mockPool.query.mock.calls.find((c: any) => c[0].includes('ORDER BY m.created_at DESC'));
+      expect(queryCall).toBeDefined();
+      expect(queryCall[0]).toContain('ORDER BY m.created_at DESC, m.id DESC');
+      expect(queryCall[0]).toContain('LIMIT $2 OFFSET $3');
+      expect(queryCall[0]).toContain('ORDER BY sub.timestamp ASC, sub.id ASC');
+    });
+  });
 });

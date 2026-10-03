@@ -94,18 +94,68 @@ function normalizeAdminResponse(subPath: string, data: any): any {
     });
   }
 
-  // 4. Conversation transcript
-  if (root === 'conversations' && pathParts.length >= 2 && pathParts[pathParts.length - 1] === 'transcript' && Array.isArray(data.data)) {
+  // 4. Conversation transcript & messages
+  const isConversationMessages =
+    root === 'conversations' &&
+    pathParts.length >= 2 &&
+    (pathParts[pathParts.length - 1] === 'messages' || pathParts[pathParts.length - 1] === 'transcript');
+
+  if (isConversationMessages && Array.isArray(data.data)) {
     data.data = data.data.map((m: any) => {
       const ts = m.createdAt || m.timestamp || '';
       const text = m.content || m.text || '';
+      const rawRole = (m.role || m.senderRole || '').toLowerCase();
+      const rawSender = (m.sender || m.senderName || '').toLowerCase();
+      const isUser =
+        rawRole === 'user' ||
+        rawSender === 'user' ||
+        rawSender.includes('whatsapp') ||
+        rawSender.includes('user');
+      const isSemanticCache =
+        m.model === 'semantic-cache' ||
+        m.modelName === 'semantic-cache' ||
+        m.source === 'semantic-cache';
+
+      const role = isUser ? 'user' : 'assistant';
+      const sender = isUser ? (m.sender || m.senderName || 'WhatsApp User') : 'Craft';
+      const source = isSemanticCache ? 'semantic-cache' : (isUser ? 'system' : 'ai');
+
+      // Clean metadata
+      const rawMeta = m.metadata || {};
+      const model = isSemanticCache ? null : (m.model || m.modelName || rawMeta.model || null);
+      const tokens = isSemanticCache ? 0 : (m.tokens ?? m.tokensUsed ?? rawMeta.tokens ?? null);
+      const latencyMs = m.latencyMs ?? rawMeta.latencyMs ?? null;
+      const tools =
+        m.tools ||
+        (m.toolsUsed ? m.toolsUsed.split(',').map((s: string) => s.trim()).filter(Boolean) : rawMeta.tools);
+      const toolCalls = m.toolCalls || rawMeta.toolCalls || undefined;
+
       return {
         ...m,
+        id: m.id,
+        conversationId: m.conversationId,
         createdAt: ts,
         timestamp: m.timestamp || ts,
         content: text,
         text,
-        sender: m.sender || (m.role === 'user' ? 'user' : 'assistant'),
+        role,
+        sender,
+        source,
+        model,
+        tokens,
+        latencyMs,
+        tools,
+        toolCalls,
+        metadata: {
+          model,
+          tokens,
+          latencyMs,
+          tools,
+          source,
+          toolCalls,
+          promptTokens: m.promptTokens ?? rawMeta.promptTokens ?? null,
+          completionTokens: m.completionTokens ?? rawMeta.completionTokens ?? null,
+        },
       };
     });
   }

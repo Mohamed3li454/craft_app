@@ -17,6 +17,10 @@ export interface AdminSuccessResponse<T> {
   pagination?: {
     nextCursor: string | null;
     total?: number;
+    limit?: number;
+    offset?: number;
+    hasMoreOlder?: boolean;
+    hasMore?: boolean;
   };
   correlationId: string;
   timestamp: string;
@@ -89,7 +93,14 @@ export function sendAdminError(
 export function sendAdminSuccess<T>(
   res: Response,
   data: T,
-  pagination?: { nextCursor: string | null; total?: number }
+  pagination?: {
+    nextCursor: string | null;
+    total?: number;
+    limit?: number;
+    offset?: number;
+    hasMoreOlder?: boolean;
+    hasMore?: boolean;
+  }
 ): void {
   const req = (res as any).req as Request;
   const correlationId = req ? getCorrelationId(req) : 'unknown';

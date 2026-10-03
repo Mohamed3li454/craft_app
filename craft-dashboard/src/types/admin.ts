@@ -103,19 +103,33 @@ export interface ObservabilityMetrics {
 // 3. User Types
 export interface AdminUserListItem {
   id: string;
+  userId?: string;
   phoneNumber?: string;
+  phone?: string;
   name?: string;
   isVip: boolean;
   isBanned: boolean;
+  bannedAt?: string;
+  banReason?: string;
+  dailyMessageCount?: number;
   createdAt: string;
   lastActiveAt?: string;
+  lastActive?: string;
   messageCount: number;
+  totalMessages?: number;
   conversationCount: number;
   reminderCount: number;
 }
 
 export interface UserDetails360 {
   user: AdminUserListItem;
+  whatsappContact?: {
+    waId?: string;
+    profileName?: string;
+    verified?: boolean;
+    bsuid?: string;
+  } | null;
+  preferences?: Record<string, string>;
   stats: {
     totalConversations: number;
     totalMessages: number;
@@ -125,7 +139,21 @@ export interface UserDetails360 {
     tokenCount: number;
     costUsd: number;
   };
-  recentConversations: any[];
+  metrics?: {
+    totalConversations?: number;
+    totalMessages?: number;
+    tokensUsed?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    estimatedCostUsd?: number;
+    dailyMessageCount?: number;
+    lastActive?: string;
+    memoryCount?: number;
+    reminderCount?: number;
+    activeRemindersCount?: number;
+  };
+  recentConversations: AdminConversationItem[];
+  conversations?: AdminConversationItem[];
   reminders: any[];
   memories: any[];
 }
@@ -135,24 +163,63 @@ export interface AdminConversationItem {
   id: string;
   userId: string;
   userPhone?: string;
+  phone?: string;
+  userName?: string;
   channel: string;
   status: string;
   messageCount: number;
+  messagesCount?: number;
   createdAt: string;
   updatedAt: string;
+  lastMessageAt?: string;
   lastMessageSnippet?: string;
+  lastMessage?: string;
+}
+
+export interface ToolCallItem {
+  id: string;
+  toolName: string;
+  arguments: Record<string, any>;
+  result: any;
+  status: string;
+  durationMs?: number;
+  createdAt?: string;
+}
+
+export interface AdminMessageMetadata {
+  model?: string | null;
+  tokens?: number | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  latencyMs?: number | null;
+  tools?: string[];
+  source?: 'ai' | 'semantic-cache' | 'system';
+  toolCalls?: ToolCallItem[];
 }
 
 export interface AdminMessageItem {
   id: string;
   conversationId: string;
-  sender: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system';
+  sender: string;
+  senderRole?: string;
+  senderName?: string;
   content: string;
+  text?: string;
   mediaType?: string;
   mediaUrl?: string;
   createdAt: string;
-  tokens?: number;
-  model?: string;
+  timestamp?: string;
+  model?: string | null;
+  tokens?: number | null;
+  tokensUsed?: string | number | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  latencyMs?: number | null;
+  toolsUsed?: string | null;
+  source?: 'ai' | 'semantic-cache' | 'system';
+  toolCalls?: ToolCallItem[];
+  metadata?: AdminMessageMetadata;
 }
 
 // 5. Memory Types
