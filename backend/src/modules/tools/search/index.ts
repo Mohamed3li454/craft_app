@@ -8,3 +8,5 @@ export * from './search_query_planner';
 export * from './search_deduplicator';
 export * from './search_ranker';
 export * from './search_refiner';
+export * from './search_presentation_policy';
+export * from './search_context_manager';

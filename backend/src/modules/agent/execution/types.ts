@@ -138,6 +138,7 @@ export interface ExecutionEngineContext {
   readonly sendInterim?: (msg: string) => Promise<void>;
   readonly memories?: string[];
   readonly imageAttachment?: { data: string; mimeType: string };
+  readonly recentMessages?: Array<{ role?: string; senderRole?: string; text?: string; content?: string }>;
 }
 
 export interface ExecutionEngineRunResult {

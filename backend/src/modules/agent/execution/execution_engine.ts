@@ -15,6 +15,12 @@ import { ToolResultFormatter } from '../../tools/adapters/tool_result_formatter'
 import { SearchFallbackFormatter } from '../../tools/adapters/search_fallback_formatter';
 import { redactSecrets } from '../../tools/contracts/error.types';
 import {
+  SearchPresentationPolicy,
+  SearchPresentationPolicyResolver,
+  SearchContextManager,
+} from '../../tools/search';
+import { ChatRepository } from '../../../database/repositories/chat.repo';
+import {
   AIRouter,
   AIMessage,
   AIRequest,
@@ -43,6 +49,7 @@ export class ExecutionEngine {
   private static instance: ExecutionEngine;
   private aiRouter: AIRouter;
   private groqProvider?: GroqProvider;
+  private chatRepo?: ChatRepository;
 
   public static getInstance(): ExecutionEngine {
     if (!ExecutionEngine.instance) {
@@ -58,8 +65,10 @@ export class ExecutionEngine {
     private failureHandler: FailureHandler = FailureHandler.getInstance(),
     private stepExecutor: StepExecutor = new StepExecutor(),
     private planner: ExecutionPlanner = new ExecutionPlanner(),
-    aiRouterOrGroq?: AIRouter | GroqProvider
+    aiRouterOrGroq?: AIRouter | GroqProvider,
+    chatRepo?: ChatRepository
   ) {
+    this.chatRepo = chatRepo;
     if (aiRouterOrGroq instanceof GroqProvider || (aiRouterOrGroq && !(aiRouterOrGroq as any).route)) {
       const testRegistry = new ProviderRegistry();
       testRegistry.registerProvider(new GroqAIProvider(aiRouterOrGroq as any));
@@ -95,6 +104,39 @@ export class ExecutionEngine {
       maxSteps: policy.maxSteps,
       channel: context.channel,
     });
+
+    // Resolve Search Presentation Policy
+    const searchPresentationPolicy = SearchPresentationPolicyResolver.resolve(
+      context.userGoal,
+      context.recentMessages || (baseConversationHistory as any[])
+    );
+
+    // Follow-up source request shortcut: reuse previous search without re-searching
+    if (searchPresentationPolicy.isFollowUpSourceRequest) {
+      const previousSearch = await SearchContextManager.getLatestSearchWithDbFallback(
+        context.conversationId,
+        this.chatRepo
+      );
+      if (previousSearch && previousSearch.results && previousSearch.results.length > 0) {
+        logger.info(
+          `ExecutionEngine: Reusing search context for conversation [${context.conversationId}] for follow-up source request`
+        );
+        finalReply = SearchFallbackFormatter.formatSourceList(
+          previousSearch.results,
+          context.languageContext,
+          { showUrls: searchPresentationPolicy.shouldShowUrls }
+        );
+        ExecutionStateManager.transitionStatus(state, 'completed');
+        return {
+          status: 'completed',
+          finalReply,
+          state,
+          steps: [],
+          toolCallsExecuted: [],
+          metrics: this.computeMetrics(state, startTime),
+        };
+      }
+    }
 
     // Main Sequential Execution Loop
     while (state.currentStep < policy.maxSteps) {
@@ -209,6 +251,14 @@ export class ExecutionEngine {
           state.totalToolCalls++;
           this.loopGuard.record(toolName, rawArgs);
 
+          if (toolName === 'web_search' && lifecycleResult.rawResult) {
+            SearchContextManager.setLatestSearch(
+              context.conversationId,
+              rawArgs.query || context.userGoal,
+              lifecycleResult.rawResult
+            );
+          }
+
           ExecutionStateManager.completeStep(
             step,
             'succeeded',
@@ -243,6 +293,13 @@ export class ExecutionEngine {
             if (retryRes.status === 'completed') {
               state.totalToolCalls++;
               this.loopGuard.record(toolName, rawArgs);
+              if (toolName === 'web_search' && retryRes.rawResult) {
+                SearchContextManager.setLatestSearch(
+                  context.conversationId,
+                  rawArgs.query || context.userGoal,
+                  retryRes.rawResult
+                );
+              }
               ExecutionStateManager.completeStep(
                 step,
                 'succeeded',
@@ -297,7 +354,20 @@ export class ExecutionEngine {
         state,
         context,
         baseConversationHistory,
-        finalStatus
+        finalStatus,
+        searchPresentationPolicy
+      );
+    }
+
+    // 10. Code-Layer Leak Guard: prevent unrequested raw search dumps
+    const hasSearchStep = state.steps.some(
+      (s) => s.toolName === 'web_search' && s.status === 'succeeded'
+    );
+    if (hasSearchStep && !searchPresentationPolicy.shouldShowSources && finalReply) {
+      finalReply = SearchPresentationPolicyResolver.sanitizeResponseIfLeaked(
+        finalReply,
+        searchPresentationPolicy,
+        context.languageContext
       );
     }
 
@@ -323,9 +393,17 @@ export class ExecutionEngine {
   private async synthesizeFinalAnswer(
     state: AgentExecutionState,
     context: ExecutionEngineContext,
-    baseConversationHistory: GroqMessage[],
-    status: AgentExecutionStatus
+    baseConversationHistoryOrStatus: GroqMessage[] | string,
+    statusOrPolicy?: AgentExecutionStatus | SearchPresentationPolicy,
+    searchPresentationPolicy?: SearchPresentationPolicy
   ): Promise<string> {
+    const isLegacyCall = typeof baseConversationHistoryOrStatus === 'string' && searchPresentationPolicy === undefined;
+    const baseConversationHistory = Array.isArray(baseConversationHistoryOrStatus) ? baseConversationHistoryOrStatus : [];
+    const status: AgentExecutionStatus = typeof baseConversationHistoryOrStatus === 'string'
+      ? (baseConversationHistoryOrStatus as AgentExecutionStatus)
+      : (typeof statusOrPolicy === 'string' ? statusOrPolicy : 'completed');
+    const policy = searchPresentationPolicy || (isLegacyCall ? undefined : SearchPresentationPolicyResolver.resolve(context.userGoal));
+
     const isEnglish = context.languageContext?.targetLanguage === 'en';
 
     if (state.steps.length === 0) {
@@ -369,9 +447,16 @@ export class ExecutionEngine {
       synthesisContent = ToolResultFormatter.buildSynthesisPrompt(
         state.steps[0].toolName,
         state.steps[0].serializedResult || JSON.stringify(state.steps[0].result),
-        context.languageContext
+        context.languageContext,
+        policy
       );
     } else {
+      const hasSearch = state.steps.some((s) => s.toolName === 'web_search');
+      if (hasSearch && !policy?.shouldShowSources) {
+        instruction += isEnglish
+          ? ` Answer naturally and directly based on the verified facts above. Do NOT include raw search result listings, do NOT dump URLs, and do NOT list sources unless explicitly requested.`
+          : ` أجب بأسلوب طبيعي ومباشر من واقع الحقائق الموثقة أعلاه. إياك وسرد نتائج البحث الخام أو وضع روابط أو مصادر للمستخدم لأن المستخدم لم يطلبها.`;
+      }
       synthesisContent = `[Execution Outcomes from Verified Tools]:\n${observationsBlock}\n\n[Instruction]:\n${instruction}`;
     }
 
@@ -446,14 +531,30 @@ export class ExecutionEngine {
           provider: providerId,
         });
 
-        const fallbackReply = SearchFallbackFormatter.format(
-          searchStep.result || searchStep.serializedResult,
-          context.languageContext
-        );
+        if (isLegacyCall) {
+          const fallbackReply = SearchFallbackFormatter.format(
+            searchStep.result || searchStep.serializedResult,
+            context.languageContext
+          );
+          if (fallbackReply && fallbackReply.trim().length > 0) {
+            return fallbackReply;
+          }
+        } else if (policy?.shouldShowSources) {
+          const fallbackReply = SearchFallbackFormatter.formatSourceList(
+            searchStep.result || searchStep.serializedResult,
+            context.languageContext,
+            { showUrls: policy.shouldShowUrls }
+          );
 
-        if (fallbackReply && fallbackReply.trim().length > 0) {
-          logger.info('Successfully generated deterministic search fallback reply after synthesis failure');
-          return fallbackReply;
+          if (fallbackReply && fallbackReply.trim().length > 0) {
+            logger.info('Successfully generated requested search source list after synthesis failure');
+            return fallbackReply;
+          }
+        } else {
+          // Safe conversational fallback without raw results dump!
+          const safeFallback = SearchFallbackFormatter.formatFailureFallback(context.languageContext);
+          logger.info('Successfully generated safe conversational fallback without raw search dump');
+          return safeFallback;
         }
       }
 

@@ -241,6 +241,29 @@ export class ChatRepository {
     }
   }
 
+  public async getLatestToolCall(
+    conversationId: string,
+    toolName: string
+  ): Promise<{ arguments: any; result: any; createdAt: Date } | null> {
+    const pool = this.db.getPool();
+    if (!pool) return null;
+    try {
+      const res = await pool.query(
+        `SELECT tc.arguments, tc.result, tc.created_at as "createdAt"
+         FROM tool_calls tc
+         JOIN agent_runs ar ON tc.agent_run_id = ar.id
+         WHERE ar.conversation_id = $1 AND tc.tool_name = $2 AND tc.status = 'success'
+         ORDER BY tc.created_at DESC LIMIT 1`,
+        [conversationId, toolName]
+      );
+      if (res.rows.length === 0) return null;
+      return res.rows[0];
+    } catch (err: any) {
+      logger.warn('Database query failed in getLatestToolCall', { error: err.message });
+      return null;
+    }
+  }
+
   public async getRecentMessages(
     conversationId: string,
     limit = 20

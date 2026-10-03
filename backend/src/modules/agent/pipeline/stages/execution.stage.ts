@@ -56,6 +56,7 @@ export class ExecutionStage implements PipelineStage {
       tokenBudgetResult: ctx.tokenBudgetResult,
       memories: groqMemories,
       imageAttachment: ctx.imageAttachment,
+      recentMessages: ctx.recentMessages,
       sendInterim: async (msg: string) => {
         await ctx.sendInterim(msg);
       },

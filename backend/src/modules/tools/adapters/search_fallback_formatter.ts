@@ -32,13 +32,33 @@ export interface NormalizedSearchItem {
 
 export class SearchFallbackFormatter {
   /**
-   * Formats raw search execution results into a clean, deterministic WhatsApp response.
+   * Generates a safe, polite conversational fallback when LLM synthesis fails
+   * after search tool execution. Crucial: NEVER dumps raw search results or URLs!
    */
-  public static format(
+  public static formatFailureFallback(languageContext?: LanguageContext): string {
+    const isEnglish = languageContext?.targetLanguage === 'en';
+    const isEgyptian = languageContext?.dialect === 'egyptian';
+
+    if (isEnglish) {
+      return 'I processed your request and searched available sources, but I was not able to compile a reliable summary right now. Please try asking again or rephrasing your question.';
+    } else if (isEgyptian) {
+      return 'بحثت في المصادر بخصوص سؤالك، بس تعذر تلخيص إجابة دقيقة دلوقتي. تقدر تسألني تاني أو توضح طلبك أكتر.';
+    } else {
+      return 'تمت معالجة طلبك والبحث في المصادر، ولكن تعذر تلخيص إجابة دقيقة في الوقت الحالي. يرجى إعادة المحاولة أو توضيح السؤال.';
+    }
+  }
+
+  /**
+   * Formats verified search items into an organized, clean source list
+   * strictly when explicitly requested by the user.
+   */
+  public static formatSourceList(
     rawResult: any,
-    languageContext?: LanguageContext
+    languageContext?: LanguageContext,
+    options?: { showUrls?: boolean; header?: string }
   ): string {
     const isEnglish = languageContext?.targetLanguage === 'en';
+    const showUrls = options?.showUrls ?? true;
     const items = this.extractItems(rawResult);
 
     if (items.length === 0) {
@@ -50,9 +70,10 @@ export class SearchFallbackFormatter {
     const selected = items.slice(0, MAX_FALLBACK_RESULTS);
     const formattedBlocks: string[] = [];
 
-    const header = isEnglish
+    const defaultHeader = isEnglish
       ? 'Here are the search results retrieved for your query:\n'
       : 'إليك أهم النتائج التي تم العثور عليها بخصوص بحثك:\n';
+    const header = options?.header || defaultHeader;
 
     let currentLength = header.length;
 
@@ -71,7 +92,7 @@ export class SearchFallbackFormatter {
       if (cleanSnippet) {
         block += `\n   ${cleanSnippet}`;
       }
-      if (cleanUrl) {
+      if (showUrls && cleanUrl) {
         block += `\n   🔗 ${cleanUrl}`;
       }
 
@@ -79,7 +100,7 @@ export class SearchFallbackFormatter {
         if (formattedBlocks.length > 0) break;
         const trimmedSnippet = cleanSnippet.slice(0, 80) + '...';
         block = `${i + 1}. *${cleanTitle}*\n   ${trimmedSnippet}`;
-        if (cleanUrl) block += `\n   🔗 ${cleanUrl}`;
+        if (showUrls && cleanUrl) block += `\n   🔗 ${cleanUrl}`;
       }
 
       formattedBlocks.push(block);
@@ -88,6 +109,22 @@ export class SearchFallbackFormatter {
 
     const body = formattedBlocks.join('\n\n');
     return `${header}\n${body}`.trim();
+  }
+
+  /**
+   * Formats raw search execution results.
+   * Backward-compatible entrypoint: If isFallbackError is set, returns conversational fallback.
+   * Otherwise formats source list according to presentation preferences.
+   */
+  public static format(
+    rawResult: any,
+    languageContext?: LanguageContext,
+    options?: { showUrls?: boolean; isFallbackError?: boolean; header?: string }
+  ): string {
+    if (options?.isFallbackError) {
+      return this.formatFailureFallback(languageContext);
+    }
+    return this.formatSourceList(rawResult, languageContext, options);
   }
 
   /**

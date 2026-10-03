@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/env';
 import { logger } from '../core/logger';
+import { isProductionDatabase } from './safety_guard';
 
 export class DatabaseManager {
   private static instance: DatabaseManager;
@@ -35,6 +36,32 @@ export class DatabaseManager {
         this.pool.on('error', (err) => {
           logger.error('Unexpected error on idle PostgreSQL client', { error: err.message });
         });
+
+        // Test Mutation Guard: Intercept pool.query in Jest tests to block mutation statements against production databases
+        if (process.env.JEST_WORKER_ID !== undefined && isProductionDatabase(config.database.url)) {
+          const originalQuery = this.pool.query.bind(this.pool);
+          this.pool.query = ((...args: any[]) => {
+            if (process.env.ALLOW_LIVE_DB_MUTATIONS !== 'true') {
+              const sql = typeof args[0] === 'string' ? args[0] : args[0]?.text;
+              if (typeof sql === 'string') {
+                const trimmed = sql.trim().toUpperCase();
+                if (
+                  trimmed.startsWith('INSERT') ||
+                  trimmed.startsWith('UPDATE') ||
+                  trimmed.startsWith('DELETE') ||
+                  trimmed.startsWith('TRUNCATE') ||
+                  trimmed.startsWith('DROP') ||
+                  trimmed.startsWith('ALTER')
+                ) {
+                  throw new Error(
+                    `SAFETY_VIOLATION: Mutation query (${trimmed.split(' ')[0]}) blocked during test execution against production database URL.`
+                  );
+                }
+              }
+            }
+            return originalQuery(...(args as [any, any]));
+          }) as any;
+        }
 
         this.isConnected = true;
         logger.info('PostgreSQL connection pool initialized');

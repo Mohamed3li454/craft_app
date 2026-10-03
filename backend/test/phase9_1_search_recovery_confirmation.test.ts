@@ -305,18 +305,82 @@ describe('Phase 9.1: Presentation & Search Recovery Hardening', () => {
     let mockAdapter: jest.Mocked<WhatsAppAdapter>;
     let webhookRepo: WebhookRepository;
     let chatRepo: ChatRepository;
+    let userRepo: any;
     let orchestrator: AgentOrchestrator;
     let handler: WhatsAppWebhookHandler;
 
     beforeEach(() => {
-      confirmationService = new ConfirmationService();
+      const inMemoryConfirmations = new Map<string, any>();
+      const mockConfirmationRepo: any = {
+        create: jest.fn(async (agentRunId, userId, actionName, description, payload, expiresAt, conversationId) => {
+          const token = `tok_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+          const entity = {
+            id: `conf_${Date.now()}`,
+            agentRunId,
+            userId,
+            actionName,
+            description,
+            payload,
+            token,
+            status: 'pending',
+            expiresAt,
+            createdAt: new Date(),
+          };
+          inMemoryConfirmations.set(token, entity);
+          return entity;
+        }),
+        getByToken: jest.fn(async (token: string) => {
+          return inMemoryConfirmations.get(token) || null;
+        }),
+        updateStatus: jest.fn(async (token: string, status: string) => {
+          const item = inMemoryConfirmations.get(token);
+          if (item) {
+            item.status = status;
+            return item;
+          }
+          return null;
+        }),
+      };
+
+      const mockReminderRepo: any = {
+        create: jest.fn().mockResolvedValue({
+          id: `rem_${Date.now()}`,
+          title: 'مراجعة التصاميم',
+          state: 'scheduled',
+        }),
+      };
+
+      confirmationService = new ConfirmationService(mockConfirmationRepo, mockReminderRepo);
+
       mockAdapter = {
         sendTextMessage: jest.fn().mockResolvedValue(true),
         sendInteractiveButtons: jest.fn().mockResolvedValue(true),
       } as any;
 
-      webhookRepo = new WebhookRepository();
-      chatRepo = new ChatRepository();
+      chatRepo = {
+        getOrCreateConversation: jest.fn().mockResolvedValue({
+          id: 'conv_mock_p9_1',
+          userId: 'u_mock_p9_1',
+          channel: 'whatsapp',
+        }),
+        saveMessage: jest.fn().mockResolvedValue({
+          id: `msg_${Date.now()}`,
+        }),
+      } as any;
+
+      webhookRepo = {
+        isEventProcessed: jest.fn().mockResolvedValue(false),
+        markEventProcessed: jest.fn().mockResolvedValue(undefined),
+      } as any;
+
+      userRepo = {
+        findOrCreateWhatsAppUser: jest.fn().mockResolvedValue({
+          id: 'u_mock_p9_1',
+          name: 'Mohamed Ali',
+          phoneNumber: '201028067432',
+        }),
+      };
+
       orchestrator = new AgentOrchestrator();
 
       handler = new WhatsAppWebhookHandler(
@@ -324,7 +388,8 @@ describe('Phase 9.1: Presentation & Search Recovery Hardening', () => {
         webhookRepo,
         orchestrator,
         confirmationService,
-        chatRepo
+        chatRepo,
+        userRepo
       );
     });
 

@@ -150,7 +150,11 @@ export class SearchQueryPlanner {
       /^ممكن\s+(تبحث عن|تدور على|تقولي|تعرفني|تجيبلي)?/i,
       /^عايز\s+(اعرف|أعرف|افهم|أفهم|اشوف|أشوف)?/i,
       /^عاوز\s+(اعرف|أعرف|افهم|أفهم|اشوف|أشوف)?/i,
+      /^ابحثلي عن\s+/i,
+      /^ابحث لي عن\s+/i,
       /^ابحث عن\s+/i,
+      /^دورلي على\s+/i,
+      /^دور لي على\s+/i,
       /^دور على\s+/i,
       /^شف لي\s+/i,
       /^شوف لي\s+/i,
@@ -165,6 +169,19 @@ export class SearchQueryPlanner {
 
     for (const prefix of [...arabicPrefixes, ...englishPrefixes]) {
       cleaned = cleaned.replace(prefix, '').trim();
+    }
+
+    // Strip trailing source/link request fluff so search engine query remains focused
+    const sourceSuffixes = [
+      /\s*(?:و|مع\s+)?(?:هات|هاتلي|اذكر|ابعت|ابعتلي|وريني|عايز|عاوز|اريد|اعطيني|أعطني)?\s*(?:المصادر|المراجع|اللينكات|الروابط)\s*$/i,
+      /\s*(?:and\s+)?(?:show|give me|send me|with)\s*(?:the\s+)?(?:sources|links|references)\s*$/i,
+    ];
+
+    for (const suffix of sourceSuffixes) {
+      const candidate = cleaned.replace(suffix, '').trim();
+      if (candidate.length > 2) {
+        cleaned = candidate;
+      }
     }
 
     return cleaned || text;
