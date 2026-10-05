@@ -136,7 +136,13 @@ export class ReminderScheduler {
         const windowEval = WhatsAppWindowPolicy.evaluateWindow(now, lastInboundMessageAt);
 
         // 7. Generate Message Text
-        const messageText = await this.orchestrator.generateSmartReminder(item.userId, item.title);
+        const messageText = await this.orchestrator.generateSmartReminder(
+          item.userId,
+          item.title,
+          undefined,
+          undefined,
+          item.id
+        );
 
         // 8. Dispatch Message
         const dispatchResult = await this.dispatchToWhatsApp(destination, messageText, windowEval.isTemplateRequired);

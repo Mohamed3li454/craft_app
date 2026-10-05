@@ -86,14 +86,21 @@ export class AgentPipeline {
     const cleanUserText = (input.text || '').trim();
     const correlationId = input.correlationId || TraceContextManager.getCorrelationId();
 
+    const triggerType = input.triggerType || 'user_message';
+    const reminderId = input.reminderId;
+    const reminderTitle = input.reminderTitle;
+
     const metrics = MetricsCollector.getInstance();
     const tracer = Tracer.getInstance();
-    metrics.increment('craft.agent.runs', 1, { channel: input.channel });
+    metrics.increment('craft.agent.runs', 1, { channel: input.channel, triggerType });
 
     logger.info(`Starting Agent Pipeline [${agentRunId}] on channel [${input.channel}]`, {
       userId: input.userId,
       hasMedia: !!input.media,
       correlationId,
+      triggerType,
+      reminderId,
+      reminderTitle,
     });
 
     let interimSent = false;
@@ -121,6 +128,9 @@ export class AgentPipeline {
       agentRunId,
       startTime,
       cleanUserText,
+      triggerType,
+      reminderId,
+      reminderTitle,
 
       channel: input.channel,
       conversationId: input.conversationId || '',
@@ -171,6 +181,9 @@ export class AgentPipeline {
           hasMedia: !!input.media,
           runId: agentRunId,
           correlationId,
+          triggerType,
+          reminderId,
+          reminderTitle,
         });
 
         // 1. Preflight Stage

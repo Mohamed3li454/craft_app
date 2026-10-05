@@ -43,6 +43,9 @@ export interface AgentRunInput {
   onInterimProgress?: (message: string) => Promise<void> | void;
   explicitPersonalityPreference?: ExplicitPersonalityPreference;
   correlationId?: string;
+  triggerType?: 'user_message' | 'smart_reminder' | 'proactive';
+  reminderId?: string;
+  reminderTitle?: string;
 }
 
 export interface AgentRunOutput {
@@ -97,6 +100,9 @@ export interface AgentPipelineContext {
   readonly agentRunId: string;
   readonly startTime: number;
   readonly cleanUserText: string;
+  readonly triggerType?: 'user_message' | 'smart_reminder' | 'proactive';
+  readonly reminderId?: string;
+  readonly reminderTitle?: string;
 
   // Preflight properties
   channel: 'flutter' | 'whatsapp';

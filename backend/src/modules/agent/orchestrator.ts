@@ -96,36 +96,24 @@ export class AgentOrchestrator {
   }
 
   /**
-   * Intelligently dispatches a due reminder by letting the LLM inspect the reminder intent,
-   * call appropriate live tools (e.g. get_weather, web_search), and formulate a complete, rich notification.
+   * Intelligently dispatches a due reminder by delegating execution to AgentPipeline
+   * with triggerType: 'smart_reminder'. AgentPipeline coordinates CognitiveStage (memory
+   * retrieval, language/personality resolution, token budgeting) and ExecutionEngine
+   * (AIRouter, ToolLifecycleManager, LoopGuard, StepVerifier).
    */
   public async generateSmartReminder(
     userId: string,
     reminderTitle: string,
     languageContext?: LanguageContext,
-    personalityContext?: PersonalityContext
+    personalityContext?: PersonalityContext,
+    reminderId?: string
   ): Promise<string> {
-    try {
-      const langCtx = languageContext || LanguageIntelligenceService.getInstance().resolveContext(reminderTitle);
-      const persCtx = personalityContext || PersonalityEngine.getInstance().getDefaultPersonality();
-      const isEnglish = langCtx.targetLanguage === 'en';
+    const langCtx = languageContext || LanguageIntelligenceService.getInstance().resolveContext(reminderTitle);
+    const persCtx = personalityContext || PersonalityEngine.getInstance().getDefaultPersonality();
+    const isEnglish = langCtx.targetLanguage === 'en';
 
-      // Phase 4.6: Selective memory retrieval for smart reminder
-      const retrievalService = MemoryRetrievalService.getInstance(this.memoryRepo);
-      const retrieved = await retrievalService.retrieve({
-        userId,
-        message: reminderTitle,
-        language: langCtx.targetLanguage,
-      });
-      const memoryContext = MemoryContextAssembler.getInstance().assemble(retrieved, {
-        language: langCtx.targetLanguage,
-      });
-      const memories =
-        memoryContext.selectedCount > 0
-          ? memoryContext.memories.map((m) => m.memory.factText)
-          : undefined;
-      const prompt = isEnglish
-        ? `[Smart Reminder System]
+    const prompt = isEnglish
+      ? `[Smart Reminder System]
 It is now time for the user's scheduled reminder. Reminder title: "${reminderTitle}".
 Task for Craft AI assistant:
 1. Verify carefully: Does this reminder require fetching live or current information for the user?
@@ -136,7 +124,7 @@ Task for Craft AI assistant:
    Formulate the reminder message in clear, well-formatted English, starting with:
    ⏰ *Reminder from Craft*:
    Followed by well-formatted details directly.`
-        : `[نظام التذكيرات الذكية]
+      : `[نظام التذكيرات الذكية]
 حان الآن موعد تذكير للمستخدم. عنوان التذكير: "${reminderTitle}".
 المطلوب منك كوكيل ذكي:
 1. تحقق بدقة: هل يتطلب هذا التذكير جلب معلومات حية أو حالية للمستخدم؟
@@ -148,56 +136,35 @@ Task for Craft AI assistant:
    ⏰ *تذكير من كرافت*:
    ثم تفاصيل التذكير والمعلومات المطلوبة بدقة وتنسيق مرتب.`;
 
-      const conv = await this.chatRepo.getOrCreateConversation(userId, 'whatsapp');
-
-      // Smart reminder execution exclusively via Groq
-      const groqMessages: GroqMessage[] = [{ role: 'user', content: prompt }];
-      let iterations = 0;
-      while (iterations < config.security.maxIterations) {
-        iterations++;
-        const reply = await this.groqProvider.generateReply(groqMessages, true, memories, undefined, langCtx, persCtx);
-
-        if (reply.functionCalls && reply.functionCalls.length > 0) {
-          const fc = reply.functionCalls[0];
-          const tool = this.toolRegistry.getTool(fc.name);
-          if (tool) {
-            const toolResult = await this.toolRegistry.executeTool(tool.name, fc.args, {
-              userId,
-              conversationId: conv.id,
-              channel: 'whatsapp',
-              languageContext: langCtx,
-            });
-            const directSynth: GroqMessage[] = [
-              { role: 'user', content: prompt },
-              {
-                role: 'user',
-                content: `[${isEnglish ? `Result of tool ${tool.name}` : `نتيجة أداة ${tool.name}`}]:\n${serializeToolResultForGroq(
-                  tool.name,
-                  toolResult.output || toolResult.error,
-                  langCtx
-                )}\n\n${isEnglish ? 'Formulate the final reminder message now in clear English.' : 'صِغ رسالة التذكير النهائية الآن بأسلوب واضح ومباشر.'}`,
-              },
-            ];
-            const synthRes = await this.groqProvider.generateReply(directSynth, false, memories, undefined, langCtx, persCtx);
-            if (synthRes.text && synthRes.text.trim()) {
-              return synthRes.text.trim();
+    try {
+      const output = await this.pipeline.execute({
+        userId,
+        channel: 'whatsapp',
+        text: prompt,
+        triggerType: 'smart_reminder',
+        reminderId,
+        reminderTitle,
+        explicitPersonalityPreference: personalityContext
+          ? {
+              tone: personalityContext.tone,
+              formality: personalityContext.formality,
+              verbosity: personalityContext.verbosity,
+              addressingStyle: personalityContext.addressingStyle,
+              emojiPolicy: personalityContext.emojiPolicy,
+              humorLevel: personalityContext.humorLevel,
             }
-            break;
-          }
-        }
+          : undefined,
+      });
 
-        if (reply.text && reply.text.trim()) {
-          return reply.text.trim();
-        }
-        break;
+      if (output?.replyText && output.replyText.trim()) {
+        return output.replyText.trim();
       }
     } catch (err: any) {
-      logger.warn('Failed to generate smart reminder content, falling back to default', {
+      logger.warn('Failed to generate smart reminder content via AgentPipeline, falling back to default', {
         error: err.message,
       });
     }
 
-    const isEnglish = (languageContext?.targetLanguage || 'ar') === 'en';
     return isEnglish
       ? `⏰ *Reminder from Craft*:\n\n📌 *Topic*: "${reminderTitle}"\n\nIt is now time for this scheduled reminder.`
       : `⏰ *تذكير من كرافت*:\n\n📌 *الموضوع*: "${reminderTitle}"\n\nحان الآن موعد هذا التذكير المحدد.`;

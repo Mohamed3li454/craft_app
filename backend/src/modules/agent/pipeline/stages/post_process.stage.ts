@@ -24,39 +24,44 @@ export class PostProcessStage implements PipelineStage {
     ctx.interimSent = true;
 
     const latencyMs = Date.now() - ctx.startTime;
+    const isSmartReminder = ctx.triggerType === 'smart_reminder';
 
-    // 3. Persist assistant reply with full analytics metadata
-    await deps.chatRepo.saveMessage(
-      ctx.conversationId,
-      'assistant',
-      'Craft',
-      ctx.finalReply,
-      undefined,
-      {
-        tokensUsed: ctx.accumulatedTotalTokens,
-        promptTokens: ctx.accumulatedPromptTokens,
-        completionTokens: ctx.accumulatedCompletionTokens,
-        modelName: ctx.lastModelUsed,
-        latencyMs,
-        toolsUsed: ctx.toolCallsExecuted.map((t) => t.toolName).join(', ') || undefined,
-      }
-    );
+    // 3. Persist assistant reply with full analytics metadata (skip for smart_reminder, handled on delivery by ReminderScheduler)
+    if (!isSmartReminder) {
+      await deps.chatRepo.saveMessage(
+        ctx.conversationId,
+        'assistant',
+        'Craft',
+        ctx.finalReply,
+        undefined,
+        {
+          tokensUsed: ctx.accumulatedTotalTokens,
+          promptTokens: ctx.accumulatedPromptTokens,
+          completionTokens: ctx.accumulatedCompletionTokens,
+          modelName: ctx.lastModelUsed,
+          latencyMs,
+          toolsUsed: ctx.toolCallsExecuted.map((t) => t.toolName).join(', ') || undefined,
+        }
+      );
+    }
 
-    // 4. Safe, non-blocking learning observer hook
-    LearningPipeline.getInstance()
-      .observeRun({
-        runId: ctx.agentRunId,
-        userInput: ctx.cleanUserText,
-        replyText: ctx.finalReply,
-        toolCalls: ctx.toolCallsExecuted,
-        modelUsed: ctx.lastModelUsed,
-        provider: ctx.lastProviderUsed || 'groq',
-        channel: ctx.input.channel,
-      })
-      .catch((learningErr) => {
-        logger.debug('LearningPipeline background observer error (safely swallowed)', {
-          error: learningErr.message,
+    // 4. Safe, non-blocking learning observer hook (skip for system-initiated smart_reminder)
+    if (!isSmartReminder) {
+      LearningPipeline.getInstance()
+        .observeRun({
+          runId: ctx.agentRunId,
+          userInput: ctx.cleanUserText,
+          replyText: ctx.finalReply,
+          toolCalls: ctx.toolCallsExecuted,
+          modelUsed: ctx.lastModelUsed,
+          provider: ctx.lastProviderUsed || 'groq',
+          channel: ctx.input.channel,
+        })
+        .catch((learningErr) => {
+          logger.debug('LearningPipeline background observer error (safely swallowed)', {
+            error: learningErr.message,
+          });
         });
-      });
+    }
   }
 }

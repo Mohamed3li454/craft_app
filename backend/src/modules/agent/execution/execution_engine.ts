@@ -103,6 +103,9 @@ export class ExecutionEngine {
     logger.info(`ExecutionEngine starting task [${state.taskId}] for goal: "${context.userGoal}"`, {
       maxSteps: policy.maxSteps,
       channel: context.channel,
+      triggerType: context.triggerType,
+      reminderId: context.reminderId,
+      reminderTitle: context.reminderTitle,
     });
 
     // Resolve Search Presentation Policy
@@ -375,6 +378,7 @@ export class ExecutionEngine {
     logger.info(`ExecutionEngine finished task [${state.taskId}] with status [${finalStatus}] in ${durationMs}ms`, {
       stepsCount: state.steps.length,
       toolCalls: state.totalToolCalls,
+      triggerType: context.triggerType,
     });
 
     return {

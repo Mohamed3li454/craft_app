@@ -550,18 +550,45 @@ export class GroqProvider {
     }
 
     // Smart reminder trigger
-    if (allUserTexts.includes('[نظام التذكيرات الذكية]')) {
-      const reminderMatch = allUserTexts.match(/عنوان التذكير: "([^"]+)"/);
+    if (allUserTexts.includes('[نظام التذكيرات الذكية]') || allUserTexts.includes('[Smart Reminder System]')) {
+      const reminderMatch =
+        allUserTexts.match(/عنوان التذكير: "([^"]+)"/) ||
+        allUserTexts.match(/Reminder title: "([^"]+)"/);
       const reminderTopic = reminderMatch ? reminderMatch[1] : 'التذكير المحدد';
+      const isEnglish = allUserTexts.includes('[Smart Reminder System]');
 
-      if (lastMsg?.role === 'tool' || lastContent.includes('result:')) {
-        if (allUserTexts.includes('weather') || allUserTexts.includes('Cairo')) {
+      const hasToolEvidence =
+        lastMsg?.role === 'tool' ||
+        lastContent.includes('result') ||
+        lastContent.includes('نتيجة') ||
+        lastContent.includes('نتائج تنفيذ الأداة') ||
+        lastContent.includes('Execution results') ||
+        lastContent.includes('Observation for tool') ||
+        lastContent.includes('Verified Result') ||
+        lastContent.includes('Execution Outcomes from Verified Tools') ||
+        messages.some(
+          (m) =>
+            typeof m.content === 'string' &&
+            (m.content.includes('Called tool:') || m.content.includes('Observation for tool'))
+        );
+
+      if (hasToolEvidence) {
+        if (
+          allUserTexts.includes('weather') ||
+          allUserTexts.includes('Cairo') ||
+          allUserTexts.includes('طقس') ||
+          allUserTexts.includes('القاهرة')
+        ) {
           return {
-            text: `⏰ *تذكير من كرافت*:\n\n📌 *بخصوص حالة الطقس في القاهرة*:\nدرجة الحرارة حالياً 28°C والجو مشمس ومعتدل في القاهرة اليوم.`,
+            text: isEnglish
+              ? `⏰ *Reminder from Craft*:\n\n📌 *Regarding Weather in Cairo*:\nCurrent temperature is 28°C with pleasant, sunny skies in Cairo today.`
+              : `⏰ *تذكير من كرافت*:\n\n📌 *بخصوص حالة الطقس في القاهرة*:\nدرجة الحرارة حالياً 28°C والجو مشمس ومعتدل في القاهرة اليوم.`,
           };
         }
         return {
-          text: `⏰ *تذكير من كرافت*:\n\n📌 حان موعد: "${reminderTopic}".`,
+          text: isEnglish
+            ? `⏰ *Reminder from Craft*:\n\n📌 Reminder due: "${reminderTopic}".`
+            : `⏰ *تذكير من كرافت*:\n\n📌 حان موعد: "${reminderTopic}".`,
         };
       }
 
@@ -577,7 +604,9 @@ export class GroqProvider {
       }
 
       return {
-        text: `⏰ *تذكير من كرافت*:\n\n📌 حان الآن موعد: "${reminderTopic}".`,
+        text: isEnglish
+          ? `⏰ *Reminder from Craft*:\n\n📌 It is now time for: "${reminderTopic}".`
+          : `⏰ *تذكير من كرافت*:\n\n📌 حان الآن موعد: "${reminderTopic}".`,
       };
     }
 

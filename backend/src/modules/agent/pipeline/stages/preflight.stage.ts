@@ -39,7 +39,8 @@ export class PreflightStage implements PipelineStage {
     });
 
     // 2. Semantic Cache Check (fast-path: 0 tokens, <15ms)
-    if (!ctx.input.media && ctx.cleanUserText) {
+    // Bypassed for smart_reminder which requires live context and fresh tool execution
+    if (!ctx.input.media && ctx.cleanUserText && ctx.triggerType !== 'smart_reminder') {
       const cacheResult = await SemanticCacheEngine.getInstance().process(ctx.cleanUserText, {
         userId: ctx.input.userId,
         userName: ctx.input.userName,
@@ -97,10 +98,12 @@ export class PreflightStage implements PipelineStage {
     }
 
     // 3. User Daily Rate Limit Check (Free tier: 40 msgs/day, VIP: unlimited)
-    const limitCheck = await deps.userRepo.checkAndIncrementDailyLimit(
-      ctx.input.userId,
-      ctx.input.userPhone
-    );
+    // Bypassed for scheduled system triggers like smart_reminder
+    if (ctx.triggerType !== 'smart_reminder') {
+      const limitCheck = await deps.userRepo.checkAndIncrementDailyLimit(
+        ctx.input.userId,
+        ctx.input.userPhone
+      );
 
     if (!limitCheck.allowed) {
       logger.warn(`Daily limit exceeded for user [${ctx.input.userId}], phone [${ctx.input.userPhone || 'none'}]`);
@@ -151,6 +154,7 @@ export class PreflightStage implements PipelineStage {
         personalityContext: ctx.personalityContext,
       };
       return;
+    }
     }
 
     // 4. If WhatsApp channel, consolidate conversations in background

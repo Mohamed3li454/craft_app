@@ -139,6 +139,9 @@ export interface ExecutionEngineContext {
   readonly memories?: string[];
   readonly imageAttachment?: { data: string; mimeType: string };
   readonly recentMessages?: Array<{ role?: string; senderRole?: string; text?: string; content?: string }>;
+  readonly triggerType?: string;
+  readonly reminderId?: string;
+  readonly reminderTitle?: string;
 }
 
 export interface ExecutionEngineRunResult {

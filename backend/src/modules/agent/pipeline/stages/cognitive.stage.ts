@@ -28,24 +28,28 @@ export class CognitiveStage implements PipelineStage {
   public readonly name = 'cognitive';
 
   public async execute(ctx: AgentPipelineContext, deps: AgentPipelineDependencies): Promise<void> {
-    // 1. Concurrently load recent messages & persist user turn in DB
-    const [recentMessages] = await Promise.all([
-      deps.chatRepo.getRecentMessages(ctx.conversationId, 8),
-      deps.chatRepo.saveMessage(
-        ctx.conversationId,
-        'user',
-        ctx.input.channel === 'whatsapp' ? 'WhatsApp User' : 'User',
-        ctx.historyRecordText || ctx.effectivePrompt,
-        ctx.input.mediaUrl,
-        { mediaType: ctx.mediaType }
-      ),
-    ]);
+    const isSmartReminder = ctx.triggerType === 'smart_reminder';
+
+    // 1. Concurrently load recent messages & persist user turn in DB (skip user turn persistence for smart_reminder)
+    const recentMessagesPromise = deps.chatRepo.getRecentMessages(ctx.conversationId, 8);
+    const savePromise = isSmartReminder
+      ? Promise.resolve(null)
+      : deps.chatRepo.saveMessage(
+          ctx.conversationId,
+          'user',
+          ctx.input.channel === 'whatsapp' ? 'WhatsApp User' : 'User',
+          ctx.historyRecordText || ctx.effectivePrompt,
+          ctx.input.mediaUrl,
+          { mediaType: ctx.mediaType }
+        );
+
+    const [recentMessages] = await Promise.all([recentMessagesPromise, savePromise]);
     ctx.recentMessages = recentMessages;
 
     // 2. Conversation Intelligence Engine
     const conversationEngine = ConversationIntelligenceEngine.getInstance();
     ctx.conversationState = conversationEngine.analyze({
-      query: ctx.textToProcess || ctx.cleanUserText || ctx.effectivePrompt,
+      query: (isSmartReminder && ctx.reminderTitle) || ctx.textToProcess || ctx.cleanUserText || ctx.effectivePrompt,
       recentMessages: ctx.recentMessages.map((m) => ({
         role: m.senderRole,
         text: m.text,
@@ -53,8 +57,8 @@ export class CognitiveStage implements PipelineStage {
       })),
     });
 
-    // 3. Memory facts extraction & selective retrieval
-    if (ctx.textToProcess && ctx.conversationState.goal !== 'troubleshooting') {
+    // 3. Memory facts extraction & selective retrieval (skip extraction for smart_reminder)
+    if (!isSmartReminder && ctx.textToProcess && ctx.conversationState.goal !== 'troubleshooting') {
       try {
         await deps.memoryRepo.extractAndSaveFacts(
           ctx.input.userId,
@@ -67,7 +71,9 @@ export class CognitiveStage implements PipelineStage {
     }
 
     const retrievalService = MemoryRetrievalService.getInstance(deps.memoryRepo);
-    const queryText = ctx.conversationState.contextualizedQuery || ctx.textToProcess || ctx.effectivePrompt;
+    const queryText = (isSmartReminder && ctx.reminderTitle)
+      ? ctx.reminderTitle
+      : (ctx.conversationState.contextualizedQuery || ctx.textToProcess || ctx.effectivePrompt);
     const retrievedMemories = await retrievalService.retrieve({
       userId: ctx.input.userId,
       message: queryText,

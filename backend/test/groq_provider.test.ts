@@ -1,24 +1,62 @@
 import { GroqProvider } from '../src/modules/groq/groq.provider';
 import { AgentOrchestrator } from '../src/modules/agent/orchestrator';
 import { config } from '../src/config/env';
+import { DatabaseManager } from '../src/database/connection';
+import { UserRepository } from '../src/database/repositories/user.repo';
+import { ChatRepository } from '../src/database/repositories/chat.repo';
+import { MemoryRepository } from '../src/database/repositories/memory.repo';
+import { UserPreferenceRepository } from '../src/database/repositories/user_preference.repo';
+import { ConfirmationRepository } from '../src/database/repositories/confirmation.repo';
+import { ReminderRepository } from '../src/database/repositories/reminder.repo';
+import { ConfirmationService } from '../src/modules/confirmation/confirmation.service';
+import { ToolRegistry } from '../src/modules/tools/registry';
+import { SemanticCacheEngine } from '../src/modules/cache/semantic_cache_engine';
 
 describe('GroqProvider & High-Speed LPU Integration', () => {
   let groqProvider: GroqProvider;
   let orchestrator: AgentOrchestrator;
+  const originalMockMode = config.groq.isMockMode;
+
+  beforeAll(() => {
+    config.groq.isMockMode = true;
+  });
+
+  afterAll(() => {
+    config.groq.isMockMode = originalMockMode;
+  });
 
   beforeEach(() => {
+    const mockDb = {
+      getPool: () => null,
+      getSupabase: () => null,
+    } as unknown as DatabaseManager;
+
+    const userRepo = new UserRepository(mockDb);
+    const chatRepo = new ChatRepository(mockDb, userRepo);
+    const memoryRepo = new MemoryRepository(mockDb);
+    const userPrefRepo = new UserPreferenceRepository(mockDb);
+    const confRepo = new ConfirmationRepository(mockDb);
+    const confService = new ConfirmationService(confRepo);
+
     groqProvider = new GroqProvider();
-    orchestrator = new AgentOrchestrator();
+    orchestrator = new AgentOrchestrator(
+      groqProvider,
+      ToolRegistry.getInstance(),
+      confService,
+      chatRepo,
+      memoryRepo,
+      userRepo,
+      userPrefRepo
+    );
+
+    jest.spyOn(SemanticCacheEngine.getInstance(), 'process').mockResolvedValue({
+      type: 'miss',
+      reason: 'mock_test_mode',
+      latencyMs: 1,
+    });
   });
 
   describe('GroqProvider Unit Tests', () => {
-    const originalMockMode = config.groq.isMockMode;
-    beforeAll(() => {
-      config.groq.isMockMode = true;
-    });
-    afterAll(() => {
-      config.groq.isMockMode = originalMockMode;
-    });
     test('generates text reply using primary model in mock mode', async () => {
       const response = await groqProvider.generateReply([
         { role: 'user', content: 'مرحبا يا كرافت' },
