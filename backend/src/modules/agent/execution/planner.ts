@@ -12,6 +12,7 @@ import { GroqProvider } from '../../groq/groq.provider';
 import { AgentExecutionState, ExecutionDecision, ExecutionEngineContext } from './types';
 import { redactSecrets } from '../../tools/contracts/error.types';
 import { ToolRegistry } from '../../tools/registry';
+import { ToolCapabilityPolicy } from '../../tools/safety/tool_capability_policy';
 import {
   AIRouter,
   AIMessage,
@@ -26,7 +27,8 @@ export class ExecutionPlanner {
 
   constructor(
     aiRouterOrGroq?: AIRouter | GroqProvider,
-    private toolRegistry: ToolRegistry = ToolRegistry.getInstance()
+    private toolRegistry: ToolRegistry = ToolRegistry.getInstance(),
+    private capabilityPolicy: ToolCapabilityPolicy = ToolCapabilityPolicy.getInstance()
   ) {
     if (aiRouterOrGroq instanceof GroqProvider || (aiRouterOrGroq && !(aiRouterOrGroq as any).route)) {
       const testRegistry = new ProviderRegistry();
@@ -120,7 +122,10 @@ export class ExecutionPlanner {
     }
 
     // 4. Construct normalized AIRequest with tools
-    const tools = this.toolRegistry.getOpenAITools();
+    const tools = this.capabilityPolicy.getFilteredOpenAITools(
+      this.toolRegistry,
+      context.triggerType
+    );
     const aiRequest: AIRequest = {
       messages,
       tools: tools.length > 0 ? (tools as any) : undefined,

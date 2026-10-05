@@ -7,6 +7,7 @@
 
 import { AgentTool, ToolExecutionContext, ToolRiskLevel } from '../contracts/tool.types';
 import { createToolError, ToolError } from '../contracts/error.types';
+import { ToolCapabilityPolicy } from './tool_capability_policy';
 
 export interface ToolGateDecision {
   readonly allowed: boolean;
@@ -37,6 +38,31 @@ export class ToolPermissionGate {
       requiresConfirmation: tool.isSensitive,
       requiresNetwork: false,
     };
+
+    // 0. Trigger Capability Policy Gate (Phase 13.2 defense-in-depth)
+    const capabilityDecision = ToolCapabilityPolicy.getInstance().isToolAllowed(
+      tool.name,
+      context.triggerType
+    );
+    if (!capabilityDecision.allowed) {
+      return {
+        allowed: false,
+        requiresConfirmation: false,
+        riskLevel: metadata.riskLevel,
+        error: createToolError(
+          'TOOL_NOT_ALLOWED_FOR_TRIGGER',
+          `Tool [${tool.name}] is not permitted for trigger "${context.triggerType || 'default'}"`,
+          {
+            userSafeMessage: `Tool ${tool.name} is not permitted for this operation.`,
+            details: {
+              triggerType: context.triggerType,
+              capability: capabilityDecision.capability,
+              reason: capabilityDecision.reason,
+            },
+          }
+        ),
+      };
+    }
 
     // 1. Channel Restriction Gate
     if (metadata.allowedChannels && metadata.allowedChannels.length > 0) {

@@ -44,7 +44,13 @@ export class FailureHandler {
     const retryCount = step.retryCount ?? 0;
 
     // 1. Unrecoverable Security & Policy Denials -> Abort immediately
-    if (code === 'SSRF_BLOCKED' || code === 'CHANNEL_NOT_ALLOWED' || code === 'UNAUTHENTICATED') {
+    if (
+      code === 'SSRF_BLOCKED' ||
+      code === 'CHANNEL_NOT_ALLOWED' ||
+      code === 'UNAUTHENTICATED' ||
+      code === 'TOOL_NOT_ALLOWED_FOR_TRIGGER' ||
+      code === 'PERMISSION_DENIED'
+    ) {
       const hasPriorSuccess = state.steps.some(
         (s) => s.id !== step.id && s.status === 'succeeded'
       );

@@ -46,6 +46,7 @@ export class StepExecutor {
       channel: context.channel,
       languageContext: context.languageContext,
       signal: context.abortSignal,
+      triggerType: context.triggerType,
       budget: context.tokenBudgetResult
         ? {
             maxOutputChars: context.tokenBudgetResult.maxToolResultChars,

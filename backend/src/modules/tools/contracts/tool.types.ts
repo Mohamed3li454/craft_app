@@ -53,6 +53,7 @@ export interface ToolExecutionContext {
   readonly channel: 'flutter' | 'whatsapp';
   readonly languageContext?: LanguageContext;
   readonly signal?: AbortSignal;
+  readonly triggerType?: string;
   readonly budget?: {
     maxOutputTokens?: number;
     maxOutputChars?: number;

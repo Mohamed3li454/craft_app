@@ -22,6 +22,7 @@ export * from './validation/input_validator';
 // Safety Gates & Output Sanitization
 export * from './safety/permission_gate';
 export * from './safety/output_sanitizer';
+export * from './safety/tool_capability_policy';
 
 // Adapters & Formatting
 export * from './adapters/tool_result_formatter';

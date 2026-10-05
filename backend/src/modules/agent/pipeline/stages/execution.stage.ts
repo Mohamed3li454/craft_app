@@ -96,7 +96,9 @@ export class ExecutionStage implements PipelineStage {
           ctx.languageContext
         );
 
-        await deps.chatRepo.saveMessage(ctx.conversationId, 'assistant', 'Craft', promptNotice);
+        if (ctx.triggerType !== 'smart_reminder') {
+          await deps.chatRepo.saveMessage(ctx.conversationId, 'assistant', 'Craft', promptNotice);
+        }
 
         ctx.status = 'waiting_for_confirmation';
         ctx.finalReply = promptNotice;

@@ -18,6 +18,7 @@ export type ToolErrorCode =
   | 'EXECUTION_FAILED'
   | 'OUTPUT_TOO_LARGE'
   | 'OUTPUT_SANITIZATION_FAILED'
+  | 'TOOL_NOT_ALLOWED_FOR_TRIGGER'
   | 'INTERNAL_ERROR';
 
 export interface ToolError {
