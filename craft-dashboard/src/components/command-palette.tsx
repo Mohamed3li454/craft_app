@@ -14,6 +14,7 @@ import {
   Wrench,
   Send,
   Search,
+  FlaskConical,
   ShieldCheck,
   Settings,
   Sun,
@@ -51,6 +52,7 @@ export function CommandPalette({ isOpen, onClose }: { isOpen: boolean; onClose: 
       { id: 'agent-runs', nameKey: 'commandPalette.viewAgentRuns', href: '/agent-runs', icon: Cpu, categoryKey: 'navigation.aiOperations' },
       { id: 'tools', nameKey: 'commandPalette.viewTools', href: '/tools', icon: Wrench, categoryKey: 'navigation.aiOperations' },
       { id: 'search', nameKey: 'commandPalette.viewSearch', href: '/search', icon: Search, categoryKey: 'navigation.aiOperations' },
+      { id: 'evaluation', nameKey: 'commandPalette.viewEvaluation', href: '/evaluation', icon: FlaskConical, categoryKey: 'navigation.aiOperations' },
 
       // USER INTELLIGENCE
       { id: 'memory', nameKey: 'commandPalette.viewMemory', href: '/memory', icon: Brain, categoryKey: 'navigation.userIntelligence' },

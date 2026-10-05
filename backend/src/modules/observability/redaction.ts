@@ -1,10 +1,36 @@
-/**
- * Centralized Redaction Layer (Phase 8.5)
- *
- * Enforces strict data minimization and secret sanitization across
- * structured logs, trace attributes, evaluation output, and error messages.
- */
+const COT_PATTERNS = [
+  'thought',
+  'thoughts',
+  'reasoning',
+  'reasoning_content',
+  'chain_of_thought',
+  'internal_reasoning',
+  'cot',
+];
 
+const SAFE_NUMERIC_TELEMETRY_KEYS = new Set([
+  'tokens',
+  'tokencount',
+  'prompttokens',
+  'completiontokens',
+  'totaltokens',
+  'durationms',
+  'latencyms',
+  'duration_ms',
+  'latency_ms',
+  'cost',
+  'score',
+  'stepscount',
+  'steps_count',
+]);
+
+/**
+ * Centralized Redaction Layer (Phase 8.5 & Phase 12.2 Hardening)
+ *
+ * Enforces strict data minimization, secret sanitization, and CoT removal across
+ * structured logs, trace attributes, evaluation output, and error messages,
+ * while preserving safe numeric telemetry metrics.
+ */
 const SENSITIVE_KEY_PATTERNS = [
   'password',
   'token',
@@ -93,6 +119,29 @@ export function redactObject<T = unknown>(input: T, depth = 0): T {
     const sanitized: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
       const lowerKey = key.toLowerCase();
+
+      // 1. Safe numeric telemetry keys must be preserved as numeric values
+      const isNumericTelemetry =
+        typeof value === 'number' &&
+        (SAFE_NUMERIC_TELEMETRY_KEYS.has(lowerKey) ||
+          lowerKey.endsWith('tokens') ||
+          lowerKey.endsWith('token') ||
+          lowerKey.endsWith('tokencount') ||
+          lowerKey.endsWith('ms'));
+
+      if (isNumericTelemetry) {
+        sanitized[key] = value;
+        continue;
+      }
+
+      // 2. Strip / redact Chain of Thought and internal reasoning
+      const isCot = COT_PATTERNS.some((pattern) => lowerKey === pattern || lowerKey.includes(pattern));
+      if (isCot) {
+        sanitized[key] = '[REDACTED_REASONING]';
+        continue;
+      }
+
+      // 3. Redact credentials and sensitive keys
       const isSensitiveKey = SENSITIVE_KEY_PATTERNS.some((pattern) => lowerKey.includes(pattern));
 
       if (isSensitiveKey) {

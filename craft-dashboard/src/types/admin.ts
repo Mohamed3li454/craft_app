@@ -496,3 +496,451 @@ export interface AdminAuditItem {
   errorMessage?: string | null;
   createdAt: string;
 }
+
+// 14. AI Quality & Evaluation Types (Phase 12.1)
+export type EvaluationDimension =
+  | 'memory'
+  | 'conversation'
+  | 'personalization'
+  | 'adaptive_response'
+  | 'agent'
+  | 'provider'
+  | 'proactive';
+
+export interface EvaluationExpected {
+  strategy?: string;
+  toolCalls?: string[];
+  forbiddenTools?: string[];
+  memoryUsage?: 'none' | 'allowed' | 'required';
+  clarification?: boolean;
+  outcome?: string;
+  status?: string;
+  fallbackUsed?: boolean;
+  maxSteps?: number;
+  blockedReason?: string;
+  expectedDepth?: string;
+}
+
+export interface EvaluationCaseItem {
+  id: string;
+  name: string;
+  category: EvaluationDimension;
+  dimension?: EvaluationDimension;
+  input: string;
+  context?: Record<string, unknown>;
+  expected: EvaluationExpected;
+  actual?: Record<string, unknown>;
+  tags?: string[];
+  status?: 'passed' | 'failed' | 'untested' | 'pending';
+  score?: number;
+  failureReason?: string;
+  runId?: string;
+  timestamp?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface EvaluationOverviewData {
+  datasetVersion: string;
+  totalCases: number;
+  coveredCases: number;
+  uncoveredCases: number;
+  coverageRate: number;
+  dimensionsCount: number;
+  dimensionCoverage: Record<EvaluationDimension, number>;
+  lastEvaluationRun: string | EvaluationRunItem | null;
+  historicalRunsCount: number;
+  activeRegressionsCount: number;
+  overallScore?: number | null;
+  passRate?: number | null;
+  failureRate?: number | null;
+  operationalSignals?: OperationalSignals | null;
+  runtimeQuality?: {
+    toolSuccess: string;
+    providerSuccess: string;
+    searchSuccess: string;
+    responseQuality: string;
+  };
+}
+
+export interface EvaluationRunItem {
+  id: string;
+  startedAt: string;
+  completedAt?: string | null;
+  datasetVersion: string;
+  mode?: 'mock' | 'replay' | 'live';
+  totalCases: number;
+  passed: number;
+  failed: number;
+  passRate: number;
+  passedCases?: number;
+  failedCases?: number;
+  skippedCases?: number;
+  overallScore?: number;
+  regressionCount: number;
+  durationMs: number;
+  status: 'completed' | 'running' | 'failed' | 'queued' | 'cancelled' | 'partial';
+  createdBy?: string;
+  createdAt?: string;
+  metadata?: {
+    release?: ReleaseMetadata;
+    provenance?: DatasetProvenance;
+    [key: string]: any;
+  };
+  dimensionBreakdown?: Record<
+    EvaluationDimension,
+    { total: number; passed: number; failed: number; passRate: number }
+  >;
+  modelBreakdown?: Record<string, { total: number; passed: number; avgScore: number }>;
+}
+
+export interface EvaluationCaseResult {
+  id: string;
+  runId: string;
+  caseId: string;
+  dimension: EvaluationDimension;
+  status: 'passed' | 'failed' | 'skipped' | 'error';
+  score: number;
+  expected: Record<string, any>;
+  actual: Record<string, any>;
+  failureReason?: string | null;
+  regression: boolean;
+  previousStatus?: string | null;
+  previousScore?: number | null;
+  model?: string | null;
+  provider?: string | null;
+  durationMs: number;
+  tokens: number;
+  createdAt: string;
+  assertionReport?: CaseAssertionReport | null;
+  failureCategory?: FailureCategory | null;
+  runtimeCorrelation?: {
+    agentRunId?: string | null;
+    toolCallId?: string | null;
+    correlationId?: string | null;
+    hasCorrelation: boolean;
+  };
+}
+
+export interface TriggerEvaluationRunPayload {
+  mode?: 'mock' | 'replay' | 'live';
+  category?: EvaluationDimension;
+  caseIds?: string[];
+  concurrency?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+  releaseMetadata?: ReleaseMetadata;
+}
+
+export interface EvaluationRegressionItem {
+  caseId: string;
+  previousResult?: 'passed' | 'failed' | string;
+  currentResult?: 'failed' | string;
+  previousStatus?: string | null;
+  status?: string;
+  dimension: EvaluationDimension;
+  severity?: 'critical' | 'high' | 'medium' | 'low' | string;
+  firstDetectedAt?: string;
+  latestDetectedAt?: string;
+  relatedRunId?: string;
+  runId?: string;
+  reason?: string | null;
+  failureReason?: string | null;
+  runDate?: string;
+  mode?: string;
+}
+
+// ==========================================
+// Quality Intelligence (Phase 12.3)
+// ==========================================
+
+export type FailureCategory =
+  | 'forbidden_tool_used'
+  | 'required_tool_missing'
+  | 'memory_mismatch'
+  | 'conversation_mismatch'
+  | 'personalization_mismatch'
+  | 'adaptive_response_mismatch'
+  | 'provider_error'
+  | 'execution_error'
+  | 'timeout'
+  | 'budget_exceeded'
+  | 'security_violation'
+  | 'assertion_failure'
+  | 'unknown';
+
+export interface AssertionDiagnostic {
+  type: string;
+  expected: string;
+  observed: string;
+  status: 'passed' | 'failed';
+  failureReason?: string;
+}
+
+export interface CaseAssertionReport {
+  caseId: string;
+  dimension: string;
+  passedCount: number;
+  totalCount: number;
+  assertions: AssertionDiagnostic[];
+}
+
+export interface FailureCluster {
+  pattern: string;
+  category: FailureCategory;
+  dimension: string;
+  affectedCases: string[];
+  affectedRuns: string[];
+  occurrences: number;
+  firstSeen: string;
+  lastSeen: string;
+  sampleReason: string;
+}
+
+export interface DimensionHealth {
+  dimension: EvaluationDimension;
+  totalCases: number;
+  evaluatedCases: number;
+  passedCases: number;
+  failedCases: number;
+  passRate: number;
+  averageScore: number;
+  regressionsCount: number;
+  topFailurePattern: string | null;
+}
+
+export interface CaseComparisonDiff {
+  caseId: string;
+  dimension: string;
+  changeType: 'regression' | 'recovered' | 'score_changed' | 'new_failure' | 'resolved_failure';
+  runA: {
+    status: string;
+    score: number;
+    durationMs: number;
+    failureReason?: string | null;
+  };
+  runB: {
+    status: string;
+    score: number;
+    durationMs: number;
+    failureReason?: string | null;
+  };
+  scoreDelta: number;
+}
+
+export interface RunComparisonResult {
+  runA: EvaluationRunItem;
+  runB: EvaluationRunItem;
+  releaseA?: ReleaseMetadata;
+  releaseB?: ReleaseMetadata;
+  comparisonType?: 'regression' | 'informational';
+  warning?: string | null;
+  metrics: {
+    passRateDeltaPp: number;
+    averageScoreDelta: number;
+    failuresDelta: number;
+    regressionsDelta: number;
+    durationDeltaMs: number;
+    tokensDelta: number;
+  };
+  dimensionComparison: {
+    dimension: string;
+    runAPassRate: number;
+    runBPassRate: number;
+    deltaPp: number;
+  }[];
+  changedCases: CaseComparisonDiff[];
+}
+
+export interface ProviderDiagnosticItem {
+  provider: string;
+  model: string;
+  evaluatedCases: number;
+  passedCases: number;
+  failedCases: number;
+  passRate: number;
+  averageScore: number;
+  averageDurationMs: number;
+  totalTokens: number;
+}
+
+export interface QualityOverviewData {
+  latestRun: EvaluationRunItem | null;
+  totalHistoricalRuns: number;
+  activeRegressionsCount: number;
+  dimensionHealth: Record<EvaluationDimension, DimensionHealth>;
+  providerDiagnostics: ProviderDiagnosticItem[];
+  topFailures: FailureCluster[];
+  totalEvaluatedCases: number;
+}
+
+export interface FailuresOverviewData {
+  clusters: FailureCluster[];
+  taxonomyCounts: Record<string, number>;
+  totalFailures: number;
+  totalEvaluatedCases: number;
+}
+
+export interface CaseHistoryData {
+  case: EvaluationCaseItem;
+  history: EvaluationCaseResult[];
+}
+
+// ==========================================
+// Operational Evaluation & Quality Gate (Phase 12.4)
+// ==========================================
+
+export interface OperationalSignals {
+  lastEvaluation: {
+    id: string;
+    status: 'completed' | 'running' | 'failed' | 'queued' | 'cancelled';
+    mode: 'mock' | 'replay' | 'live';
+    datasetVersion: string;
+    overallScore: number;
+    createdAt: string;
+    completedAt?: string | null;
+  } | null;
+  lastSuccessfulEvaluation: {
+    id: string;
+    overallScore: number;
+    passedCases: number;
+    totalCases: number;
+    completedAt: string;
+  } | null;
+  lastFailedEvaluation: {
+    id: string;
+    overallScore: number;
+    failedCases: number;
+    totalCases: number;
+    createdAt: string;
+    completedAt?: string | null;
+  } | null;
+  lastRegression: {
+    id: string;
+    runId: string;
+    caseId: string;
+    dimension: string;
+    previousStatus?: string | null;
+    failureReason?: string | null;
+    createdAt: string;
+  } | null;
+}
+
+export interface QualityGatePolicy {
+  minimumPassRate?: number;
+  minimumScore?: number;
+  maximumRegressions?: number;
+  maximumFailures?: number;
+}
+
+export interface QualityGateCheckItem {
+  criterion: 'minimum_pass_rate' | 'minimum_score' | 'maximum_regressions' | 'maximum_failures';
+  label: string;
+  threshold: number | string;
+  actual: number | string;
+  passed: boolean;
+  message: string;
+}
+
+export interface QualityGateEvaluationResult {
+  runId: string;
+  status: 'passed' | 'failed' | 'not_configured';
+  policyConfigured: boolean;
+  policy: QualityGatePolicy;
+  checks: QualityGateCheckItem[];
+  failureReasons: string[];
+  evaluatedAt: string;
+}
+
+export interface QualityReleaseSnapshot {
+  runId: string;
+  datasetVersion: string;
+  mode: string;
+  status: string;
+  totalCases: number;
+  passedCases: number;
+  failedCases: number;
+  passRate: number;
+  overallScore: number;
+  regressionCount: number;
+  durationMs: number;
+  completedAt: string | null;
+  createdBy: string;
+  dimensionScores: Record<EvaluationDimension, { total: number; passed: number; passRate: number; avgScore: number }>;
+  qualityGate: QualityGateEvaluationResult;
+  releaseMetadata?: ReleaseMetadata;
+  qualityDecision?: QualityDecision;
+  datasetProvenance?: DatasetProvenance;
+  snapshotGeneratedAt: string;
+}
+
+export interface RunProgressInfo {
+  runId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  totalCases: number;
+  processedCases: number;
+  passedCases: number;
+  failedCases: number;
+  progressPercent: number;
+  durationMs: number;
+  isCompleted: boolean;
+  isCancelled: boolean;
+}
+
+export interface EvaluationDatasetMetadata {
+  datasetVersion: string;
+  totalCases: number;
+  dimensions: string[];
+  dimensionCounts: Record<string, number>;
+  isReadOnly: boolean;
+  sourceControlled: boolean;
+  sourcePath: string;
+  description: string;
+}
+
+// ==========================================
+// Continuous Evaluation & Release Quality (Phase 12.5)
+// ==========================================
+
+export type QualityDecision = 'approved' | 'rejected' | 'not_configured';
+
+export interface ReleaseMetadata {
+  commitSha: string | null;
+  deploymentId: string | null;
+  deploymentVersion: string | null;
+  environment: string | null;
+  branch?: string | null;
+  buildId?: string | null;
+}
+
+export interface DatasetProvenance {
+  datasetVersion: string;
+  caseCount: number;
+  dimensionsCount: number;
+  source: 'source-controlled' | 'Not Tracked';
+}
+
+export interface ReleaseQualitySignal {
+  runId: string;
+  datasetVersion: string;
+  datasetProvenance: DatasetProvenance;
+  releaseMetadata: ReleaseMetadata;
+  qualityGate: QualityGateEvaluationResult;
+  qualityDecision: QualityDecision;
+  metrics: {
+    status: string;
+    mode: string;
+    totalCases: number;
+    passedCases: number;
+    failedCases: number;
+    passRate: number;
+    overallScore: number;
+    regressionCount: number;
+    durationMs: number;
+    startedAt: string;
+    completedAt: string | null;
+  };
+  generatedAt: string;
+}
+
+
+

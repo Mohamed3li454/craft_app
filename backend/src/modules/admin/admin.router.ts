@@ -13,6 +13,7 @@ import { AdminProactiveController } from './controllers/admin_proactive.controll
 import { AdminSearchController } from './controllers/admin_search.controller';
 import { AdminSettingsController } from './controllers/admin_settings.controller';
 import { AdminAuditController } from './controllers/admin_audit.controller';
+import { AdminEvaluationController } from './controllers/admin_evaluation.controller';
 import { AdminFaqController } from './controllers/admin_faq.controller';
 import { CandidateReviewController } from '../cache/learning/candidate_review.controller';
 import { AnalyticsController } from '../analytics/analytics.controller';
@@ -38,9 +39,12 @@ export function createAdminRouter(): Router {
   const legacyFaqController = new AdminFaqController();
   const candidateReviewController = new CandidateReviewController();
   const legacyAnalyticsController = new AnalyticsController();
+  const evaluationController = new AdminEvaluationController();
 
   // Mutation roles: owner, admin, operator
   const mutationGuard = requireAdminRole('owner', 'admin', 'operator');
+  // Evaluation execution: owner, admin only
+  const evaluationMutationGuard = requireAdminRole('owner', 'admin');
 
   // ==========================================
   // 1. Overview & Platform Metrics
@@ -160,6 +164,30 @@ export function createAdminRouter(): Router {
   // 13. Audit Trail Inspection
   // ==========================================
   router.get('/audit', auditController.getAuditLogs);
+
+  // ==========================================
+  // 14. AI Quality & Evaluation Center
+  // ==========================================
+  router.get('/evaluation/overview', evaluationController.getOverview);
+  router.get('/evaluation/dataset', evaluationController.getDatasetMetadata);
+  router.get('/evaluation/quality', evaluationController.getQualityOverview);
+  router.get('/evaluation/release-quality', evaluationController.getReleaseQualityHistory);
+  router.get('/evaluation/failures', evaluationController.getFailures);
+  router.get('/evaluation/compare', evaluationController.compareRuns);
+  router.get('/evaluation/runs/compare', evaluationController.compareRuns);
+  router.get('/evaluation/cases', evaluationController.getCases);
+  router.get('/evaluation/cases/:id/history', evaluationController.getCaseHistory);
+  router.get('/evaluation/cases/:id', evaluationController.getCaseDetails);
+  router.get('/evaluation/runs', evaluationController.getRuns);
+  router.get('/evaluation/runs/:id/progress', evaluationController.getRunProgress);
+  router.get('/evaluation/runs/:id/quality-gate', evaluationController.getRunQualityGate);
+  router.get('/evaluation/runs/:id/release-quality', evaluationController.getRunReleaseQuality);
+  router.get('/evaluation/runs/:id/snapshot', evaluationController.getRunSnapshot);
+  router.post('/evaluation/runs/:id/cancel', evaluationMutationGuard, evaluationController.cancelRun);
+  router.get('/evaluation/runs/:id', evaluationController.getRunDetails);
+  router.get('/evaluation/runs/:id/results', evaluationController.getRunResults);
+  router.get('/evaluation/regressions', evaluationController.getRegressions);
+  router.post('/evaluation/runs', evaluationMutationGuard, evaluationController.triggerRun);
 
   return router;
 }

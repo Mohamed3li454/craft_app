@@ -15,6 +15,7 @@ import {
   Wrench,
   Send,
   Search,
+  FlaskConical,
   ShieldCheck,
   Settings,
   LogOut,
@@ -57,6 +58,7 @@ export const NAV_GROUPS: NavGroupConfig[] = [
       { nameKey: 'navigation.agentRuns', href: '/agent-runs', icon: Cpu },
       { nameKey: 'navigation.tools', href: '/tools', icon: Wrench },
       { nameKey: 'navigation.search', href: '/search', icon: Search },
+      { nameKey: 'navigation.evaluation', href: '/evaluation', icon: FlaskConical },
     ],
   },
   {

@@ -22,6 +22,22 @@ import {
   AdminSafeSettings,
   AdminAuditItem,
   AdminSuccessResponse,
+  EvaluationOverviewData,
+  EvaluationCaseItem,
+  EvaluationRunItem,
+  EvaluationRegressionItem,
+  EvaluationCaseResult,
+  TriggerEvaluationRunPayload,
+  QualityOverviewData,
+  FailuresOverviewData,
+  RunComparisonResult,
+  CaseHistoryData,
+  QualityGatePolicy,
+  QualityGateEvaluationResult,
+  QualityReleaseSnapshot,
+  RunProgressInfo,
+  EvaluationDatasetMetadata,
+  ReleaseQualitySignal,
 } from '@/types/admin';
 
 class AdminApiClient {
@@ -370,6 +386,194 @@ class AdminApiClient {
     if (params.resourceId) qs.set('resourceId', params.resourceId);
     if (params.status) qs.set('status', params.status);
     return this.request<AdminAuditItem[]>(`/audit?${qs.toString()}`);
+  }
+
+  // 14. AI Quality & Evaluation Center (Phase 12.1)
+  async getEvaluationOverview() {
+    return this.request<EvaluationOverviewData>('/evaluation/overview');
+  }
+
+  async getEvaluationCases(params: {
+    category?: string;
+    dimension?: string;
+    search?: string;
+    tag?: string;
+    limit?: number;
+    offset?: number;
+  } = {}) {
+    const qs = new URLSearchParams();
+    if (params.category) qs.set('category', params.category);
+    if (params.dimension) qs.set('dimension', params.dimension);
+    if (params.search) qs.set('search', params.search);
+    if (params.tag) qs.set('tag', params.tag);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<EvaluationCaseItem[]>(`/evaluation/cases${query}`);
+  }
+
+  async getEvaluationCaseDetails(id: string) {
+    return this.request<EvaluationCaseItem>(`/evaluation/cases/${encodeURIComponent(id)}`);
+  }
+
+  async getEvaluationRuns(
+    params: {
+      limit?: number;
+      offset?: number;
+      status?: string;
+      mode?: string;
+      datasetVersion?: string;
+      triggeredBy?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}
+  ) {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    if (params.status) qs.set('status', params.status);
+    if (params.mode) qs.set('mode', params.mode);
+    if (params.datasetVersion) qs.set('datasetVersion', params.datasetVersion);
+    if (params.triggeredBy) qs.set('triggeredBy', params.triggeredBy);
+    if (params.startDate) qs.set('startDate', params.startDate);
+    if (params.endDate) qs.set('endDate', params.endDate);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<EvaluationRunItem[]>(`/evaluation/runs${query}`);
+  }
+
+  async getEvaluationRegressions(params: { limit?: number; offset?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<EvaluationRegressionItem[]>(`/evaluation/regressions${query}`);
+  }
+
+  // Phase 12.4 — Operations, Cancellation & Quality Gate
+  async cancelEvaluationRun(runId: string) {
+    return this.request<EvaluationRunItem>(`/evaluation/runs/${encodeURIComponent(runId)}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  async getEvaluationRunProgress(runId: string) {
+    return this.request<RunProgressInfo>(`/evaluation/runs/${encodeURIComponent(runId)}/progress`);
+  }
+
+  async getEvaluationQualityGate(runId: string, policy?: QualityGatePolicy) {
+    const qs = new URLSearchParams();
+    if (policy?.minimumPassRate !== undefined) qs.set('minimumPassRate', String(policy.minimumPassRate));
+    if (policy?.minimumScore !== undefined) qs.set('minimumScore', String(policy.minimumScore));
+    if (policy?.maximumRegressions !== undefined) qs.set('maximumRegressions', String(policy.maximumRegressions));
+    if (policy?.maximumFailures !== undefined) qs.set('maximumFailures', String(policy.maximumFailures));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<QualityGateEvaluationResult>(`/evaluation/runs/${encodeURIComponent(runId)}/quality-gate${query}`);
+  }
+
+  async getEvaluationQualitySnapshot(runId: string) {
+    return this.request<QualityReleaseSnapshot>(`/evaluation/runs/${encodeURIComponent(runId)}/snapshot`);
+  }
+
+  async getEvaluationDatasetMetadata() {
+    return this.request<EvaluationDatasetMetadata>('/evaluation/dataset');
+  }
+
+  // Phase 12.5 — Continuous Evaluation & Release Quality
+  async getEvaluationRunReleaseQuality(runId: string, policy?: QualityGatePolicy) {
+    const qs = new URLSearchParams();
+    if (policy?.minimumPassRate !== undefined) qs.set('minimumPassRate', String(policy.minimumPassRate));
+    if (policy?.minimumScore !== undefined) qs.set('minimumScore', String(policy.minimumScore));
+    if (policy?.maximumRegressions !== undefined) qs.set('maximumRegressions', String(policy.maximumRegressions));
+    if (policy?.maximumFailures !== undefined) qs.set('maximumFailures', String(policy.maximumFailures));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<ReleaseQualitySignal>(`/evaluation/runs/${encodeURIComponent(runId)}/release-quality${query}`);
+  }
+
+  async getEvaluationReleaseQualityHistory(
+    params: {
+      limit?: number;
+      offset?: number;
+      environment?: string;
+      decision?: string;
+    } = {}
+  ) {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    if (params.environment) qs.set('environment', params.environment);
+    if (params.decision) qs.set('decision', params.decision);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<ReleaseQualitySignal[]>(`/evaluation/release-quality${query}`);
+  }
+
+  // Phase 12.2 — Evaluation Runner & Results
+  async triggerEvaluationRun(payload: TriggerEvaluationRunPayload = { mode: 'mock' }) {
+    return this.request<{ run: EvaluationRunItem; regressionSummary: { totalRegressions: number; regressedCaseIds: string[] } }>(
+      '/evaluation/runs',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  async getEvaluationRunDetails(id: string) {
+    return this.request<EvaluationRunItem>(`/evaluation/runs/${encodeURIComponent(id)}`);
+  }
+
+  async getEvaluationRunResults(
+    id: string,
+    params: {
+      dimension?: string;
+      status?: string;
+      regression?: boolean;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ) {
+    const qs = new URLSearchParams();
+    if (params.dimension) qs.set('dimension', params.dimension);
+    if (params.status) qs.set('status', params.status);
+    if (params.regression) qs.set('regression', 'true');
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<EvaluationCaseResult[]>(`/evaluation/runs/${encodeURIComponent(id)}/results${query}`);
+  }
+
+  // Phase 12.3 — Quality Intelligence
+  async getEvaluationQualityOverview() {
+    return this.request<QualityOverviewData>('/evaluation/quality');
+  }
+
+  async getEvaluationFailures(
+    params: {
+      dimension?: string;
+      category?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ) {
+    const qs = new URLSearchParams();
+    if (params.dimension) qs.set('dimension', params.dimension);
+    if (params.category) qs.set('category', params.category);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<FailuresOverviewData>(`/evaluation/failures${query}`);
+  }
+
+  async compareEvaluationRuns(runA: string, runB: string) {
+    const qs = new URLSearchParams({ runA, runB });
+    return this.request<RunComparisonResult>(`/evaluation/compare?${qs.toString()}`);
+  }
+
+  async getEvaluationCaseHistory(caseId: string, limit?: number) {
+    const qs = new URLSearchParams();
+    if (limit) qs.set('limit', String(limit));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<CaseHistoryData>(`/evaluation/cases/${encodeURIComponent(caseId)}/history${query}`);
   }
 }
 

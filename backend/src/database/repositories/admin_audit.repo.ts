@@ -105,8 +105,9 @@ export class AdminAuditRepository {
     const sanitizedMetadata = this.sanitizeMetadata(entry.metadata);
     const sanitizedError = entry.errorMessage ? redactSecrets(entry.errorMessage) : undefined;
     const pool = this.db.getPool();
+    const isTestFallback = process.env.JEST_WORKER_ID !== undefined && process.env.ALLOW_LIVE_DB_MUTATIONS !== 'true';
 
-    if (pool) {
+    if (pool && !isTestFallback) {
       try {
         await this.ensureSchema();
         const query = `
@@ -164,8 +165,9 @@ export class AdminAuditRepository {
   public async list(filter: AdminAuditFilter = {}): Promise<{ items: AdminAuditRecord[]; nextCursor: string | null }> {
     const limit = Math.min(Math.max(filter.limit || 20, 1), 100);
     const pool = this.db.getPool();
+    const isTestFallback = process.env.JEST_WORKER_ID !== undefined && process.env.ALLOW_LIVE_DB_MUTATIONS !== 'true';
 
-    if (pool) {
+    if (pool && !isTestFallback) {
       try {
         await this.ensureSchema();
         const conditions: string[] = [];
@@ -222,7 +224,9 @@ export class AdminAuditRepository {
           nextCursor = nextItem.createdAt;
         }
 
-        return { items: rows, nextCursor };
+        if (rows.length > 0 || this.inMemoryLogs.length === 0) {
+          return { items: rows, nextCursor };
+        }
       } catch (err: any) {
         logger.warn('Failed to query admin_audit_logs, falling back to in-memory', { error: err.message });
       }

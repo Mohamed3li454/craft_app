@@ -37,12 +37,11 @@ export class DatabaseManager {
           logger.error('Unexpected error on idle PostgreSQL client', { error: err.message });
         });
 
-        // Test Mutation Guard: Intercept pool.query in Jest tests to block mutation statements against production databases
+        // Test Mutation Guard: Intercept pool.query and pool.connect in Jest tests to block mutation statements against production databases
         if (process.env.JEST_WORKER_ID !== undefined && isProductionDatabase(config.database.url)) {
-          const originalQuery = this.pool.query.bind(this.pool);
-          this.pool.query = ((...args: any[]) => {
+          const assertNoMutation = (sqlText: any) => {
             if (process.env.ALLOW_LIVE_DB_MUTATIONS !== 'true') {
-              const sql = typeof args[0] === 'string' ? args[0] : args[0]?.text;
+              const sql = typeof sqlText === 'string' ? sqlText : sqlText?.text;
               if (typeof sql === 'string') {
                 const trimmed = sql.trim().toUpperCase();
                 if (
@@ -59,7 +58,23 @@ export class DatabaseManager {
                 }
               }
             }
+          };
+
+          const originalQuery = this.pool.query.bind(this.pool);
+          this.pool.query = ((...args: any[]) => {
+            assertNoMutation(args[0]);
             return originalQuery(...(args as [any, any]));
+          }) as any;
+
+          const originalConnect = this.pool.connect.bind(this.pool);
+          this.pool.connect = (async () => {
+            const client = await originalConnect();
+            const originalClientQuery = client.query.bind(client);
+            client.query = ((...args: any[]) => {
+              assertNoMutation(args[0]);
+              return originalClientQuery(...(args as [any, any]));
+            }) as any;
+            return client;
           }) as any;
         }
 

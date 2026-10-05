@@ -244,9 +244,9 @@ describe('Phase 11.1 — Design Foundation & UI/UX 2.0 Test Suite', () => {
       expect(NAV_GROUPS[2].groupNameKey).toBe('navigation.userIntelligence');
       expect(NAV_GROUPS[3].groupNameKey).toBe('navigation.systemSection');
 
-      // Verify all 13 items exist
+      // Verify all 14 items exist (including AI Quality & Evaluation Center)
       const totalItems = NAV_GROUPS.reduce((acc, g) => acc + g.items.length, 0);
-      expect(totalItems).toBe(13);
+      expect(totalItems).toBe(14);
     });
 
     test('Renders sidebar navigation links and user identity', () => {

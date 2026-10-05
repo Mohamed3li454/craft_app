@@ -21,6 +21,27 @@ import { FailureHandler } from '../../agent/execution/failure_handler';
 import { ExecutionPolicyManager } from '../../agent/execution/execution_policy';
 import { ExecutionEngineContext } from '../../agent/execution/types';
 
+export const EVALUATION_SIDE_EFFECT_TOOLS = [
+  'save_memory',
+  'delete_memory',
+  'create_reminder',
+  'cancel_reminder',
+  'send_message',
+  'whatsapp_outbound',
+  'dispatch_proactive',
+  'mutate_conversation',
+  'execute_payment',
+  'confirm_action',
+] as const;
+
+export class EvaluationToolSafetyViolation extends Error {
+  public readonly code = 'EVALUATION_TOOL_SIDE_EFFECT_BLOCKED';
+  constructor(public readonly toolName: string) {
+    super(`Evaluation execution cannot execute side-effecting tool '${toolName}'. Blocked by EvaluationSafetyGate.`);
+    this.name = 'EvaluationToolSafetyViolation';
+  }
+}
+
 export class EvaluationEvaluator {
   private static instance: EvaluationEvaluator;
 
@@ -31,6 +52,12 @@ export class EvaluationEvaluator {
       EvaluationEvaluator.instance = new EvaluationEvaluator();
     }
     return EvaluationEvaluator.instance;
+  }
+
+  public static assertToolAllowed(toolName: string): void {
+    if (EVALUATION_SIDE_EFFECT_TOOLS.includes(toolName as any)) {
+      throw new EvaluationToolSafetyViolation(toolName);
+    }
   }
 
   /**
@@ -45,10 +72,22 @@ export class EvaluationEvaluator {
     try {
       actual = await this.executeSubsystem(evaluationCase, correlationId);
     } catch (err: any) {
-      actual.status = 'error';
-      actual.error = err.message;
-      if (!evaluationCase.expected.blockedReason && evaluationCase.expected.status !== 'error') {
-        errors.push(`Subsystem threw unexpected error: ${err.message}`);
+      if (err instanceof EvaluationToolSafetyViolation) {
+        actual.status = 'blocked';
+        actual.blockedReason = 'side_effect_tool_blocked';
+        actual.error = err.message;
+        if (
+          evaluationCase.expected.blockedReason !== 'side_effect_tool_blocked' &&
+          evaluationCase.expected.status !== 'blocked'
+        ) {
+          errors.push(`Tool isolation violation: ${err.message}`);
+        }
+      } else {
+        actual.status = 'error';
+        actual.error = err.message;
+        if (!evaluationCase.expected.blockedReason && evaluationCase.expected.status !== 'error') {
+          errors.push(`Subsystem threw unexpected error: ${err.message}`);
+        }
       }
     }
 
@@ -91,6 +130,29 @@ export class EvaluationEvaluator {
     correlationId: string
   ): Promise<Record<string, unknown>> {
     const { category, input, context } = evaluationCase;
+
+    // Execution Layer Tool Isolation & Live Safety Guard:
+    // Any attempted or simulated tool with side effects is immediately intercepted and blocked.
+    if (
+      (context?.attemptedTool && EVALUATION_SIDE_EFFECT_TOOLS.includes(context.attemptedTool as any)) ||
+      (context?.simulateToolExecution && EVALUATION_SIDE_EFFECT_TOOLS.includes(context.simulateToolExecution as any))
+    ) {
+      const tool = (context.attemptedTool || context.simulateToolExecution) as string;
+      EvaluationEvaluator.assertToolAllowed(tool);
+    }
+
+    if (context?.simulateOutboundMessage || context?.whatsappOutbound) {
+      EvaluationEvaluator.assertToolAllowed('whatsapp_outbound');
+    }
+    if (context?.simulateMemoryMutation || context?.memoryMutation) {
+      EvaluationEvaluator.assertToolAllowed('save_memory');
+    }
+    if (context?.simulateReminderMutation || context?.reminderMutation) {
+      EvaluationEvaluator.assertToolAllowed('create_reminder');
+    }
+    if (context?.simulateProactiveAction || context?.proactiveAction) {
+      EvaluationEvaluator.assertToolAllowed('dispatch_proactive');
+    }
 
     switch (category) {
       case 'memory': {
