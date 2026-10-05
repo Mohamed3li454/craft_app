@@ -21,9 +21,10 @@ export class EmbeddingFactory {
    * If unconfigured or in test mode, safely defaults to MockEmbeddingProvider.
    */
   public static createProvider(options?: EmbeddingFactoryOptions): EmbeddingProvider {
+    const isTestMode = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
     const providerType = (
       options?.provider ||
-      process.env.EMBEDDING_PROVIDER ||
+      (isTestMode ? (process.env.TEST_EMBEDDING_PROVIDER || 'mock') : process.env.EMBEDDING_PROVIDER) ||
       (config as any).embedding?.provider ||
       'mock'
     ).toLowerCase().trim();

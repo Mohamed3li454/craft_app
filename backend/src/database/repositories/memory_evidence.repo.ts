@@ -34,8 +34,13 @@ function toDeterministicUuid(id: string): string {
 
 export class MemoryEvidenceRepository {
   private static instance: MemoryEvidenceRepository;
-  private inMemoryCandidates: Map<string, MemoryEvidenceCandidate> = new Map();
+  private static sharedInMemoryCandidates: Map<string, MemoryEvidenceCandidate> = new Map();
+  private inMemoryCandidates: Map<string, MemoryEvidenceCandidate> = MemoryEvidenceRepository.sharedInMemoryCandidates;
   private schemaChecked = false;
+
+  public static clearInMemory(): void {
+    MemoryEvidenceRepository.sharedInMemoryCandidates.clear();
+  }
 
   public static getInstance(db?: DatabaseManager): MemoryEvidenceRepository {
     if (!MemoryEvidenceRepository.instance) {

@@ -138,10 +138,10 @@ export interface RecentInteractionItem {
   metadata?: ConversationMessageMetadata;
 }
 
-export interface ConversationTranscriptResult {
+export type ConversationTranscriptResult = RecentInteractionItem[] & {
   messages: RecentInteractionItem[];
   total: number;
-}
+};
 
 export interface UserDetailsResponse {
   user: {
@@ -1009,7 +1009,7 @@ export class AnalyticsRepository {
           };
         });
 
-        return { messages, total };
+        return Object.assign([...messages], { messages, total }) as ConversationTranscriptResult;
       } catch (err: any) {
         logger.warn('Database query failed in getConversationTranscript', { error: err.message });
       }
@@ -1061,7 +1061,7 @@ export class AnalyticsRepository {
       };
     });
 
-    return { messages, total };
+    return Object.assign([...messages], { messages, total }) as ConversationTranscriptResult;
   }
 
   public async getUserDetails(userIdOrPhone: string): Promise<UserDetailsResponse | null> {

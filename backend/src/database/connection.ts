@@ -21,7 +21,62 @@ export class DatabaseManager {
     return DatabaseManager.instance;
   }
 
+  public static resetForTest(): void {
+    if (DatabaseManager.instance) {
+      if (DatabaseManager.instance.pool) {
+        DatabaseManager.instance.pool.end().catch(() => {});
+      }
+      DatabaseManager.instance = undefined as any;
+    }
+  }
+
   private initClients(): void {
+    const isTestMode = process.env.JEST_WORKER_ID !== undefined || process.env.NODE_ENV === 'test';
+    const testDbUrl = process.env.TEST_DATABASE_URL;
+
+    // In test mode: strict isolation
+    if (isTestMode) {
+      // 1. If explicit TEST_DATABASE_URL is provided, ensure it is not production
+      if (testDbUrl) {
+        if (isProductionDatabase(testDbUrl)) {
+          throw new Error('SAFETY_VIOLATION: TEST_DATABASE_URL points to a production database URL.');
+        }
+        try {
+          this.pool = new Pool({
+            connectionString: testDbUrl,
+            max: 3,
+            idleTimeoutMillis: 10000,
+            connectionTimeoutMillis: 5000,
+          });
+          this.pool.on('error', (err) => {
+            logger.error('Unexpected error on test PostgreSQL client', { error: err.message });
+          });
+          this.isConnected = true;
+          logger.info('[DatabaseManager] Isolated test PostgreSQL pool initialized from TEST_DATABASE_URL');
+          return;
+        } catch (err: any) {
+          logger.warn('[DatabaseManager] Failed to initialize test PostgreSQL pool, falling back to memory store', {
+            error: err.message,
+          });
+          this.pool = null;
+          this.isConnected = false;
+          return;
+        }
+      }
+
+      // 2. If no TEST_DATABASE_URL is provided and DATABASE_URL is production:
+      // Fail-closed to pure in-memory isolation. Zero network connections to production Supabase.
+      if (isProductionDatabase(config.database.url)) {
+        logger.info(
+          '[DatabaseManager] Test mode detected with production DATABASE_URL. Isolated to in-memory mode (zero production network calls).'
+        );
+        this.pool = null;
+        this.supabase = null;
+        this.isConnected = false;
+        return;
+      }
+    }
+
     // 1. Initialize PostgreSQL connection pool if DATABASE_URL is provided
     if (config.database.url && !config.database.url.includes('[YOUR-PASSWORD]')) {
       try {

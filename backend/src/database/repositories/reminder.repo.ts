@@ -94,8 +94,13 @@ export function calculateNextDueAt(currentDueAt: Date | string, recurrence: stri
 }
 
 export class ReminderRepository {
-  private inMemoryReminders: Map<string, ReminderEntity[]> = new Map();
+  private static sharedInMemoryReminders: Map<string, ReminderEntity[]> = new Map();
+  private inMemoryReminders: Map<string, ReminderEntity[]> = ReminderRepository.sharedInMemoryReminders;
   private schemaMigrated = false;
+
+  public static clearInMemory(): void {
+    ReminderRepository.sharedInMemoryReminders.clear();
+  }
 
   constructor(
     private db: DatabaseManager = DatabaseManager.getInstance(),
@@ -198,9 +203,12 @@ export class ReminderRepository {
       updatedAt: new Date(),
     };
 
-    const existing = this.inMemoryReminders.get(userId) || [];
+    const existing = this.inMemoryReminders.get(userUuid) || this.inMemoryReminders.get(userId) || [];
     existing.push(newReminder);
-    this.inMemoryReminders.set(userId, existing);
+    this.inMemoryReminders.set(userUuid, existing);
+    if (userId !== userUuid) {
+      this.inMemoryReminders.set(userId, existing);
+    }
 
     logger.info(`Saved reminder in-memory for user [${userId}]`, {
       title,
@@ -475,17 +483,47 @@ export class ReminderRepository {
     // In-memory fallback: atomically claim rows
     const dueList: any[] = [];
     const now = new Date();
+    const claimedIds = new Set<string>();
+
     for (const [userId, items] of this.inMemoryReminders.entries()) {
       for (const item of items) {
+        if (claimedIds.has(item.id)) continue;
         const isEligibleState = ['scheduled', 'due', 'retry_pending', 'claimed'].includes(item.state || 'scheduled');
         const isUnlocked = !item.lockedUntil || item.lockedUntil <= now;
         if (!item.isCompleted && isEligibleState && item.dueAt && item.dueAt <= now && isUnlocked) {
+          claimedIds.add(item.id);
           item.state = 'claimed';
           item.lockedUntil = new Date(Date.now() + leaseSeconds * 1000);
           item.updatedAt = new Date();
+
+          let phone: string | undefined;
+          if (item.userId) {
+            if (item.userId.startsWith('wa_')) {
+              phone = item.userId.replace('wa_', '');
+            } else if (/^\d{8,15}$/.test(item.userId.replace(/\D/g, ''))) {
+              phone = item.userId.replace(/\D/g, '');
+            }
+          }
+          if (!phone && userId) {
+            if (userId.startsWith('wa_')) {
+              phone = userId.replace('wa_', '');
+            } else if (/^\d{8,15}$/.test(userId.replace(/\D/g, ''))) {
+              phone = userId.replace(/\D/g, '');
+            }
+          }
+          if (!phone) {
+            const u = (await this.userRepo.getUserById(item.userId)) || (await this.userRepo.getUserById(userId));
+            if (u?.phoneNumber) {
+              phone = u.phoneNumber;
+            } else if (u?.bsuid) {
+              phone = u.bsuid;
+            }
+          }
+
           dueList.push({
             ...item,
             userName: userId,
+            phoneNumber: phone,
           });
           if (dueList.length >= batchSize) break;
         }

@@ -15,8 +15,16 @@ function toDeterministicUuid(id: string): string {
 }
 
 export class ChatRepository {
-  private inMemoryConversations: Map<string, ConversationEntity> = new Map();
-  private inMemoryMessages: Map<string, MessageEntity[]> = new Map();
+  private static sharedInMemoryConversations: Map<string, ConversationEntity> = new Map();
+  private static sharedInMemoryMessages: Map<string, MessageEntity[]> = new Map();
+
+  private inMemoryConversations: Map<string, ConversationEntity> = ChatRepository.sharedInMemoryConversations;
+  private inMemoryMessages: Map<string, MessageEntity[]> = ChatRepository.sharedInMemoryMessages;
+
+  public static clearInMemory(): void {
+    ChatRepository.sharedInMemoryConversations.clear();
+    ChatRepository.sharedInMemoryMessages.clear();
+  }
 
   constructor(
     private db: DatabaseManager = DatabaseManager.getInstance(),

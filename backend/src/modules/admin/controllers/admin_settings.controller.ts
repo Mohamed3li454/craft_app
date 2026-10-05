@@ -5,30 +5,15 @@ import { config } from '../../../config/env';
 import { logger } from '../../../core/logger';
 import { z } from 'zod';
 
-export interface SafeRuntimeSettings {
-  maintenanceMode: boolean;
-  debugLogging: boolean;
-  searchEnabled: boolean;
-  proactiveEnabled: boolean;
-  defaultMemoryRetentionDays: number;
-}
+import {
+  RuntimePolicy,
+  SafeRuntimeSettings,
+  RuntimePolicyResolver,
+  UpdateRuntimePolicySchema,
+} from '../../../config/runtime_policy';
 
-// In-memory runtime state for dynamic control plane settings
-let currentRuntimeSettings: SafeRuntimeSettings = {
-  maintenanceMode: false,
-  debugLogging: false,
-  searchEnabled: true,
-  proactiveEnabled: true,
-  defaultMemoryRetentionDays: 365,
-};
+export { RuntimePolicy, SafeRuntimeSettings };
 
-const UpdateSettingsSchema = z.object({
-  maintenanceMode: z.boolean().optional(),
-  debugLogging: z.boolean().optional(),
-  searchEnabled: z.boolean().optional(),
-  proactiveEnabled: z.boolean().optional(),
-  defaultMemoryRetentionDays: z.number().int().min(1).max(3650).optional(),
-});
 
 export class AdminSettingsController {
   constructor(private auditService: AdminAuditService = AdminAuditService.getInstance()) {}
@@ -68,7 +53,7 @@ export class AdminSettingsController {
 
       sendAdminSuccess(res, {
         infrastructure,
-        runtimeSettings: currentRuntimeSettings,
+        runtimeSettings: RuntimePolicyResolver.getPolicy(),
       });
     } catch (err: any) {
       logger.error('[Admin Settings] Failed to get runtime settings', { error: err.message });
@@ -78,9 +63,11 @@ export class AdminSettingsController {
 
   public updateSettings = async (req: Request, res: Response): Promise<void> => {
     const correlationId = getCorrelationId(req);
-    const actor = getAdminActor(req).name || 'admin';
+    const adminActor = getAdminActor(req);
+    const actor = adminActor.name || adminActor.id || 'admin';
+    const role = adminActor.role;
 
-    const parseRes = UpdateSettingsSchema.safeParse(req.body || {});
+    const parseRes = UpdateRuntimePolicySchema.safeParse(req.body || {});
     if (!parseRes.success) {
       sendAdminError(res, 400, 'ADMIN_VALIDATION_ERROR', 'Invalid settings payload', parseRes.error.format());
       return;
@@ -89,11 +76,8 @@ export class AdminSettingsController {
     const updates = parseRes.data;
 
     try {
-      const oldSettings = { ...currentRuntimeSettings };
-      currentRuntimeSettings = {
-        ...currentRuntimeSettings,
-        ...updates,
-      };
+      const oldSettings = RuntimePolicyResolver.getPolicy();
+      const updatedSettings = RuntimePolicyResolver.updatePolicy(updates);
 
       await this.auditService.recordMutation({
         adminActor: actor,
@@ -104,11 +88,12 @@ export class AdminSettingsController {
         metadata: {
           appliedUpdates: updates,
           previousSettings: oldSettings,
+          role,
         },
         correlationId,
       });
 
-      sendAdminSuccess(res, currentRuntimeSettings);
+      sendAdminSuccess(res, updatedSettings);
     } catch (err: any) {
       logger.error('[Admin Settings] Failed to update runtime settings', { error: err.message });
 

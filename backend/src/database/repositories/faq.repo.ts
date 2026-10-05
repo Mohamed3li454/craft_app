@@ -139,15 +139,23 @@ export const DEFAULT_FAQS: Array<Omit<FAQItem, 'id' | 'hitCount' | 'createdAt' |
 ];
 
 export class FAQRepository {
-  private inMemoryItems: Map<string, FAQItem> = new Map();
+  private static sharedInMemoryItems: Map<string, FAQItem> = new Map();
+  private static initialized = false;
+  private inMemoryItems: Map<string, FAQItem> = FAQRepository.sharedInMemoryItems;
   private schemaChecked = false;
 
-  constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {
-    // Seed in-memory map as initial baseline
+  public static clearInMemory(): void {
+    FAQRepository.sharedInMemoryItems.clear();
+    FAQRepository.initialized = false;
+    FAQRepository.seedDefaults();
+  }
+
+  private static seedDefaults(): void {
+    if (FAQRepository.initialized) return;
     for (const d of DEFAULT_FAQS) {
       const id = uuidv4();
       const now = new Date().toISOString();
-      this.inMemoryItems.set(id, {
+      FAQRepository.sharedInMemoryItems.set(id, {
         ...d,
         id,
         hitCount: 0,
@@ -155,6 +163,11 @@ export class FAQRepository {
         updatedAt: now,
       });
     }
+    FAQRepository.initialized = true;
+  }
+
+  constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {
+    FAQRepository.seedDefaults();
   }
 
   public async ensureSchema(): Promise<void> {

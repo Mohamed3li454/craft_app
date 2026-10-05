@@ -8,6 +8,7 @@
 
 import { TraceContextManager } from './trace_context';
 import { redactObject, redactSecrets } from './redaction';
+import { RuntimePolicyResolver } from '../../config/runtime_policy';
 
 export enum LogLevel {
   DEBUG = 'DEBUG',
@@ -65,6 +66,10 @@ export class StructuredLogger {
 
   private log(level: LogLevel, message: string, meta?: unknown, eventName?: string): void {
     try {
+      if (level === LogLevel.DEBUG && !RuntimePolicyResolver.getPolicy().debugLogging) {
+        return;
+      }
+
       const activeCtx = TraceContextManager.getActiveContext();
       const sanitizedMsg = redactSecrets(message);
       const sanitizedMeta = meta !== undefined ? redactObject(meta) : undefined;

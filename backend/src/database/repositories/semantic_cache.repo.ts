@@ -9,6 +9,8 @@ import {
   UpdateSemanticCacheDto,
   ResponseStrategy,
 } from './semantic_cache.types';
+import { DEFAULT_FAQS } from './faq.repo';
+import { MockEmbeddingProvider } from '../../modules/cache/embedding/mock_embedding.provider';
 
 function computeCosineSimilarity(a: number[], b: number[]): number {
   if (!a || !b || a.length !== b.length || a.length === 0) return 0;
@@ -26,10 +28,53 @@ function computeCosineSimilarity(a: number[], b: number[]): number {
 }
 
 export class SemanticCacheRepository {
-  private inMemoryItems: Map<string, SemanticCacheItem> = new Map();
+  private static sharedInMemoryItems: Map<string, SemanticCacheItem> = new Map();
+  private static initialized = false;
+  private inMemoryItems: Map<string, SemanticCacheItem> = SemanticCacheRepository.sharedInMemoryItems;
   private schemaChecked = false;
 
-  constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
+  public static clearInMemory(): void {
+    SemanticCacheRepository.sharedInMemoryItems.clear();
+    SemanticCacheRepository.initialized = false;
+    SemanticCacheRepository.seedDefaults();
+  }
+
+  private static seedDefaults(): void {
+    if (SemanticCacheRepository.initialized) return;
+    for (const d of DEFAULT_FAQS) {
+      const id = uuidv4();
+      const now = new Date().toISOString();
+      SemanticCacheRepository.sharedInMemoryItems.set(id, {
+        id,
+        intent: d.category,
+        category: d.category,
+        title: d.title,
+        examples: d.patterns,
+        patterns: d.patterns,
+        response: d.response,
+        responseStrategy: 'dynamic_template',
+        responseTemplates: { default: [d.response] },
+        matchType: d.matchType,
+        isCacheable: true,
+        isDynamic: false,
+        requiresSearch: false,
+        requiresUserContext: false,
+        confidenceThreshold: 0.88,
+        embedding: null,
+        embeddingDimension: 768,
+        isActive: d.isActive,
+        hitCount: 0,
+        lastUsedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    SemanticCacheRepository.initialized = true;
+  }
+
+  constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {
+    SemanticCacheRepository.seedDefaults();
+  }
 
   /**
    * Safe, idempotent migration to ensure pgvector extension and semantic columns exist in faq_items.
@@ -293,18 +338,32 @@ export class SemanticCacheRepository {
 
     // In-memory fallback
     const matches: SemanticCacheMatch[] = [];
-    for (const item of this.inMemoryItems.values()) {
-      if (!item.isActive || !item.isCacheable || !item.embedding) continue;
-      if (dimension && item.embeddingDimension && item.embeddingDimension !== dimension) continue;
-      if (category && item.category !== category) continue;
+    const mockProvider = new MockEmbeddingProvider(vector.length);
 
-      const sim = computeCosineSimilarity(vector, item.embedding);
+    for (const item of this.inMemoryItems.values()) {
+      if (!item.isActive || !item.isCacheable) continue;
+      if (category && item.category !== category) continue;
+      if (dimension && item.embeddingDimension && item.embeddingDimension !== dimension) continue;
+
       const effectiveThreshold = queryThreshold !== null 
         ? Math.max(item.confidenceThreshold, queryThreshold) 
         : item.confidenceThreshold;
 
-      if (sim >= effectiveThreshold) {
-        matches.push({ item, similarity: sim });
+      if (item.embedding) {
+        const sim = computeCosineSimilarity(vector, item.embedding);
+        if (sim >= effectiveThreshold) {
+          matches.push({ item, similarity: sim });
+        }
+      } else if (item.patterns && item.patterns.length > 0) {
+        // For default FAQs without pre-computed embeddings, match against pattern mock vectors
+        for (const pat of item.patterns) {
+          const patVec = mockProvider.generateDeterministicVector(pat);
+          const sim = computeCosineSimilarity(vector, patVec);
+          if (sim >= effectiveThreshold) {
+            matches.push({ item, similarity: sim });
+            break;
+          }
+        }
       }
     }
 
@@ -355,7 +414,7 @@ export class SemanticCacheRepository {
    * Creates a new semantic cache item with optional embedding.
    */
   public async create(dto: CreateSemanticCacheDto): Promise<SemanticCacheItem> {
-    const id = uuidv4();
+    const id = dto.id || uuidv4();
     const category = (dto.category || 'custom').trim();
     const intent = (dto.intent || category).trim();
     const title = dto.title.trim();

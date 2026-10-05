@@ -2,14 +2,25 @@ import { ReminderScheduler } from '../src/modules/reminder/reminder.scheduler';
 import { ReminderRepository, parseDueAt } from '../src/database/repositories/reminder.repo';
 import { WhatsAppAdapter } from '../src/modules/whatsapp/adapter';
 import { ChatRepository } from '../src/database/repositories/chat.repo';
+import { config } from '../src/config/env';
 
 describe('ReminderScheduler & Timezone Intelligence', () => {
   let scheduler: ReminderScheduler;
   let repo: ReminderRepository;
   let mockAdapter: jest.Mocked<WhatsAppAdapter>;
   let chatRepo: ChatRepository;
+  const originalMockMode = config.groq.isMockMode;
+
+  beforeAll(() => {
+    config.groq.isMockMode = true;
+  });
+
+  afterAll(() => {
+    config.groq.isMockMode = originalMockMode;
+  });
 
   beforeEach(() => {
+    ReminderRepository.clearInMemory();
     repo = new ReminderRepository();
     mockAdapter = {
       sendTextMessage: jest.fn().mockResolvedValue(true),

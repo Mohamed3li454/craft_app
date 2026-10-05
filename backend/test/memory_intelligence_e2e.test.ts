@@ -47,6 +47,7 @@ import { RetrievedMemory } from '../src/modules/memory/types';
 import { SystemPromptBuilder } from '../src/modules/ai';
 import { ProviderRegistry } from '../src/modules/ai/provider_registry';
 import { GroqAIProvider } from '../src/modules/ai/providers/groq/provider';
+import { config } from '../src/config/env';
 
 /**
  * Deterministic Test-Only Seam for GroqProvider.
@@ -114,6 +115,14 @@ class TestGroqProvider extends GroqProvider {
 }
 
 describe('Phase 2.9: Memory Intelligence End-to-End & Final Validation', () => {
+  const originalMockMode = config.groq.isMockMode;
+  beforeAll(() => {
+    config.groq.isMockMode = true;
+  });
+  afterAll(() => {
+    config.groq.isMockMode = originalMockMode;
+  });
+
   let memoryRepo: MemoryRepository;
   let evidenceRepo: MemoryEvidenceRepository;
   let userPrefRepo: UserPreferenceRepository;

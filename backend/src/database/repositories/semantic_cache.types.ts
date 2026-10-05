@@ -43,6 +43,7 @@ export interface FindSimilarOptions {
 }
 
 export interface CreateSemanticCacheDto {
+  id?: string;
   intent?: string;
   category?: string;
   title: string;

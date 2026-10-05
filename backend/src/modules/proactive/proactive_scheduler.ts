@@ -15,6 +15,7 @@ import { ConsentManager } from './consent';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { UserPreferenceRepository } from '../../database/repositories/user_preference.repo';
 import { logger } from '../../core/logger';
+import { RuntimePolicyResolver } from '../../config/runtime_policy';
 import {
   ProactiveActionEntity,
   ProactiveDispatchIntent,
@@ -57,6 +58,18 @@ export class ProactiveScheduler {
    * 3. Produces ProactiveDispatchIntent for authorized actions (without sending WhatsApp messages)
    */
   public async checkAndProcessDueActions(now: Date = new Date()): Promise<ProactiveSchedulerResult> {
+    if (!RuntimePolicyResolver.getPolicy().proactiveEnabled) {
+      logger.info('[ProactiveScheduler] Proactive processing skipped: proactiveEnabled is disabled by runtime policy');
+      return {
+        claimedCount: 0,
+        dispatchedIntents: [],
+        suppressedCount: 0,
+        deferredCount: 0,
+        expiredCount: 0,
+        failedCount: 0,
+      };
+    }
+
     const dueActions = await this.repo.claimDueActions(50, now);
     if (dueActions.length === 0) {
       return {

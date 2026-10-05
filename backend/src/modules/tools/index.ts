@@ -23,6 +23,7 @@ export * from './validation/input_validator';
 export * from './safety/permission_gate';
 export * from './safety/output_sanitizer';
 export * from './safety/tool_capability_policy';
+export * from './safety/trigger_contract';
 
 // Adapters & Formatting
 export * from './adapters/tool_result_formatter';

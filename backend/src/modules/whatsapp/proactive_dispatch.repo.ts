@@ -30,9 +30,17 @@ export function generateIdempotencyKey(
 }
 
 export class ProactiveDispatchRepository {
-  private inMemoryLogs: Map<string, ProactiveDispatchLogEntity> = new Map();
-  private inMemoryEngagements: Map<string, ProactiveEngagementEntity> = new Map();
+  private static sharedInMemoryLogs: Map<string, ProactiveDispatchLogEntity> = new Map();
+  private static sharedInMemoryEngagements: Map<string, ProactiveEngagementEntity> = new Map();
+
+  private inMemoryLogs: Map<string, ProactiveDispatchLogEntity> = ProactiveDispatchRepository.sharedInMemoryLogs;
+  private inMemoryEngagements: Map<string, ProactiveEngagementEntity> = ProactiveDispatchRepository.sharedInMemoryEngagements;
   private schemaMigrated = false;
+
+  public static clearInMemory(): void {
+    ProactiveDispatchRepository.sharedInMemoryLogs.clear();
+    ProactiveDispatchRepository.sharedInMemoryEngagements.clear();
+  }
 
   constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
 

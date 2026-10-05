@@ -38,8 +38,13 @@ function toDeterministicUuid(id: string): string {
 }
 
 export class MemoryRepository {
-  private inMemoryItems: Map<string, MemoryItemEntity[]> = new Map();
+  private static sharedInMemoryItems: Map<string, MemoryItemEntity[]> = new Map();
+  private inMemoryItems: Map<string, MemoryItemEntity[]> = MemoryRepository.sharedInMemoryItems;
   private schemaChecked = false;
+
+  public static clearInMemory(): void {
+    MemoryRepository.sharedInMemoryItems.clear();
+  }
 
   constructor(
     private db: DatabaseManager = DatabaseManager.getInstance(),
@@ -663,6 +668,36 @@ export class MemoryRepository {
               signals: relationResult.signals,
             },
           };
+          const newItem: MemoryItemEntity = {
+            id: newId,
+            userId: userUuid,
+            factText: cleanText,
+            category,
+            status,
+            factKey: factKey || undefined,
+            source,
+            confidence,
+            importance,
+            temporalState,
+            validFrom,
+            validUntil,
+            metadata: {
+              ...(options?.metadata || {}),
+              relationResult: {
+                relation: relationResult.relation,
+                reason: relationResult.reason,
+                signals: relationResult.signals,
+              },
+            },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          userItems.push(newItem);
+          this.inMemoryItems.set(userUuid, userItems);
+          if (userId !== userUuid) {
+            this.inMemoryItems.set(userId, userItems);
+          }
+          return newItem;
         } else {
           // Higher authority memory already active. Retain it.
           return targetMem;
@@ -686,6 +721,36 @@ export class MemoryRepository {
               signals: relationResult.signals,
             },
           };
+          const newItem: MemoryItemEntity = {
+            id: newId,
+            userId: userUuid,
+            factText: cleanText,
+            category,
+            status,
+            factKey: factKey || undefined,
+            source,
+            confidence,
+            importance,
+            temporalState,
+            validFrom,
+            validUntil,
+            metadata: {
+              ...(options?.metadata || {}),
+              relationResult: {
+                relation: relationResult.relation,
+                reason: relationResult.reason,
+                signals: relationResult.signals,
+              },
+            },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          userItems.push(newItem);
+          this.inMemoryItems.set(userUuid, userItems);
+          if (userId !== userUuid) {
+            this.inMemoryItems.set(userId, userItems);
+          }
+          return newItem;
         }
       }
     }

@@ -41,8 +41,28 @@ export interface FindOrCreateWhatsAppUserParams {
 }
 
 export class UserRepository {
-  private inMemoryUsers: Map<string, UserEntity> = new Map();
+  private static sharedInMemoryUsers: Map<string, UserEntity> = new Map();
+  private inMemoryUsers: Map<string, UserEntity> = UserRepository.sharedInMemoryUsers;
   private schemaChecked = false;
+
+  public static clearInMemoryUsers(): void {
+    UserRepository.sharedInMemoryUsers.clear();
+  }
+
+  public static seedInMemoryUser(user: Partial<UserEntity> & { id: string }): void {
+    UserRepository.sharedInMemoryUsers.set(user.id, {
+      id: user.id,
+      name: user.name || 'User',
+      phoneNumber: user.phoneNumber,
+      email: user.email,
+      bsuid: user.bsuid,
+      isVip: user.isVip ?? false,
+      isBanned: user.isBanned ?? false,
+      banReason: user.banReason || undefined,
+      bannedAt: user.bannedAt,
+      createdAt: user.createdAt || new Date(),
+    });
+  }
 
   constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
 
@@ -376,7 +396,11 @@ export class UserRepository {
       }
     }
 
-    return this.inMemoryUsers.get(userId) || null;
+    return (
+      this.inMemoryUsers.get(userId) ||
+      Array.from(this.inMemoryUsers.values()).find((x) => x.id === userId) ||
+      null
+    );
   }
 
   public async getUserByPhone(phone: string): Promise<UserEntity | null> {
@@ -493,7 +517,15 @@ export class UserRepository {
    */
   public async toggleVipStatus(userId: string): Promise<boolean | null> {
     const pool = this.db.getPool();
-    if (!pool) return null;
+    if (!pool) {
+      let u = this.inMemoryUsers.get(userId) || Array.from(this.inMemoryUsers.values()).find((x) => x.id === userId);
+      if (!u) {
+        u = { id: userId, name: 'User', createdAt: new Date() };
+        this.inMemoryUsers.set(userId, u);
+      }
+      u.isVip = !(u.isVip ?? false);
+      return u.isVip;
+    }
     try {
       await this.ensureSchema();
       const userUuid = toDeterministicUuid(userId);
@@ -510,7 +542,15 @@ export class UserRepository {
 
   public async setVipStatus(userId: string, isVip: boolean): Promise<boolean> {
     const pool = this.db.getPool();
-    if (!pool) return false;
+    if (!pool) {
+      let u = this.inMemoryUsers.get(userId) || Array.from(this.inMemoryUsers.values()).find((x) => x.id === userId);
+      if (!u) {
+        u = { id: userId, name: 'User', createdAt: new Date() };
+        this.inMemoryUsers.set(userId, u);
+      }
+      u.isVip = isVip;
+      return true;
+    }
     try {
       await this.ensureSchema();
       const userUuid = toDeterministicUuid(userId);
@@ -528,14 +568,15 @@ export class UserRepository {
   public async banUser(userId: string, reason?: string): Promise<boolean> {
     const pool = this.db.getPool();
     if (!pool) {
-      const u = this.inMemoryUsers.get(userId);
-      if (u) {
-        u.isBanned = true;
-        u.bannedAt = new Date();
-        u.banReason = reason || null;
-        return true;
+      let u = this.inMemoryUsers.get(userId) || Array.from(this.inMemoryUsers.values()).find((x) => x.id === userId);
+      if (!u) {
+        u = { id: userId, name: 'User', createdAt: new Date() };
+        this.inMemoryUsers.set(userId, u);
       }
-      return false;
+      u.isBanned = true;
+      u.bannedAt = new Date();
+      u.banReason = reason || null;
+      return true;
     }
     try {
       await this.ensureSchema();
@@ -557,14 +598,15 @@ export class UserRepository {
   public async unbanUser(userId: string): Promise<boolean> {
     const pool = this.db.getPool();
     if (!pool) {
-      const u = this.inMemoryUsers.get(userId);
-      if (u) {
-        u.isBanned = false;
-        u.bannedAt = null;
-        u.banReason = null;
-        return true;
+      let u = this.inMemoryUsers.get(userId) || Array.from(this.inMemoryUsers.values()).find((x) => x.id === userId);
+      if (!u) {
+        u = { id: userId, name: 'User', createdAt: new Date() };
+        this.inMemoryUsers.set(userId, u);
       }
-      return false;
+      u.isBanned = false;
+      u.bannedAt = null;
+      u.banReason = null;
+      return true;
     }
     try {
       await this.ensureSchema();
@@ -586,7 +628,7 @@ export class UserRepository {
   public async isUserBanned(userId: string): Promise<boolean> {
     const pool = this.db.getPool();
     if (!pool) {
-      const u = this.inMemoryUsers.get(userId);
+      const u = this.inMemoryUsers.get(userId) || Array.from(this.inMemoryUsers.values()).find((x) => x.id === userId);
       return !!u?.isBanned;
     }
     try {

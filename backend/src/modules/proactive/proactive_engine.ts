@@ -11,6 +11,7 @@ import { CandidateDetector } from './candidate_detector';
 import { ProactivePolicyResolver, DEFAULT_PROACTIVE_GUARDRAILS } from './proactive_policy';
 import { ConsentManager } from './consent';
 import { ProactiveEligibilityGate } from './eligibility_gate';
+import { RuntimePolicyResolver } from '../../config/runtime_policy';
 import {
   ProactiveDetectionInput,
   ProactivePolicy,
@@ -34,6 +35,17 @@ export class ProactiveEngine {
    * Deterministically analyzes conversation state and query to yield an In-Turn ProactivePolicy.
    */
   public analyze(input: ProactiveDetectionInput): ProactivePolicy {
+    if (!RuntimePolicyResolver.getPolicy().proactiveEnabled) {
+      return {
+        shouldSuggest: false,
+        suggestionType: 'none',
+        confidence: 0,
+        urgency: 'low',
+        reason: 'proactive_disabled_by_policy',
+        guardrails: DEFAULT_PROACTIVE_GUARDRAILS,
+      };
+    }
+
     if (ConsentManager.isExplicitOptOut(input.query)) {
       return {
         shouldSuggest: false,

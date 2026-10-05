@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AgentTool, ToolContext, ToolExecutionResult, ToolMetadata } from '../tool.interface';
 import { config } from '../../../config/env';
+import { RuntimePolicyResolver } from '../../../config/runtime_policy';
 import { logger } from '../../../core/logger';
 import { LanguageContext } from '../../language/types';
 import { MetricsCollector } from '../../observability/metrics';
@@ -90,6 +91,14 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
     const rawQuery = (args.query || '').trim();
     if (!rawQuery) {
       return { success: false, error: 'Empty search query' };
+    }
+
+    if (!RuntimePolicyResolver.getPolicy().searchEnabled) {
+      logger.warn('Web search execution blocked: searchEnabled is disabled by runtime policy');
+      return {
+        success: false,
+        error: 'Web search is currently disabled by runtime system policy',
+      };
     }
 
     const startTime = Date.now();

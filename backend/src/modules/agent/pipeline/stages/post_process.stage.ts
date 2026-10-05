@@ -11,6 +11,7 @@
 import { logger } from '../../../../core/logger';
 import { cleanWhatsAppText } from '../../../whatsapp/formatter';
 import { LearningPipeline } from '../../../cache/learning/learning_pipeline';
+import { ToolCapabilityPolicy, TriggerContract } from '../../../tools';
 import { AgentPipelineContext, AgentPipelineDependencies, PipelineStage } from '../types';
 
 export class PostProcessStage implements PipelineStage {
@@ -24,10 +25,10 @@ export class PostProcessStage implements PipelineStage {
     ctx.interimSent = true;
 
     const latencyMs = Date.now() - ctx.startTime;
-    const isSmartReminder = ctx.triggerType === 'smart_reminder';
+    const isSystemTrigger = TriggerContract.isSystemTrigger(ctx.triggerType);
 
-    // 3. Persist assistant reply with full analytics metadata (skip for smart_reminder, handled on delivery by ReminderScheduler)
-    if (!isSmartReminder) {
+    // 3. Persist assistant reply with full analytics metadata (skip for system triggers, handled on delivery by respective schedulers)
+    if (!isSystemTrigger) {
       await deps.chatRepo.saveMessage(
         ctx.conversationId,
         'assistant',
@@ -45,8 +46,8 @@ export class PostProcessStage implements PipelineStage {
       );
     }
 
-    // 4. Safe, non-blocking learning observer hook (skip for system-initiated smart_reminder)
-    if (!isSmartReminder) {
+    // 4. Safe, non-blocking learning observer hook (skip for system-initiated triggers)
+    if (!isSystemTrigger) {
       LearningPipeline.getInstance()
         .observeRun({
           runId: ctx.agentRunId,

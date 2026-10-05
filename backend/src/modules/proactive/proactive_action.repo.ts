@@ -39,8 +39,13 @@ export function toDeterministicUuid(id: string): string {
 }
 
 export class ProactiveActionRepository {
-  private inMemoryActions: Map<string, ProactiveActionEntity> = new Map();
+  private static sharedInMemoryActions: Map<string, ProactiveActionEntity> = new Map();
+  private inMemoryActions: Map<string, ProactiveActionEntity> = ProactiveActionRepository.sharedInMemoryActions;
   private schemaMigrated = false;
+
+  public static clearInMemory(): void {
+    ProactiveActionRepository.sharedInMemoryActions.clear();
+  }
 
   constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
 

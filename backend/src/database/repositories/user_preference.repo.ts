@@ -14,8 +14,13 @@ function toDeterministicUuid(id: string): string {
 }
 
 export class UserPreferenceRepository {
-  private inMemoryPreferences: Map<string, Map<string, any>> = new Map();
+  private static sharedInMemoryPreferences: Map<string, Map<string, any>> = new Map();
+  private inMemoryPreferences: Map<string, Map<string, any>> = UserPreferenceRepository.sharedInMemoryPreferences;
   private schemaChecked = false;
+
+  public static clearInMemory(): void {
+    UserPreferenceRepository.sharedInMemoryPreferences.clear();
+  }
 
   constructor(
     private db: DatabaseManager = DatabaseManager.getInstance(),

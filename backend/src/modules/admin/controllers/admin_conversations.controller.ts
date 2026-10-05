@@ -55,8 +55,8 @@ export class AdminConversationsController {
       const { limit, offset } = parsePaginationQuery(req.query);
       const transcript = await this.analyticsRepo.getConversationTranscript(convId, { limit, offset });
 
-      const messages = Array.isArray(transcript) ? transcript : transcript.messages;
-      const total = Array.isArray(transcript) ? transcript.length : transcript.total;
+      const messages = transcript.messages || (Array.isArray(transcript) ? transcript : []);
+      const total = typeof transcript.total === 'number' ? transcript.total : (Array.isArray(transcript) ? (transcript as any).length : 0);
 
       sendAdminSuccess(res, messages, {
         nextCursor: null,

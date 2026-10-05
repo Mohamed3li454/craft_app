@@ -117,7 +117,7 @@ export class AnalyticsController {
     try {
       const conversationId = req.params.id;
       const result = await this.analyticsRepo.getConversationTranscript(conversationId);
-      const messages = Array.isArray(result) ? result : result.messages;
+      const messages = result.messages || (Array.isArray(result) ? result : []);
       res.status(200).json({ success: true, messages });
     } catch (err: any) {
       logger.error('Failed to get conversation transcript', { error: err.message });

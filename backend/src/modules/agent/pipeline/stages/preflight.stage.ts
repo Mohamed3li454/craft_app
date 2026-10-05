@@ -15,6 +15,8 @@ import { logger } from '../../../../core/logger';
 import { LanguageIntelligenceService } from '../../../language';
 import { PersonalityEngine } from '../../../personality';
 import { SemanticCacheEngine } from '../../../cache/semantic_cache_engine';
+import { ToolCapabilityPolicy, TriggerContract } from '../../../tools';
+import { RuntimePolicyResolver } from '../../../../config/runtime_policy';
 import { AgentPipelineContext, AgentPipelineDependencies, PipelineStage } from '../types';
 import { processMediaAttachment } from '../helpers';
 
@@ -22,6 +24,8 @@ export class PreflightStage implements PipelineStage {
   public readonly name = 'preflight';
 
   public async execute(ctx: AgentPipelineContext, deps: AgentPipelineDependencies): Promise<void> {
+    const isSystemTrigger = TriggerContract.isSystemTrigger(ctx.triggerType);
+
     // 1. Language & Personality Context resolution (from stored preferences)
     const [storedLangPref, storedPersPref] = await Promise.all([
       deps.userPreferenceRepo.getLanguagePreference(ctx.input.userId).catch(() => null),
@@ -38,9 +42,62 @@ export class PreflightStage implements PipelineStage {
       explicitPreference: ctx.input.explicitPersonalityPreference || (storedPersPref ?? undefined),
     });
 
+    // 1.1 Maintenance Mode Check (user-facing conversational turns only)
+    const policy = RuntimePolicyResolver.getPolicy();
+    if (!isSystemTrigger && policy.maintenanceMode) {
+      const isEnglish = ctx.languageContext?.language === 'en';
+      const maintenanceMsg = isEnglish
+        ? 'The system is currently undergoing scheduled maintenance. Please try again shortly.'
+        : 'النظام في وضع الصيانة المجدولة حالياً. يرجى المحاولة مرة أخرى لاحقاً.';
+
+      const conversation = await deps.chatRepo.getOrCreateConversation(ctx.input.userId, ctx.input.channel);
+      const conversationId = conversation.id;
+
+      await Promise.all([
+        deps.chatRepo.saveMessage(
+          conversationId,
+          'user',
+          ctx.input.channel === 'whatsapp' ? 'WhatsApp User' : 'User',
+          ctx.cleanUserText || 'User Message'
+        ),
+        deps.chatRepo.saveMessage(
+          conversationId,
+          'assistant',
+          'Craft',
+          maintenanceMsg,
+          undefined,
+          {
+            tokensUsed: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            modelName: 'maintenance-gate',
+            latencyMs: Date.now() - ctx.startTime,
+          }
+        ),
+      ]);
+
+      ctx.earlyExitOutput = {
+        conversationId,
+        agentRunId: ctx.agentRunId,
+        status: 'completed',
+        replyText: maintenanceMsg,
+        toolCallsExecuted: [],
+        metrics: {
+          modelUsed: 'maintenance-gate',
+          latencyMs: Date.now() - ctx.startTime,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+        },
+        languageContext: ctx.languageContext,
+        personalityContext: ctx.personalityContext,
+      };
+      return;
+    }
+
     // 2. Semantic Cache Check (fast-path: 0 tokens, <15ms)
-    // Bypassed for smart_reminder which requires live context and fresh tool execution
-    if (!ctx.input.media && ctx.cleanUserText && ctx.triggerType !== 'smart_reminder') {
+    // Bypassed for system triggers (smart_reminder, proactive) which require live context and fresh tool execution
+    if (!ctx.input.media && ctx.cleanUserText && !isSystemTrigger) {
       const cacheResult = await SemanticCacheEngine.getInstance().process(ctx.cleanUserText, {
         userId: ctx.input.userId,
         userName: ctx.input.userName,
@@ -98,8 +155,8 @@ export class PreflightStage implements PipelineStage {
     }
 
     // 3. User Daily Rate Limit Check (Free tier: 40 msgs/day, VIP: unlimited)
-    // Bypassed for scheduled system triggers like smart_reminder
-    if (ctx.triggerType !== 'smart_reminder') {
+    // Bypassed for scheduled system triggers like smart_reminder and proactive
+    if (!isSystemTrigger) {
       const limitCheck = await deps.userRepo.checkAndIncrementDailyLimit(
         ctx.input.userId,
         ctx.input.userPhone

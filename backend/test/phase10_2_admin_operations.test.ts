@@ -3,6 +3,7 @@ import { AddressInfo } from 'net';
 import { createApp } from '../src/app';
 import { config } from '../src/config/env';
 import { defaultAdminRateLimiter } from '../src/middleware/admin_rate_limiter';
+import { UserRepository } from '../src/database/repositories/user.repo';
 import { ChatRepository } from '../src/database/repositories/chat.repo';
 import { MemoryRepository } from '../src/database/repositories/memory.repo';
 import { MemoryEvidenceRepository } from '../src/database/repositories/memory_evidence.repo';
@@ -33,6 +34,14 @@ describe('Phase 10.2: Admin Operations API Control Plane', () => {
   beforeAll(async () => {
     process.env.GROQ_MOCK_MODE = 'true';
     process.env.ADMIN_SECRET_KEY = adminSecret;
+
+    // Seed test user in-memory
+    UserRepository.seedInMemoryUser({
+      id: 'usr_test_102',
+      name: 'Test User',
+      phoneNumber: '201000000102',
+      createdAt: new Date(),
+    });
 
     // Seed test conversation properly
     const conv = await chatRepo.getOrCreateConversation('usr_test_102', 'whatsapp', 'Test Chat');

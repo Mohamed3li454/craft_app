@@ -17,13 +17,27 @@ export function isProductionDatabase(url?: string): boolean {
   );
 }
 
+export function isTestDatabase(url?: string): boolean {
+  if (!url) return false;
+  if (isProductionDatabase(url)) return false;
+  const lower = url.toLowerCase();
+  return (
+    lower.includes('localhost') ||
+    lower.includes('127.0.0.1') ||
+    lower.includes('test') ||
+    lower.includes('mock') ||
+    lower.includes('sqlite') ||
+    lower.includes('memory')
+  );
+}
+
 export function assertTestDatabaseSafety(env: {
   nodeEnv?: string;
   databaseUrl?: string;
   allowLiveDbTests?: string;
 } = {
   nodeEnv: process.env.NODE_ENV,
-  databaseUrl: process.env.DATABASE_URL,
+  databaseUrl: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL,
   allowLiveDbTests: process.env.ALLOW_LIVE_DB_TESTS,
 }): void {
   if (env.nodeEnv === 'production') {

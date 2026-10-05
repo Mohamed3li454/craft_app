@@ -14,6 +14,7 @@
 
 import { ReminderRepository, calculateNextDueAt } from '../../database/repositories/reminder.repo';
 import { ReminderEntity, ReminderState } from '../../database/repositories/types';
+import { UserRepository } from '../../database/repositories/user.repo';
 import { WhatsAppAdapter, isBsuid } from '../whatsapp/adapter';
 import { ChatRepository } from '../../database/repositories/chat.repo';
 import { AgentOrchestrator } from '../agent/orchestrator';
@@ -54,18 +55,21 @@ export class ReminderScheduler {
   private readonly leaseSeconds: number;
   private readonly maxRetries: number;
   private readonly maxMissedAgeMs: number;
+  private readonly userRepo: UserRepository;
 
   constructor(
     private reminderRepo: ReminderRepository = new ReminderRepository(),
     private whatsappAdapter: WhatsAppAdapter = new WhatsAppAdapter(),
     private chatRepo: ChatRepository = new ChatRepository(),
     private orchestrator: AgentOrchestrator = new AgentOrchestrator(),
-    options?: ReminderSchedulerOptions
+    options?: ReminderSchedulerOptions,
+    userRepo?: UserRepository
   ) {
     this.batchSize = options?.batchSize ?? DEFAULT_BATCH_SIZE;
     this.leaseSeconds = options?.leaseSeconds ?? DEFAULT_LEASE_SECONDS;
     this.maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.maxMissedAgeMs = options?.maxMissedAgeMs ?? DEFAULT_MAX_MISSED_AGE_MS;
+    this.userRepo = userRepo ?? new UserRepository();
   }
 
   public static getInstance(): ReminderScheduler {
@@ -219,6 +223,14 @@ export class ReminderScheduler {
     }
 
     if (!targetPhone && item.userId) {
+      if (item.userId.startsWith('wa_')) {
+        targetPhone = item.userId.replace('wa_', '');
+      } else if (/^\d{8,15}$/.test(item.userId.replace(/\D/g, ''))) {
+        targetPhone = item.userId.replace(/\D/g, '');
+      }
+    }
+
+    if (!targetPhone && item.userId) {
       try {
         const pool = this.reminderRepo['db']?.getPool?.();
         if (pool) {
@@ -231,6 +243,14 @@ export class ReminderScheduler {
           );
           if (res.rows[0]?.phone) {
             targetPhone = res.rows[0].phone;
+          }
+        } else {
+          const user = (await this.userRepo.getUserById(item.userId)) ||
+            (item.userName ? await this.userRepo.getUserById(item.userName) : null);
+          if (user?.phoneNumber) {
+            targetPhone = user.phoneNumber;
+          } else if (user?.bsuid) {
+            targetPhone = user.bsuid;
           }
         }
       } catch {

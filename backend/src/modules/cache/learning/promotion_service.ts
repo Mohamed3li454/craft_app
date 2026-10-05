@@ -21,6 +21,8 @@ export interface PromotionResult {
 }
 
 export class PromotionService {
+  private static inMemoryLocks: Map<string, Promise<void>> = new Map();
+
   constructor(
     private candidateRepo: SemanticCandidateRepository = new SemanticCandidateRepository(),
     private semanticCacheRepo: SemanticCacheRepository = new SemanticCacheRepository(),
@@ -341,6 +343,12 @@ export class PromotionService {
       }
     } else {
       // In-Memory atomic promotion (for unit tests / mock mode)
+      const lockKey = candidateId;
+      const currentLock = PromotionService.inMemoryLocks.get(lockKey) || Promise.resolve();
+      let releaseLock: () => void = () => {};
+      const newLock = new Promise<void>((resolve) => { releaseLock = resolve; });
+      PromotionService.inMemoryLocks.set(lockKey, newLock);
+      await currentLock;
       try {
         const fresh = await this.candidateRepo.findById(candidateId);
         if (fresh?.status === 'promoted') {
@@ -359,6 +367,7 @@ export class PromotionService {
         }
 
         await this.semanticCacheRepo.create({
+          id: faqId,
           intent: candidate.intent,
           category: candidate.category,
           title: candidate.intent,
@@ -381,6 +390,8 @@ export class PromotionService {
           candidateId,
           error: `In-memory promotion failed: ${inMemErr.message}`,
         };
+      } finally {
+        releaseLock();
       }
     }
 

@@ -34,7 +34,7 @@ export class MockEmbeddingProvider implements EmbeddingProvider {
   /**
    * Generates a deterministic unit vector for a given text string.
    */
-  private generateDeterministicVector(text: string): number[] {
+  public generateDeterministicVector(text: string): number[] {
     const raw = (text || '').trim();
     if (!raw) {
       // Return zero-filled vector for empty string

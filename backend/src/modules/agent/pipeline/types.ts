@@ -9,6 +9,7 @@ import { GroqProvider } from '../../groq/groq.provider';
 import { AIRouter, AIProvider } from '../../ai';
 import { ToolRegistry } from '../../tools/registry';
 import { ToolLifecycleManager } from '../../tools/lifecycle/tool_lifecycle';
+import { AgentTriggerType } from '../../tools';
 import { ExecutionEngine } from '../execution/execution_engine';
 import { ConfirmationService } from '../../confirmation/confirmation.service';
 import { ChatRepository } from '../../../database/repositories/chat.repo';
@@ -43,7 +44,7 @@ export interface AgentRunInput {
   onInterimProgress?: (message: string) => Promise<void> | void;
   explicitPersonalityPreference?: ExplicitPersonalityPreference;
   correlationId?: string;
-  triggerType?: 'user_message' | 'smart_reminder' | 'proactive';
+  triggerType?: AgentTriggerType | string;
   reminderId?: string;
   reminderTitle?: string;
 }
@@ -100,7 +101,7 @@ export interface AgentPipelineContext {
   readonly agentRunId: string;
   readonly startTime: number;
   readonly cleanUserText: string;
-  readonly triggerType?: 'user_message' | 'smart_reminder' | 'proactive';
+  readonly triggerType?: AgentTriggerType | string;
   readonly reminderId?: string;
   readonly reminderTitle?: string;
 

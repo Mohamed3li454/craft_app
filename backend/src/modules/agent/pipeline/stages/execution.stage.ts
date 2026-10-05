@@ -15,6 +15,7 @@ import { GroqMessage } from '../../../groq/groq.provider';
 import { AgentPipelineContext, AgentPipelineDependencies, PipelineStage } from '../types';
 import { formatGroqConversationHistory } from '../helpers';
 import { ToolResultFormatter } from '../../../tools/adapters/tool_result_formatter';
+import { ToolCapabilityPolicy, TriggerContract } from '../../../tools';
 import { ExecutionEngine, ExecutionEngineContext } from '../../execution';
 
 export class ExecutionStage implements PipelineStage {
@@ -96,7 +97,8 @@ export class ExecutionStage implements PipelineStage {
           ctx.languageContext
         );
 
-        if (ctx.triggerType !== 'smart_reminder') {
+        const isSystemTrigger = TriggerContract.isSystemTrigger(ctx.triggerType);
+        if (!isSystemTrigger) {
           await deps.chatRepo.saveMessage(ctx.conversationId, 'assistant', 'Craft', promptNotice);
         }
 

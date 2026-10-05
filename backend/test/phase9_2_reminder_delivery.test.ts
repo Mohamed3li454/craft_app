@@ -66,6 +66,7 @@ describe('Phase 9.2: Production Reminder Delivery Foundation', () => {
   beforeEach(async () => {
     jest.restoreAllMocks();
 
+    ReminderRepository.clearInMemory();
     try {
       const pool = (repo as any).db?.getPool?.();
       if (pool) {
@@ -318,6 +319,8 @@ describe('Phase 9.2: Production Reminder Delivery Foundation', () => {
       const pool = (repo as any).db?.getPool?.();
       if (pool) {
         await pool.query('UPDATE reminders SET attempts = 1 WHERE id = $1', [reminder.id]);
+      } else {
+        reminder.attempts = 1;
       }
 
       mockWhatsApp.dispatchProactiveMessage.mockResolvedValueOnce({
@@ -345,6 +348,8 @@ describe('Phase 9.2: Production Reminder Delivery Foundation', () => {
       const pool = (repo as any).db?.getPool?.();
       if (pool) {
         await pool.query('UPDATE reminders SET attempts = 2 WHERE id = $1', [reminder.id]);
+      } else {
+        reminder.attempts = 2;
       }
 
       mockWhatsApp.dispatchProactiveMessage.mockResolvedValueOnce({
@@ -372,6 +377,8 @@ describe('Phase 9.2: Production Reminder Delivery Foundation', () => {
       const pool = (repo as any).db?.getPool?.();
       if (pool) {
         await pool.query('UPDATE reminders SET attempts = 3 WHERE id = $1', [reminder.id]);
+      } else {
+        reminder.attempts = 3;
       }
 
       mockWhatsApp.dispatchProactiveMessage.mockResolvedValueOnce({

@@ -13,9 +13,14 @@ import {
 export const MAX_PAGE_SIZE = 100;
 
 export class SemanticCandidateRepository {
-  private inMemoryItems: Map<string, SemanticCacheCandidate> = new Map();
+  private static sharedInMemoryItems: Map<string, SemanticCacheCandidate> = new Map();
+  private inMemoryItems: Map<string, SemanticCacheCandidate> = SemanticCandidateRepository.sharedInMemoryItems;
   private schemaChecked = false;
   private schemaPromise: Promise<void> | null = null;
+
+  public static clearInMemory(): void {
+    SemanticCandidateRepository.sharedInMemoryItems.clear();
+  }
 
   constructor(private db: DatabaseManager = DatabaseManager.getInstance()) {}
 

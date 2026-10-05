@@ -22,17 +22,19 @@ import { AdaptiveResponseEngine } from '../../../response';
 import { ProactiveEngine } from '../../../proactive';
 import { TokenCounter } from '../../../context';
 import { SystemPromptBuilder } from '../../../ai';
+import { ToolCapabilityPolicy, TriggerContract } from '../../../tools';
 import { AgentPipelineContext, AgentPipelineDependencies, PipelineStage } from '../types';
 
 export class CognitiveStage implements PipelineStage {
   public readonly name = 'cognitive';
 
   public async execute(ctx: AgentPipelineContext, deps: AgentPipelineDependencies): Promise<void> {
+    const isSystemTrigger = TriggerContract.isSystemTrigger(ctx.triggerType);
     const isSmartReminder = ctx.triggerType === 'smart_reminder';
 
-    // 1. Concurrently load recent messages & persist user turn in DB (skip user turn persistence for smart_reminder)
+    // 1. Concurrently load recent messages & persist user turn in DB (skip user turn persistence for system triggers)
     const recentMessagesPromise = deps.chatRepo.getRecentMessages(ctx.conversationId, 8);
-    const savePromise = isSmartReminder
+    const savePromise = isSystemTrigger
       ? Promise.resolve(null)
       : deps.chatRepo.saveMessage(
           ctx.conversationId,
@@ -57,8 +59,8 @@ export class CognitiveStage implements PipelineStage {
       })),
     });
 
-    // 3. Memory facts extraction & selective retrieval (skip extraction for smart_reminder)
-    if (!isSmartReminder && ctx.textToProcess && ctx.conversationState.goal !== 'troubleshooting') {
+    // 3. Memory facts extraction & selective retrieval (skip extraction for system triggers)
+    if (!isSystemTrigger && ctx.textToProcess && ctx.conversationState.goal !== 'troubleshooting') {
       try {
         await deps.memoryRepo.extractAndSaveFacts(
           ctx.input.userId,
