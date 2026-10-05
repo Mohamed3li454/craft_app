@@ -28,15 +28,22 @@ import {
   resolveDatasetProvenance,
   buildReleaseQualitySignal,
 } from '../../observability/evaluation/release_quality';
+import { EvaluationIntelligenceService } from '../../observability/evaluation/evaluation_intelligence_service';
 
 export class AdminEvaluationController {
   private repo = EvaluationRepository.getInstance();
   private executionService = EvaluationExecutionService.getInstance();
   private auditService = AdminAuditService.getInstance();
+  private intelligenceService = EvaluationIntelligenceService.getInstance();
 
-  constructor(repo?: EvaluationRepository, executionService?: EvaluationExecutionService) {
+  constructor(
+    repo?: EvaluationRepository,
+    executionService?: EvaluationExecutionService,
+    intelligenceService?: EvaluationIntelligenceService
+  ) {
     if (repo) this.repo = repo;
     if (executionService) this.executionService = executionService;
+    if (intelligenceService) this.intelligenceService = intelligenceService;
   }
 
   /**
@@ -62,11 +69,12 @@ export class AdminEvaluationController {
         }
       }
 
-      const [latestRun, runsList, regressionsList, operationalSignals] = await Promise.all([
+      const [latestRun, runsList, regressionsList, operationalSignals, intelligence] = await Promise.all([
         this.repo.getLatestCompletedRun(),
         this.repo.listRuns({ limit: 1 }),
         this.repo.getActiveRegressions(1, 0),
         this.repo.getOperationalSignals(),
+        this.intelligenceService.getIntelligenceOverview({ historyLimit: 10 }),
       ]);
 
       res.json({
@@ -79,6 +87,17 @@ export class AdminEvaluationController {
           coverageRate: 100,
           dimensionsCount: Object.keys(dimensionCoverage).length,
           dimensionCoverage,
+          healthStatus: intelligence.healthStatus,
+          statusReason: intelligence.statusReason,
+          measurementConfidence: intelligence.measurementConfidence,
+          trendsSummary: {
+            status: intelligence.trends.status,
+            scoreTrend: intelligence.trends.scoreTrend,
+            passRateTrend: intelligence.trends.passRateTrend,
+            regressionTrend: intelligence.trends.regressionTrend,
+            latencyTrend: intelligence.trends.latencyTrend,
+            threeRunMovingAverage: intelligence.trends.threeRunMovingAverage,
+          },
           lastEvaluationRun: latestRun,
           historicalRunsCount: runsList.total,
           activeRegressionsCount: regressionsList.total,
@@ -956,37 +975,50 @@ export class AdminEvaluationController {
         return;
       }
 
-      const [runA, runB] = await Promise.all([
-        this.repo.getRunById(runAId),
-        this.repo.getRunById(runBId),
-      ]);
+      const changedCasesOnly = req.query.changedCasesOnly === 'true' || req.query.changedOnly === 'true';
+      const filterCategory = req.query.filterCategory as any;
 
-      if (!runA) {
+      const comparison = await this.intelligenceService.compareReleases(runAId, runBId, {
+        changedCasesOnly,
+        filterCategory,
+      });
+
+      if (!comparison) {
         res.status(404).json({
           success: false,
-          error: { code: 'RUN_NOT_FOUND', message: `Evaluation run '${runAId}' not found` },
+          error: { code: 'RUN_NOT_FOUND', message: 'One or both evaluation runs could not be found' },
         });
         return;
       }
 
-      if (!runB) {
-        res.status(404).json({
-          success: false,
-          error: { code: 'RUN_NOT_FOUND', message: `Evaluation run '${runBId}' not found` },
-        });
-        return;
-      }
-
-      const [resultsA, resultsB] = await Promise.all([
-        this.repo.getCaseResultsByRunId(runAId, { limit: 200 }),
-        this.repo.getCaseResultsByRunId(runBId, { limit: 200 }),
-      ]);
-
-      const comparison = compareRuns(runA, resultsA.results, runB, resultsB.results);
+      const responseData = {
+        ...comparison,
+        dimensionComparison: comparison.dimensionDeltas.map((d) => ({
+          dimension: d.dimension,
+          runAPassRate: d.passRateA,
+          runBPassRate: d.passRateB,
+          deltaPp: d.passRateDeltaPp,
+        })),
+        changedCases: comparison.cases.map((c) => {
+          let changeType = c.category.toLowerCase().replace(' ', '_');
+          if (c.category === 'REGRESSED') changeType = 'regression';
+          if (c.category === 'RESOLVED') changeType = 'recovered';
+          if (c.category === 'IMPROVED') changeType = 'score_changed';
+          return {
+            caseId: c.caseId,
+            dimension: c.dimension,
+            category: c.category,
+            changeType,
+            runA: c.runA,
+            runB: c.runB,
+            scoreDelta: c.scoreDelta,
+          };
+        }),
+      };
 
       res.json({
         success: true,
-        data: comparison,
+        data: responseData,
         correlationId: (req as any).correlationId || 'eval-runs-compare',
         timestamp: new Date().toISOString(),
       });
@@ -994,6 +1026,218 @@ export class AdminEvaluationController {
       res.status(500).json({
         success: false,
         error: { code: 'EVAL_COMPARE_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/intelligence
+   * Aggregated Evaluation Intelligence 2.0 center endpoint.
+   */
+  public getIntelligenceOverview = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const historyLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+      const data = await this.intelligenceService.getIntelligenceOverview({ historyLimit });
+      res.json({
+        success: true,
+        data,
+        correlationId: (req as any).correlationId || 'eval-intelligence',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_INTELLIGENCE_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/trends
+   * Quality trend intelligence and moving averages.
+   */
+  public getTrends = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const historyLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+      const overview = await this.intelligenceService.getIntelligenceOverview({ historyLimit });
+      res.json({
+        success: true,
+        data: overview.trends,
+        correlationId: (req as any).correlationId || 'eval-trends',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_TRENDS_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/degradation
+   * Degradation signals, health status, and regression acceleration.
+   */
+  public getDegradation = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const overview = await this.intelligenceService.getIntelligenceOverview();
+      res.json({
+        success: true,
+        data: overview.degradation,
+        correlationId: (req as any).correlationId || 'eval-degradation',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_DEGRADATION_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/dimensions
+   * 7-dimension intelligence with run-over-run score deltas and subsystem health.
+   */
+  public getDimensionsIntelligence = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const overview = await this.intelligenceService.getIntelligenceOverview();
+      res.json({
+        success: true,
+        data: overview.dimensions,
+        correlationId: (req as any).correlationId || 'eval-dimensions',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_DIMENSIONS_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/cases/best
+   * Deterministically ranked best performing evaluation cases.
+   */
+  public getBestCases = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const overview = await this.intelligenceService.getIntelligenceOverview();
+      res.json({
+        success: true,
+        data: overview.bestCases,
+        correlationId: (req as any).correlationId || 'eval-best-cases',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_BEST_CASES_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/cases/worst
+   * Deterministically ranked worst performing evaluation cases.
+   */
+  public getWorstCases = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const overview = await this.intelligenceService.getIntelligenceOverview();
+      res.json({
+        success: true,
+        data: overview.worstCases,
+        correlationId: (req as any).correlationId || 'eval-worst-cases',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_WORST_CASES_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/cases/flaky
+   * Flaky evaluation case detection across historical runs.
+   */
+  public getFlakyCases = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const overview = await this.intelligenceService.getIntelligenceOverview();
+      res.json({
+        success: true,
+        data: overview.flakyCases,
+        correlationId: (req as any).correlationId || 'eval-flaky-cases',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_FLAKY_CASES_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/performance
+   * Latency percentiles (p50, p90, p95, p99) and token consumption distribution.
+   */
+  public getPerformance = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const overview = await this.intelligenceService.getIntelligenceOverview();
+      res.json({
+        success: true,
+        data: overview.performance,
+        correlationId: (req as any).correlationId || 'eval-performance',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_PERFORMANCE_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/providers
+   * Provider & model diagnostics and comparison.
+   */
+  public getProvidersDiagnostics = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const overview = await this.intelligenceService.getIntelligenceOverview();
+      res.json({
+        success: true,
+        data: overview.providers,
+        correlationId: (req as any).correlationId || 'eval-providers',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_PROVIDERS_ERROR', message: err.message },
+      });
+    }
+  };
+
+  /**
+   * GET /api/admin/evaluation/confidence
+   * Deterministic measurement quality confidence and historical depth metrics.
+   */
+  public getMeasurementConfidence = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const overview = await this.intelligenceService.getIntelligenceOverview();
+      res.json({
+        success: true,
+        data: overview.measurementConfidence,
+        correlationId: (req as any).correlationId || 'eval-confidence',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'EVAL_CONFIDENCE_ERROR', message: err.message },
       });
     }
   };

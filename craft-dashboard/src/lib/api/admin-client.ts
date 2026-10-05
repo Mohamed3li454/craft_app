@@ -30,7 +30,6 @@ import {
   TriggerEvaluationRunPayload,
   QualityOverviewData,
   FailuresOverviewData,
-  RunComparisonResult,
   CaseHistoryData,
   QualityGatePolicy,
   QualityGateEvaluationResult,
@@ -38,6 +37,15 @@ import {
   RunProgressInfo,
   EvaluationDatasetMetadata,
   ReleaseQualitySignal,
+  EvaluationIntelligenceOverview,
+  QualityTrendIntelligence,
+  DegradationDetectionResult,
+  EnrichedDimensionHealthItem,
+  RankedCaseItem,
+  FlakyCaseItem,
+  PerformanceIntelligenceResult,
+  MeasurementConfidenceResult,
+  ReleaseComparisonResult,
 } from '@/types/admin';
 
 class AdminApiClient {
@@ -564,9 +572,15 @@ class AdminApiClient {
     return this.request<FailuresOverviewData>(`/evaluation/failures${query}`);
   }
 
-  async compareEvaluationRuns(runA: string, runB: string) {
+  async compareEvaluationRuns(
+    runA: string,
+    runB: string,
+    options?: { changedCasesOnly?: boolean; filterCategory?: string }
+  ) {
     const qs = new URLSearchParams({ runA, runB });
-    return this.request<RunComparisonResult>(`/evaluation/compare?${qs.toString()}`);
+    if (options?.changedCasesOnly) qs.set('changedCasesOnly', 'true');
+    if (options?.filterCategory) qs.set('filterCategory', options.filterCategory);
+    return this.request<ReleaseComparisonResult>(`/evaluation/compare?${qs.toString()}`);
   }
 
   async getEvaluationCaseHistory(caseId: string, limit?: number) {
@@ -574,6 +588,45 @@ class AdminApiClient {
     if (limit) qs.set('limit', String(limit));
     const query = qs.toString() ? `?${qs.toString()}` : '';
     return this.request<CaseHistoryData>(`/evaluation/cases/${encodeURIComponent(caseId)}/history${query}`);
+  }
+
+  // Phase 12.6 — Evaluation Intelligence 2.0
+  async getEvaluationIntelligence(limit?: number) {
+    const qs = limit ? `?limit=${limit}` : '';
+    return this.request<EvaluationIntelligenceOverview>(`/evaluation/intelligence${qs}`);
+  }
+
+  async getEvaluationTrends(limit?: number) {
+    const qs = limit ? `?limit=${limit}` : '';
+    return this.request<QualityTrendIntelligence>(`/evaluation/trends${qs}`);
+  }
+
+  async getEvaluationDegradation() {
+    return this.request<DegradationDetectionResult>('/evaluation/degradation');
+  }
+
+  async getEvaluationDimensions() {
+    return this.request<Record<string, EnrichedDimensionHealthItem>>('/evaluation/dimensions');
+  }
+
+  async getEvaluationBestCases() {
+    return this.request<RankedCaseItem[]>('/evaluation/cases/best');
+  }
+
+  async getEvaluationWorstCases() {
+    return this.request<RankedCaseItem[]>('/evaluation/cases/worst');
+  }
+
+  async getEvaluationFlakyCases() {
+    return this.request<FlakyCaseItem[]>('/evaluation/cases/flaky');
+  }
+
+  async getEvaluationPerformance() {
+    return this.request<PerformanceIntelligenceResult>('/evaluation/performance');
+  }
+
+  async getEvaluationConfidence() {
+    return this.request<MeasurementConfidenceResult>('/evaluation/confidence');
   }
 }
 

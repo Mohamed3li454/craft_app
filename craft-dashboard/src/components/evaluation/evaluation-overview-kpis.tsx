@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card';
 import { MetricCard } from '@/components/ui/metric-card';
 import { useLanguage } from '@/lib/i18n/language-context';
 import { EvaluationOverviewData } from '@/types/admin';
+import { cn } from '@/lib/utils';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -54,8 +55,83 @@ export function EvaluationOverviewKpis({ data, isLoading }: EvaluationOverviewKp
     }
   }
 
+  const healthStatus = data?.healthStatus || 'HEALTHY';
+  const statusReason = data?.statusReason || 'All quality gates and architectural baselines are passing.';
+  const confidenceLevel = data?.measurementConfidence?.level || 'HIGH';
+
   return (
     <div className="space-y-6">
+      {/* 0. Phase 12.6 Intelligence Health & Confidence Banner */}
+      <div className="p-4 rounded-xl border border-border bg-surface-elevated/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div
+            className={cn(
+              'p-2.5 rounded-xl border',
+              healthStatus === 'HEALTHY'
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                : healthStatus === 'WATCH'
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                : healthStatus === 'DEGRADED' || healthStatus === 'CRITICAL'
+                ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+            )}
+          >
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-bold text-foreground">Platform Quality Health:</span>
+              <span
+                className={cn(
+                  'px-2 py-0.5 rounded text-xs font-mono font-bold',
+                  healthStatus === 'HEALTHY'
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                    : healthStatus === 'WATCH'
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    : healthStatus === 'DEGRADED' || healthStatus === 'CRITICAL'
+                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                    : 'bg-slate-500/20 text-slate-400 border border-slate-500/30'
+                )}
+              >
+                {healthStatus}
+              </span>
+              <span className="text-xs text-slate-400 font-mono">
+                • {statusReason}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="px-3 py-1.5 rounded-lg bg-surface border border-border flex items-center gap-2">
+            <span className="text-[11px] font-mono text-slate-400">Measurement Confidence:</span>
+            <span
+              className={cn(
+                'text-xs font-mono font-bold',
+                confidenceLevel === 'HIGH'
+                  ? 'text-emerald-400'
+                  : confidenceLevel === 'MEDIUM'
+                  ? 'text-brand-400'
+                  : confidenceLevel === 'LOW'
+                  ? 'text-amber-400'
+                  : 'text-slate-400'
+              )}
+            >
+              {confidenceLevel} ({data?.measurementConfidence?.overallConfidenceScore ?? 100}%)
+            </span>
+          </div>
+
+          {data?.trendsSummary?.threeRunMovingAverage?.status === 'available' && (
+            <div className="px-3 py-1.5 rounded-lg bg-surface border border-border flex items-center gap-2">
+              <span className="text-[11px] font-mono text-slate-400">3-Run MA:</span>
+              <span className="text-xs font-mono font-bold text-foreground">
+                {data.trendsSummary.threeRunMovingAverage.score}%
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* 1. Primary Evaluation Health Strip */}
       <div>
         <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-2">

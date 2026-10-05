@@ -560,6 +560,10 @@ export interface EvaluationOverviewData {
     searchSuccess: string;
     responseQuality: string;
   };
+  healthStatus?: QualityHealthStatus;
+  statusReason?: string;
+  measurementConfidence?: MeasurementConfidenceResult;
+  trendsSummary?: any;
 }
 
 export interface EvaluationRunItem {
@@ -941,6 +945,329 @@ export interface ReleaseQualitySignal {
   };
   generatedAt: string;
 }
+
+// ==========================================
+// Evaluation Intelligence 2.0 (Phase 12.6)
+// ==========================================
+
+export type QualityHealthStatus = 'HEALTHY' | 'WATCH' | 'DEGRADED' | 'CRITICAL' | 'INSUFFICIENT_DATA';
+export type MeasurementConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+export type TrendDirection = 'improving' | 'stable' | 'degrading' | 'insufficient_history';
+export type DegradationSeverity = 'info' | 'warning' | 'critical';
+export type DegradationCategory = 'quality' | 'reliability' | 'performance' | 'regression_acceleration';
+
+export interface MetricDelta {
+  current: number;
+  previous: number | 'INSUFFICIENT_HISTORY';
+  delta: number | 'INSUFFICIENT_HISTORY';
+  direction: TrendDirection;
+}
+
+export interface MovingAverageMetrics {
+  score: number | 'INSUFFICIENT_HISTORY';
+  passRate: number | 'INSUFFICIENT_HISTORY';
+  regressions: number | 'INSUFFICIENT_HISTORY';
+  latencyMs: number | 'INSUFFICIENT_HISTORY';
+  tokens: number | 'INSUFFICIENT_HISTORY';
+  sampleSize: number;
+  status: 'available' | 'INSUFFICIENT_HISTORY';
+}
+
+export interface RunTrendSummary {
+  runId: string;
+  createdAt: string;
+  datasetVersion: string;
+  mode: string;
+  overallScore: number;
+  passRate: number;
+  failureRate: number;
+  regressionCount: number;
+  totalCases: number;
+  passedCases: number;
+  failedCases: number;
+  durationMs: number;
+  averageLatencyMs: number;
+  averageTokens: number;
+  totalTokens: number;
+  failuresByDimension: Record<string, number>;
+}
+
+export interface QualityTrendIntelligence {
+  status: 'available' | 'INSUFFICIENT_HISTORY';
+  historicalRunsCount: number;
+  currentRun: RunTrendSummary | null;
+  previousRun: RunTrendSummary | null;
+  scoreTrend: MetricDelta;
+  passRateTrend: MetricDelta;
+  regressionTrend: MetricDelta;
+  latencyTrend: MetricDelta;
+  tokenTrend: MetricDelta;
+  threeRunMovingAverage: MovingAverageMetrics;
+  sevenRunMovingAverage: MovingAverageMetrics;
+  runOverRunSeries: RunTrendSummary[];
+}
+
+export interface DegradationSignal {
+  id: string;
+  category: DegradationCategory;
+  severity: DegradationSeverity;
+  dimension?: string;
+  metric: string;
+  title: string;
+  message: string;
+  previousValue: number | string;
+  currentValue: number | string;
+  thresholdBreached: string;
+  timestamp: string;
+}
+
+export interface DegradationDetectionResult {
+  healthStatus: QualityHealthStatus;
+  statusReason: string;
+  signalsCount: number;
+  criticalSignalsCount: number;
+  warningSignalsCount: number;
+  signals: DegradationSignal[];
+  regressionAcceleration: {
+    detected: boolean;
+    streakLength: number;
+    consecutiveRegressions: number[];
+  };
+}
+
+export interface RankedCaseItem {
+  caseId: string;
+  dimension: string;
+  title: string;
+  description: string;
+  score: number;
+  status: string;
+  regression: boolean;
+  failureCategory?: string;
+  failureReason?: string | null;
+  fingerprint?: string;
+  durationMs: number;
+  tokens: number;
+  provider?: string | null;
+  model?: string | null;
+}
+
+export interface FlakyCaseItem {
+  caseId: string;
+  dimension: string;
+  title: string;
+  isFlaky: boolean;
+  flipCount: number;
+  totalObservations: number;
+  passCount: number;
+  failCount: number;
+  flakinessRatePct: number;
+  lastStatus: string;
+  failureFingerprints: string[];
+  history: {
+    runId: string;
+    status: string;
+    score: number;
+    createdAt: string;
+  }[];
+}
+
+export interface DimensionPerformanceItem {
+  dimension: string;
+  sampleSize: number;
+  averageLatencyMs: number;
+  p90LatencyMs: number | 'INSUFFICIENT_DATA';
+  totalTokens: number;
+  averageTokens: number;
+}
+
+export interface CasePerformanceItem {
+  caseId: string;
+  dimension: string;
+  title: string;
+  durationMs: number;
+  tokens: number;
+  status: string;
+}
+
+export interface PerformanceIntelligenceResult {
+  status: 'available' | 'INSUFFICIENT_DATA';
+  sampleSize: number;
+  latency: {
+    averageMs: number;
+    p50Ms: number | 'INSUFFICIENT_DATA';
+    p90Ms: number | 'INSUFFICIENT_DATA';
+    p95Ms: number | 'INSUFFICIENT_DATA';
+    p99Ms: number | 'INSUFFICIENT_DATA';
+    minMs: number;
+    maxMs: number;
+  };
+  tokens: {
+    totalTokens: number;
+    averageTokensPerCase: number;
+    minTokens: number;
+    maxTokens: number;
+  };
+  byDimension: DimensionPerformanceItem[];
+  slowestCases: CasePerformanceItem[];
+  topTokenCases: CasePerformanceItem[];
+}
+
+export interface ContributingFactor {
+  id: string;
+  factorType: string;
+  label: string;
+  provider?: string;
+  model?: string;
+  tool?: string;
+  dimension?: string;
+  observed: string;
+  correlationExplanation: string;
+  affectedCasesCount: number;
+  affectedCaseIds: string[];
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+}
+
+export interface RootCauseAnalysisResult {
+  status: 'available' | 'ROOT_CAUSE_DATA_UNAVAILABLE';
+  analyzedFailuresCount: number;
+  factors: ContributingFactor[];
+  summary: string;
+}
+
+export interface MeasurementConfidenceResult {
+  level: MeasurementConfidenceLevel;
+  overallConfidenceScore: number;
+  historicalDepth: {
+    completedRunsCount: number;
+    sufficientForTrends: boolean;
+    sufficientForPercentiles: boolean;
+  };
+  coverageCompleteness: {
+    evaluatedCases: number;
+    goldenDatasetTotal: number;
+    coveragePct: number;
+  };
+  telemetryCompleteness: {
+    hasLatencyTelemetry: boolean;
+    hasTokenTelemetry: boolean;
+    hasModelMetadata: boolean;
+    hasReleaseProvenance: boolean;
+  };
+  factors: {
+    factor: string;
+    status: 'passed' | 'warning' | 'failed';
+    weight: number;
+    score: number;
+    message: string;
+  }[];
+}
+
+export interface EnrichedDimensionHealthItem extends DimensionHealth {
+  previousScore: number | 'INSUFFICIENT_HISTORY';
+  scoreDelta: number | 'INSUFFICIENT_HISTORY';
+  trend: TrendDirection;
+  healthStatus: 'HEALTHY' | 'WATCH' | 'DEGRADED';
+}
+
+export interface FailureTaxonomyAnalytics {
+  category: FailureCategory;
+  count: number;
+  percentage: number;
+  affectedDimensions: string[];
+  affectedCases: string[];
+  consecutiveOccurrences: number;
+}
+
+export interface EvaluationIntelligenceOverview {
+  healthStatus: QualityHealthStatus;
+  statusReason: string;
+  currentRun: RunTrendSummary | null;
+  measurementConfidence: MeasurementConfidenceResult;
+  trends: QualityTrendIntelligence;
+  degradation: DegradationDetectionResult;
+  dimensions: Record<string, EnrichedDimensionHealthItem>;
+  failures: {
+    totalFailures: number;
+    taxonomyAnalytics: FailureTaxonomyAnalytics[];
+    clusters: FailureCluster[];
+  };
+  bestCases: RankedCaseItem[];
+  worstCases: RankedCaseItem[];
+  flakyCases: FlakyCaseItem[];
+  performance: PerformanceIntelligenceResult;
+  rootCauses: RootCauseAnalysisResult;
+  providers: {
+    status: 'available' | 'INSUFFICIENT_PROVIDER_DATA';
+    diagnostics: any[];
+  };
+  lastUpdated: string;
+}
+
+export type ComparisonCaseCategory =
+  | 'NEW FAILURE'
+  | 'RESOLVED'
+  | 'REGRESSED'
+  | 'IMPROVED'
+  | 'CHANGED'
+  | 'UNCHANGED';
+
+export interface EnhancedCaseComparisonItem {
+  caseId: string;
+  dimension: string;
+  title: string;
+  category: ComparisonCaseCategory;
+  runA: {
+    status: string;
+    score: number;
+    durationMs: number;
+    failureReason?: string | null;
+  };
+  runB: {
+    status: string;
+    score: number;
+    durationMs: number;
+    failureReason?: string | null;
+  };
+  scoreDelta: number;
+  durationDeltaMs: number;
+}
+
+export interface ReleaseComparisonResult {
+  runA: EvaluationRunItem;
+  runB: EvaluationRunItem;
+  releaseA: ReleaseMetadata;
+  releaseB: ReleaseMetadata;
+  isSameDataset: boolean;
+  metrics: {
+    scoreDelta: number;
+    passRateDeltaPp: number;
+    failuresDelta: number;
+    regressionsDelta: number;
+    durationDeltaMs: number;
+    tokensDelta: number;
+  };
+  summaryCounts: {
+    total: number;
+    changed: number;
+    newFailures: number;
+    resolved: number;
+    regressed: number;
+    improved: number;
+    unchanged: number;
+  };
+  dimensionDeltas: {
+    dimension: string;
+    scoreA: number;
+    scoreB: number;
+    scoreDelta: number;
+    passRateA: number;
+    passRateB: number;
+    passRateDeltaPp: number;
+  }[];
+  cases: EnhancedCaseComparisonItem[];
+}
+
 
 
 

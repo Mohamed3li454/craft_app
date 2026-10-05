@@ -1010,6 +1010,10 @@ export interface TranslationSchema {
     runsTab: string;
     regressionsTab: string;
     trendTab: string;
+    performanceTab: string;
+    flakyTab: string;
+    degradationTab: string;
+    bestWorstTab: string;
     modelsTab: string;
     kpiOverallScore: string;
     kpiPassRate: string;

@@ -166,15 +166,25 @@ export function createAdminRouter(): Router {
   router.get('/audit', auditController.getAuditLogs);
 
   // ==========================================
-  // 14. AI Quality & Evaluation Center
+  // 14. AI Quality & Evaluation Center (Phase 12.6 Intelligence 2.0)
   // ==========================================
   router.get('/evaluation/overview', evaluationController.getOverview);
+  router.get('/evaluation/intelligence', evaluationController.getIntelligenceOverview);
+  router.get('/evaluation/trends', evaluationController.getTrends);
+  router.get('/evaluation/degradation', evaluationController.getDegradation);
+  router.get('/evaluation/dimensions', evaluationController.getDimensionsIntelligence);
+  router.get('/evaluation/performance', evaluationController.getPerformance);
+  router.get('/evaluation/providers', evaluationController.getProvidersDiagnostics);
+  router.get('/evaluation/confidence', evaluationController.getMeasurementConfidence);
   router.get('/evaluation/dataset', evaluationController.getDatasetMetadata);
   router.get('/evaluation/quality', evaluationController.getQualityOverview);
   router.get('/evaluation/release-quality', evaluationController.getReleaseQualityHistory);
   router.get('/evaluation/failures', evaluationController.getFailures);
   router.get('/evaluation/compare', evaluationController.compareRuns);
   router.get('/evaluation/runs/compare', evaluationController.compareRuns);
+  router.get('/evaluation/cases/best', evaluationController.getBestCases);
+  router.get('/evaluation/cases/worst', evaluationController.getWorstCases);
+  router.get('/evaluation/cases/flaky', evaluationController.getFlakyCases);
   router.get('/evaluation/cases', evaluationController.getCases);
   router.get('/evaluation/cases/:id/history', evaluationController.getCaseHistory);
   router.get('/evaluation/cases/:id', evaluationController.getCaseDetails);

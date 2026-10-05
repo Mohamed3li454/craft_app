@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin-client';
-import { EvaluationRunItem, RunComparisonResult } from '@/types/admin';
+import { EvaluationRunItem } from '@/types/admin';
 import { useLanguage } from '@/lib/i18n/language-context';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -37,6 +37,8 @@ export function RunComparisonDialog({
   const [runBId, setRunBId] = useState<string>(
     initialRunBId || (availableRuns[0]?.id ?? '')
   );
+  const [changedCasesOnly, setChangedCasesOnly] = useState<boolean>(true);
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
 
   useEffect(() => {
     if (initialRunAId) setRunAId(initialRunAId);
@@ -52,14 +54,18 @@ export function RunComparisonDialog({
   }, [isOpen, onClose]);
 
   const { data: comparisonResponse, isLoading, isError } = useQuery({
-    queryKey: ['evaluation-run-comparison', runAId, runBId],
-    queryFn: () => adminApi.compareEvaluationRuns(runAId, runBId),
+    queryKey: ['evaluation-run-comparison', runAId, runBId, changedCasesOnly, categoryFilter],
+    queryFn: () =>
+      adminApi.compareEvaluationRuns(runAId, runBId, {
+        changedCasesOnly,
+        filterCategory: categoryFilter !== 'ALL' ? categoryFilter : undefined,
+      }),
     enabled: Boolean(isOpen && runAId && runBId && runAId !== runBId),
   });
 
   if (!isOpen) return null;
 
-  const comparison: RunComparisonResult | undefined = comparisonResponse?.data;
+  const comparison: any = comparisonResponse?.data;
 
   const formatDeltaPp = (val?: number) => {
     if (val === undefined || val === null) return '0.0 pp';
@@ -313,7 +319,7 @@ export function RunComparisonDialog({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {comparison.dimensionComparison.map((dim) => (
+                        {comparison.dimensionComparison.map((dim: any) => (
                           <tr key={dim.dimension} className="hover:bg-surface-elevated/40">
                             <td className="px-4 py-2 font-mono font-bold text-foreground uppercase text-[11px]">
                               {dim.dimension}
@@ -344,15 +350,55 @@ export function RunComparisonDialog({
                   </div>
                 </div>
 
-                {/* 3. Changed Cases Diff (Omits Unchanged) */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
+                {/* 3. Changed Cases Diff (Phase 12.6 Filterable) */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">
-                      {t('evaluation.changedCasesTitle')} ({comparison.changedCases.length})
+                      {t('evaluation.changedCasesTitle')} ({comparison.cases?.length ?? comparison.changedCases?.length ?? 0})
                     </h3>
+
+                    <label className="flex items-center gap-2 text-xs font-mono text-slate-300 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={changedCasesOnly}
+                        onChange={(e) => setChangedCasesOnly(e.target.checked)}
+                        className="rounded border-border text-brand-500 focus:ring-brand-500 bg-surface-elevated"
+                      />
+                      <span>Changed Cases Only (Hide Unchanged)</span>
+                    </label>
                   </div>
 
-                  {comparison.changedCases.length === 0 ? (
+                  {/* Category Filter Pills */}
+                  {comparison.summaryCounts && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {[
+                        { id: 'ALL', label: 'All', count: comparison.summaryCounts.total },
+                        { id: 'REGRESSED', label: 'Regressed', count: comparison.summaryCounts.regressed, color: 'text-rose-400' },
+                        { id: 'NEW FAILURE', label: 'New Failure', count: comparison.summaryCounts.newFailures, color: 'text-rose-400' },
+                        { id: 'RESOLVED', label: 'Resolved', count: comparison.summaryCounts.resolved, color: 'text-emerald-400' },
+                        { id: 'IMPROVED', label: 'Improved', count: comparison.summaryCounts.improved, color: 'text-emerald-400' },
+                        { id: 'UNCHANGED', label: 'Unchanged', count: comparison.summaryCounts.unchanged, color: 'text-slate-400' },
+                      ].map((cat) => (
+                        <button
+                          key={cat.id}
+                          onClick={() => setCategoryFilter(cat.id)}
+                          className={cn(
+                            'px-2.5 py-1 rounded-lg text-[11px] font-mono border transition-colors flex items-center gap-1.5',
+                            categoryFilter === cat.id
+                              ? 'bg-brand-500/15 border-brand-500/40 text-foreground font-bold'
+                              : 'bg-surface border-border text-slate-400 hover:text-foreground'
+                          )}
+                        >
+                          <span className={cat.color}>{cat.label}</span>
+                          <span className="text-[10px] px-1 py-0.2 rounded bg-surface-elevated border border-border text-slate-400">
+                            {cat.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {((comparison.cases?.length ?? comparison.changedCases?.length ?? 0) === 0) ? (
                     <div className="p-8 text-center rounded-xl border border-border bg-surface-elevated/20 text-xs text-slate-400 space-y-1">
                       <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto mb-1" />
                       <p className="font-medium text-foreground">
@@ -361,70 +407,75 @@ export function RunComparisonDialog({
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {comparison.changedCases.map((diff) => (
-                        <div
-                          key={diff.caseId}
-                          className={cn(
-                            'p-3 rounded-xl border text-xs space-y-2',
-                            diff.changeType === 'regression'
-                              ? 'border-rose-500/40 bg-rose-500/5'
-                              : diff.changeType === 'recovered'
-                              ? 'border-emerald-500/40 bg-emerald-500/5'
-                              : 'border-border bg-surface-elevated/40'
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-foreground">
-                                {diff.caseId}
-                              </span>
-                              <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-slate-400 uppercase text-[10px] font-mono">
-                                {diff.dimension}
-                              </span>
-                              <Badge
-                                variant={
-                                  diff.changeType === 'regression'
-                                    ? 'danger'
-                                    : diff.changeType === 'recovered'
-                                    ? 'success'
-                                    : 'neutral'
-                                }
-                                className="text-[10px] font-mono"
-                              >
-                                {diff.changeType}
-                              </Badge>
-                            </div>
-                            <span className="font-mono text-[11px] text-slate-400">
-                              Score Delta: {formatDelta(diff.scoreDelta)}
-                            </span>
-                          </div>
+                      {(comparison.cases || comparison.changedCases).map((diff: any) => {
+                        const changeCat = diff.category || diff.changeType?.toUpperCase();
+                        const isReg = changeCat === 'REGRESSED' || changeCat === 'NEW FAILURE';
+                        const isRes = changeCat === 'RESOLVED' || changeCat === 'IMPROVED';
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono bg-surface/60 p-2 rounded-lg border border-border/50">
-                            <div>
-                              <span className="text-slate-400 block text-[10px]">Run A (Base):</span>
-                              <span className="text-foreground font-semibold">
-                                {diff.runA.status.toUpperCase()} (Score: {diff.runA.score}%)
+                        return (
+                          <div
+                            key={diff.caseId}
+                            className={cn(
+                              'p-3 rounded-xl border text-xs space-y-2',
+                              isReg
+                                ? 'border-rose-500/40 bg-rose-500/5'
+                                : isRes
+                                ? 'border-emerald-500/40 bg-emerald-500/5'
+                                : 'border-border bg-surface-elevated/40'
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-foreground">
+                                  {diff.caseId}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-slate-400 uppercase text-[10px] font-mono">
+                                  {diff.dimension}
+                                </span>
+                                <Badge
+                                  variant={isReg ? 'danger' : isRes ? 'success' : 'neutral'}
+                                  className="text-[10px] font-mono"
+                                >
+                                  {changeCat}
+                                </Badge>
+                                {diff.title && (
+                                  <span className="text-slate-400 text-[11px] truncate max-w-xs">
+                                    {diff.title}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-mono text-[11px] text-slate-400">
+                                Score Delta: {formatDelta(diff.scoreDelta)}
                               </span>
-                              {diff.runA.failureReason && (
-                                <p className="text-rose-400 line-clamp-1 mt-0.5">
-                                  {diff.runA.failureReason}
-                                </p>
-                              )}
                             </div>
-                            <div>
-                              <span className="text-slate-400 block text-[10px]">Run B (Target):</span>
-                              <span className="text-foreground font-semibold">
-                                {diff.runB.status.toUpperCase()} (Score: {diff.runB.score}%)
-                              </span>
-                              {diff.runB.failureReason && (
-                                <p className="text-rose-400 line-clamp-1 mt-0.5">
-                                  {diff.runB.failureReason}
-                                </p>
-                              )}
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono bg-surface/60 p-2 rounded-lg border border-border/50">
+                              <div>
+                                <span className="text-slate-400 block text-[10px]">Run A (Base):</span>
+                                <span className="text-foreground font-semibold">
+                                  {diff.runA.status.toUpperCase()} (Score: {diff.runA.score}%)
+                                </span>
+                                {diff.runA.failureReason && (
+                                  <p className="text-rose-400 line-clamp-1 mt-0.5">
+                                    {diff.runA.failureReason}
+                                  </p>
+                                )}
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block text-[10px]">Run B (Target):</span>
+                                <span className="text-foreground font-semibold">
+                                  {diff.runB.status.toUpperCase()} (Score: {diff.runB.score}%)
+                                </span>
+                                {diff.runB.failureReason && (
+                                  <p className="text-rose-400 line-clamp-1 mt-0.5">
+                                    {diff.runB.failureReason}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>

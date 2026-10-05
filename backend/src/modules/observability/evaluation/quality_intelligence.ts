@@ -96,7 +96,10 @@ export function classifyFailure(
   if (reasonLower.includes('not to be used') || reasonLower.includes('forbidden tool')) {
     return { category: 'forbidden_tool_used', reason };
   }
-  if (reasonLower.includes('expected tool') && (reasonLower.includes('to be used') || reasonLower.includes('missing'))) {
+  if (
+    (reasonLower.includes('expected tool') || reasonLower.includes('required tool')) &&
+    (reasonLower.includes('to be used') || reasonLower.includes('missing') || reasonLower.includes('not invoked'))
+  ) {
     return { category: 'required_tool_missing', reason };
   }
 

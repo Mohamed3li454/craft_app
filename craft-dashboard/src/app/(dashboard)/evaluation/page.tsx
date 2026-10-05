@@ -23,6 +23,11 @@ import { RunDetailDrawer } from '@/components/evaluation/run-detail-drawer';
 import { RunEvaluationModal } from '@/components/evaluation/run-evaluation-modal';
 import { RunComparisonDialog } from '@/components/evaluation/run-comparison-dialog';
 import { CaseHistoryDrawer } from '@/components/evaluation/case-history-drawer';
+import { FlakyCasesPanel } from '@/components/evaluation/flaky-cases-panel';
+import { BestWorstCasesPanel } from '@/components/evaluation/best-worst-cases-panel';
+import { DegradationAlertsPanel } from '@/components/evaluation/degradation-alerts-panel';
+import { PerformanceIntelligenceCard } from '@/components/evaluation/performance-intelligence-card';
+import { RootCausePanel } from '@/components/evaluation/root-cause-panel';
 import {
   FlaskConical,
   Layers,
@@ -38,6 +43,9 @@ import {
   GitCompare,
   ShieldAlert,
   ShieldCheck,
+  Shuffle,
+  AlertTriangle,
+  Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -46,7 +54,18 @@ import {
   EvaluationDimension,
 } from '@/types/admin';
 
-type TabType = 'cases' | 'dimensions' | 'runs' | 'failures' | 'regressions' | 'release-quality' | 'trend' | 'models';
+type TabType =
+  | 'cases'
+  | 'dimensions'
+  | 'runs'
+  | 'failures'
+  | 'regressions'
+  | 'performance'
+  | 'flaky'
+  | 'degradation'
+  | 'release-quality'
+  | 'trend'
+  | 'models';
 
 function EvaluationContent() {
   const searchParams = useSearchParams();
@@ -133,15 +152,28 @@ function EvaluationContent() {
     queryFn: () => adminApi.getEvaluationFailures({ limit: 50 }),
   });
 
+  // 7. Fetch Full Evaluation Intelligence 2.0 (Phase 12.6)
+  const {
+    data: intelligenceResponse,
+    isLoading: isIntelligenceLoading,
+    refetch: refetchIntelligence,
+  } = useQuery({
+    queryKey: ['evaluation-intelligence'],
+    queryFn: () => adminApi.getEvaluationIntelligence(),
+  });
+
+  const [caseViewMode, setCaseViewMode] = useState<'explorer' | 'rankings'>('explorer');
+
   const overview = overviewResponse?.data;
   const casesList = casesResponse?.data || [];
   const runsList = runsResponse?.data || [];
   const regressionsList = regressionsResponse?.data || [];
   const qualityData = qualityResponse?.data;
   const failuresData = failuresResponse?.data;
+  const intelligence = intelligenceResponse?.data;
 
   const isRefreshing =
-    isFetchingOverview || isFetchingCases || isFetchingRuns || isFetchingRegressions;
+    isFetchingOverview || isFetchingCases || isFetchingRuns || isFetchingRegressions || isIntelligenceLoading;
 
   const handleRefreshAll = () => {
     refetchOverview();
@@ -150,6 +182,7 @@ function EvaluationContent() {
     refetchRegressions();
     refetchQuality();
     refetchFailures();
+    refetchIntelligence();
   };
 
   const handleRunSuccess = (data: any) => {
@@ -206,6 +239,25 @@ function EvaluationContent() {
       icon: AlertOctagon,
       badge: regressionsList.length,
       badgeVariant: regressionsList.length > 0 ? ('danger' as const) : ('neutral' as const),
+    },
+    {
+      id: 'performance' as TabType,
+      label: t('evaluation.performanceTab'),
+      icon: Clock,
+    },
+    {
+      id: 'flaky' as TabType,
+      label: t('evaluation.flakyTab'),
+      icon: Shuffle,
+      badge: intelligence?.flakyCases?.length || 0,
+      badgeVariant: (intelligence?.flakyCases?.length || 0) > 0 ? ('danger' as const) : ('neutral' as const),
+    },
+    {
+      id: 'degradation' as TabType,
+      label: t('evaluation.degradationTab'),
+      icon: AlertTriangle,
+      badge: intelligence?.degradation?.signalsCount || 0,
+      badgeVariant: (intelligence?.degradation?.criticalSignalsCount || 0) > 0 ? ('danger' as const) : ('neutral' as const),
     },
     {
       id: 'release-quality' as TabType,
@@ -353,13 +405,52 @@ function EvaluationContent() {
       {/* Tab Panels */}
       <div className="space-y-6">
         {activeTab === 'cases' && (
-          <EvaluationCaseExplorer
-            cases={casesList}
-            isLoading={isCasesLoading}
-            selectedDimension={selectedDimensionFilter}
-            onSelectDimension={(dim) => setSelectedDimensionFilter(dim)}
-            onSelectCase={(caseItem) => setSelectedCase(caseItem)}
-          />
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-border pb-2">
+              <button
+                onClick={() => setCaseViewMode('explorer')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors',
+                  caseViewMode === 'explorer'
+                    ? 'bg-brand-500/10 text-brand-400 border border-brand-500/30'
+                    : 'text-slate-400 hover:text-foreground'
+                )}
+              >
+                Golden Dataset Explorer (56 Scenarios)
+              </button>
+              <button
+                onClick={() => setCaseViewMode('rankings')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors',
+                  caseViewMode === 'rankings'
+                    ? 'bg-brand-500/10 text-brand-400 border border-brand-500/30'
+                    : 'text-slate-400 hover:text-foreground'
+                )}
+              >
+                Best & Worst Cases Ranking
+              </button>
+            </div>
+
+            {caseViewMode === 'explorer' ? (
+              <EvaluationCaseExplorer
+                cases={casesList}
+                isLoading={isCasesLoading}
+                selectedDimension={selectedDimensionFilter}
+                onSelectDimension={(dim) => setSelectedDimensionFilter(dim)}
+                onSelectCase={(caseItem) => setSelectedCase(caseItem)}
+              />
+            ) : (
+              <BestWorstCasesPanel
+                bestCases={intelligence?.bestCases || []}
+                worstCases={intelligence?.worstCases || []}
+                isLoading={isIntelligenceLoading}
+                onSelectCase={(ranked) => {
+                  const matched = casesList.find((c) => c.id === ranked.caseId);
+                  if (matched) setSelectedCase(matched);
+                }}
+              />
+            )}
+          </div>
         )}
 
         {activeTab === 'dimensions' && (
@@ -380,14 +471,20 @@ function EvaluationContent() {
         )}
 
         {activeTab === 'failures' && (
-          <FailurePatternsTable
-            clusters={failuresData?.clusters || []}
-            taxonomyCounts={failuresData?.taxonomyCounts || {}}
-            totalFailures={failuresData?.totalFailures || 0}
-            totalEvaluated={failuresData?.totalEvaluatedCases || 56}
-            isLoading={isFailuresLoading}
-            onSelectCase={(caseId) => setHistoryCaseId(caseId)}
-          />
+          <div className="space-y-6">
+            <FailurePatternsTable
+              clusters={failuresData?.clusters || []}
+              taxonomyCounts={failuresData?.taxonomyCounts || {}}
+              totalFailures={failuresData?.totalFailures || 0}
+              totalEvaluated={failuresData?.totalEvaluatedCases || 56}
+              isLoading={isFailuresLoading}
+              onSelectCase={(caseId) => setHistoryCaseId(caseId)}
+            />
+            <RootCausePanel
+              rootCauses={intelligence?.rootCauses}
+              isLoading={isIntelligenceLoading}
+            />
+          </div>
         )}
 
         {activeTab === 'regressions' && (
@@ -398,6 +495,28 @@ function EvaluationContent() {
               const matched = casesList.find((c) => c.id === caseId);
               if (matched) setSelectedCase(matched);
             }}
+          />
+        )}
+
+        {activeTab === 'performance' && (
+          <PerformanceIntelligenceCard
+            performance={intelligence?.performance}
+            isLoading={isIntelligenceLoading}
+          />
+        )}
+
+        {activeTab === 'flaky' && (
+          <FlakyCasesPanel
+            cases={intelligence?.flakyCases || []}
+            isLoading={isIntelligenceLoading}
+            onSelectCase={(caseId) => setHistoryCaseId(caseId)}
+          />
+        )}
+
+        {activeTab === 'degradation' && (
+          <DegradationAlertsPanel
+            degradation={intelligence?.degradation}
+            isLoading={isIntelligenceLoading}
           />
         )}
 
