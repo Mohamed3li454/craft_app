@@ -14,6 +14,19 @@ import { AgentTool } from '../contracts/tool.types';
 import { ToolRegistry } from '../registry';
 import { TriggerContract } from './trigger_contract';
 import { RuntimePolicyResolver } from '../../../config/runtime_policy';
+import {
+  AdaptiveToolPolicy,
+  AdaptiveToolOptions,
+  AdaptiveToolManifestResult,
+  ToolManifestMode,
+} from './adaptive_tool_policy';
+
+export {
+  AdaptiveToolPolicy,
+  AdaptiveToolOptions,
+  AdaptiveToolManifestResult,
+  ToolManifestMode,
+};
 
 export type AgentCapability =
   | 'informational'
@@ -286,6 +299,33 @@ export class ToolCapabilityPolicy {
   }
 
   /**
+   * Transforms an array of AgentTool instances into OpenAI / Groq standard function Tool schema format.
+   */
+  public formatToolsForOpenAI(tools: AgentTool[]): any[] {
+    return tools.map((tool) => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: {
+          type: 'object',
+          properties: Object.entries(tool.parameters.properties).reduce(
+            (acc, [key, prop]) => {
+              acc[key] = {
+                type: (prop.type || 'string').toLowerCase(),
+                description: prop.description,
+              };
+              return acc;
+            },
+            {} as Record<string, any>
+          ),
+          required: tool.parameters.required || [],
+        },
+      },
+    }));
+  }
+
+  /**
    * Transforms registered tools into OpenAI / Groq standard Tool format,
    * strictly filtered by the trigger capability policy BEFORE passing to planner or LLM.
    */
@@ -307,26 +347,51 @@ export class ToolCapabilityPolicy {
       });
     }
 
-    return filteredTools.map((tool) => ({
-      type: 'function',
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: {
-          type: 'object',
-          properties: Object.entries(tool.parameters.properties).reduce(
-            (acc, [key, prop]) => {
-              acc[key] = {
-                type: (prop.type || 'string').toLowerCase(),
-                description: prop.description,
-              };
-              return acc;
-            },
-            {} as Record<string, any>
-          ),
-          required: tool.parameters.required || [],
-        },
-      },
-    }));
+    return this.formatToolsForOpenAI(filteredTools);
+  }
+
+  /**
+   * Retrieves tools filtered BOTH by TriggerContract capability bounds
+   * AND by deterministic query-aware adaptive scoping (Phase 14.3).
+   *
+   * Bounded Safety Guarantee:
+   * Can ONLY reduce or match the tools permitted by TriggerContract; NEVER expands them.
+   */
+  public getAdaptiveFilteredOpenAITools(
+    registry: ToolRegistry,
+    triggerType?: string,
+    query?: string,
+    options?: AdaptiveToolOptions
+  ): any[] {
+    // 1. Invoke base capability filtering (preserves contract, logging, and observability)
+    this.getFilteredOpenAITools(registry, triggerType);
+
+    const allTools = registry.getAllTools();
+    const capabilityAllowedTools = this.filterTools(allTools, triggerType);
+
+    const adaptiveResult = AdaptiveToolPolicy.resolveAdaptiveTools(
+      capabilityAllowedTools,
+      query,
+      triggerType,
+      options
+    );
+
+    if (triggerType === 'smart_reminder') {
+      logger.info('[ToolCapabilityPolicy] Enforced tool manifest scoping for smart_reminder', {
+        triggerType,
+        mode: adaptiveResult.mode,
+        allowedToolCount: adaptiveResult.tools.length,
+        allowedTools: adaptiveResult.toolNames,
+      });
+    } else if (this.isProactiveTrigger(triggerType)) {
+      logger.info('[ToolCapabilityPolicy] Enforced tool manifest scoping for proactive trigger', {
+        triggerType,
+        mode: adaptiveResult.mode,
+        allowedToolCount: adaptiveResult.tools.length,
+        allowedTools: adaptiveResult.toolNames,
+      });
+    }
+
+    return this.formatToolsForOpenAI(adaptiveResult.tools);
   }
 }

@@ -58,6 +58,7 @@ export interface AIUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens?: number;
 }
 
 export type AICapability =

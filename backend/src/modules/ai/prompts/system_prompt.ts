@@ -1,41 +1,50 @@
 /**
- * System Prompt Builder (Phase 8.4)
+ * System Prompt Builder (Phase 8.4 / 14.2)
  *
  * Vendor-neutral prompt synthesis module extracting prompt generation logic
  * out of specific provider implementations into a reusable service.
+ *
+ * Phase 14.2 Hardening:
+ * - Separates byte-stable static prefix from dynamic runtime context (timestamps, memories, dynamic policies).
+ * - Normalizes Cairo UTC+3 temporal anchors as a dynamic suffix, preserving prefix cache compatibility on Groq LPUs.
+ * - Provides deterministic SHA-256 prefix hashing for low-cardinality observability.
+ * - Retains 100% backwards compatibility and semantic equivalence across all linguistic registers.
  */
 
+import crypto from 'crypto';
 import { LanguageContext } from '../../language/types';
 import { PersonalityContext, buildPersonalityInstructions, PersonalityEngine } from '../../personality';
 import { PersonalizationPolicy, buildPersonalizationPrompt } from '../../personalization';
 import { AdaptiveResponsePolicy, buildAdaptiveResponsePrompt } from '../../response';
 import { ProactivePolicy, buildProactivePrompt } from '../../proactive';
+import { GlobalContextDeduplicator } from '../../context';
+
+export interface TemporalContextOptions {
+  referenceTime?: Date;
+  timeZone?: string;
+  resolution?: 'second' | 'minute' | 'hour' | 'day';
+}
+
+export interface StructuredSystemPrompt {
+  readonly staticPrefix: string;
+  readonly dynamicContext: string;
+  readonly fullInstruction: string;
+  readonly prefixHash: string;
+}
 
 export class SystemPromptBuilder {
-  public static buildSystemInstruction(
-    memories?: string[],
-    languageContext?: LanguageContext,
-    personalityContext?: PersonalityContext,
-    personalizationPolicy?: PersonalizationPolicy,
-    adaptiveResponsePolicy?: AdaptiveResponsePolicy,
-    proactivePolicy?: ProactivePolicy
-  ): string {
-    const now = new Date();
-    const cairoFormatter = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Africa/Cairo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-    const parts = cairoFormatter.formatToParts(now);
-    const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '';
-    const cairoNow = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}+03:00`;
-    const today = `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
-
+  /**
+   * Builds the byte-stable static prefix containing all invariant directives:
+   * Identity, Language & Dialect persistence, Technical terminology rules,
+   * Personality guidelines, Reminders/Search policies, Anti-Hallucination, and Formatting.
+   *
+   * Guaranteed ZERO dynamic values (no timestamps, request IDs, memories, or random seeds).
+   */
+  /**
+   * Builds tone, language, register, verbosity, and technical terminology preservation rules.
+   * Shared between Planner System Prompt and Final Synthesis Prompt.
+   */
+  public static buildToneAndLanguageDirectives(languageContext?: LanguageContext): string {
     let toneAndLanguage = '';
     if (languageContext) {
       if (languageContext.targetLanguage === 'en') {
@@ -142,39 +151,42 @@ export class SystemPromptBuilder {
 - Language: Arabic (Modern Standard Arabic or match the user's input language).
 - Technical Terminology Preservation: Keep all programming terms, frameworks, and identifiers in English.`;
     }
+    return toneAndLanguage;
+  }
 
+  /**
+   * Standard WhatsApp formatting rules.
+   */
+  public static buildFormattingRules(): string {
+    return `Formatting Rules:
+- STRICT PROHIBITION: NEVER use Markdown tables (| col |). WhatsApp renders tables poorly.
+- Use clean bullet points (•) and *bold* for headings and key terms.
+- NEVER output raw HTML (<br>, <div>). Use standard clean line breaks.`;
+  }
+
+  /**
+   * Builds the byte-stable static prefix containing all invariant directives:
+   * Identity, Language & Dialect persistence, Technical terminology rules,
+   * Personality guidelines, Reminders/Search policies, Anti-Hallucination, and Formatting.
+   *
+   * Guaranteed ZERO dynamic values (no timestamps, request IDs, memories, or random seeds).
+   */
+  public static buildStaticPrefix(
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext
+  ): string {
+    const toneAndLanguage = this.buildToneAndLanguageDirectives(languageContext);
     const effectivePersonality = personalityContext || PersonalityEngine.getInstance().getDefaultPersonality();
     const personalityInstructions = buildPersonalityInstructions(effectivePersonality);
+    const formattingRules = this.buildFormattingRules();
 
-    let instruction = `You are Craft, the personal AI assistant for the Craft ecosystem.
-User Timezone: Africa/Cairo (Egypt, UTC+3). Local Time: ${cairoNow} (Date: ${today}).
+    return `You are Craft, the personal AI assistant for the Craft ecosystem.
 Identity: Always introduce and refer to yourself as Craft. Never say you are ChatGPT, OpenAI, Groq, or Google.
 ${toneAndLanguage}
 
-${personalityInstructions}`;
+${personalityInstructions}
 
-    if (personalizationPolicy) {
-      const tailoredSection = buildPersonalizationPrompt(personalizationPolicy);
-      if (tailoredSection) {
-        instruction += `\n\n${tailoredSection}`;
-      }
-    }
-
-    if (adaptiveResponsePolicy) {
-      const adaptiveSection = buildAdaptiveResponsePrompt(adaptiveResponsePolicy);
-      if (adaptiveSection) {
-        instruction += `\n\n${adaptiveSection}`;
-      }
-    }
-
-    if (proactivePolicy && proactivePolicy.shouldSuggest) {
-      const proactiveSection = buildProactivePrompt(proactivePolicy);
-      if (proactiveSection) {
-        instruction += `\n\n${proactiveSection}`;
-      }
-    }
-
-    instruction += `\n\n### Reminders & Tasks (CRITICAL RULES):
+### Reminders & Tasks (CRITICAL RULES):
 - ALWAYS call 'create_reminder' when the user asks to be reminded of ANYTHING — even casually worded requests like: "فكرني", "ذكرني", "اعمل لي تذكير", "ابعتلي رسالة بعد X", "remind me", "set a reminder", "alert me".
 - Extract the title from what they want to be reminded about, and the time from their message (e.g. "بعد دقيقة", "الساعة 10", "بكرة", "tomorrow 3pm").
 - ALWAYS call 'list_reminders' when the user asks about their tasks, to-dos, or reminder list.
@@ -199,16 +211,154 @@ ${personalityInstructions}`;
   * NEVER invent, guess, or hallucinate an extensive unrequested architecture, project, code repository, or multi-step execution plan!
   * Ask a brief, direct clarification question to determine their precise intent (e.g. "تقصد أعمل إيه بالظبط؟ تحب مثلاً أكتبلك كود عملي، ولا أعمل جدول مقارنة، ولا توضيح خطوة بخطوة؟").
 
-Formatting Rules:
-- STRICT PROHIBITION: NEVER use Markdown tables (| col |). WhatsApp renders tables poorly.
-- Use clean bullet points (•) and *bold* for headings and key terms.
-- NEVER output raw HTML (<br>, <div>). Use standard clean line breaks.`;
+${formattingRules}`;
+  }
 
-    if (memories && memories.length > 0) {
-      instruction += `\n\n### Stored User Profile:\n${memories.map((m) => `- ${m}`).join('\n')}`;
-      instruction += `\n*Priority Rule*: The active "Response Language & Style" specified above is authoritative for the current request and MUST strictly take precedence over any stored language or dialect preferences in the user profile.`;
+  /**
+   * Builds dynamic execution context (temporal anchor, personalization overrides,
+   * adaptive response directives, in-turn proactive recommendations, and user profile memories).
+   * Appended at the end of the system prompt to avoid invalidating the static prefix.
+   */
+  public static buildDynamicContext(
+    memories?: string[],
+    personalizationPolicy?: PersonalizationPolicy,
+    adaptiveResponsePolicy?: AdaptiveResponsePolicy,
+    proactivePolicy?: ProactivePolicy,
+    temporalOptions?: TemporalContextOptions | Date
+  ): string {
+    const options: TemporalContextOptions =
+      temporalOptions instanceof Date
+        ? { referenceTime: temporalOptions }
+        : temporalOptions || {};
+
+    const referenceTime = options.referenceTime || new Date();
+    const timeZone = options.timeZone || 'Africa/Cairo';
+    const resolution = options.resolution || 'second';
+
+    const cairoFormatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const parts = cairoFormatter.formatToParts(referenceTime);
+    const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '';
+
+    const secondVal = resolution === 'minute' || resolution === 'hour' || resolution === 'day' ? '00' : getPart('second');
+    const minuteVal = resolution === 'hour' || resolution === 'day' ? '00' : getPart('minute');
+    const cairoNow = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${minuteVal}:${secondVal}+03:00`;
+    const today = `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
+
+    const sections: string[] = [];
+
+    // 1. Real-time temporal context (dynamic anchor placed safely at end of static instructions)
+    sections.push(
+      `### Real-Time Temporal Context (${timeZone}):\nUser Timezone: ${timeZone} (Egypt, UTC+3). Local Time: ${cairoNow} (Date: ${today}).`
+    );
+
+    // 2. Dynamic Personalization
+    if (personalizationPolicy) {
+      const tailoredSection = buildPersonalizationPrompt(personalizationPolicy);
+      if (tailoredSection) {
+        sections.push(tailoredSection);
+      }
     }
 
-    return instruction;
+    // 3. Dynamic Adaptive Response
+    if (adaptiveResponsePolicy) {
+      const adaptiveSection = buildAdaptiveResponsePrompt(adaptiveResponsePolicy);
+      if (adaptiveSection) {
+        sections.push(adaptiveSection);
+      }
+    }
+
+    // 4. In-Turn Proactive Suggestions
+    if (proactivePolicy && proactivePolicy.shouldSuggest) {
+      const proactiveSection = buildProactivePrompt(proactivePolicy);
+      if (proactiveSection) {
+        sections.push(proactiveSection);
+      }
+    }
+
+    // 5. Stored User Profile (Memories with Phase 14.5 cross-source deduplication)
+    if (memories && memories.length > 0) {
+      const { preserved } = GlobalContextDeduplicator.deduplicateMemories(memories, personalizationPolicy);
+      if (preserved.length > 0) {
+        let memSection = `### Stored User Profile:\n${preserved.map((m) => `- ${m}`).join('\n')}`;
+        memSection += `\n*Priority Rule*: The active "Response Language & Style" specified above is authoritative for the current request and MUST strictly take precedence over any stored language or dialect preferences in the user profile.`;
+        sections.push(memSection);
+      }
+    }
+
+    return sections.join('\n\n');
+  }
+
+  /**
+   * Computes a deterministic, non-secret, low-cardinality SHA-256 hash
+   * of the static system prompt prefix for cache-compatibility observability.
+   */
+  public static computePrefixHash(staticPrefix: string): string {
+    return crypto.createHash('sha256').update(staticPrefix, 'utf8').digest('hex').substring(0, 16);
+  }
+
+  /**
+   * Structured system prompt factory separating the invariant prefix from dynamic suffix.
+   */
+  public static buildStructuredSystemInstruction(
+    memories?: string[],
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext,
+    personalizationPolicy?: PersonalizationPolicy,
+    adaptiveResponsePolicy?: AdaptiveResponsePolicy,
+    proactivePolicy?: ProactivePolicy,
+    temporalOptions?: TemporalContextOptions | Date
+  ): StructuredSystemPrompt {
+    const staticPrefix = this.buildStaticPrefix(languageContext, personalityContext);
+    const dynamicContext = this.buildDynamicContext(
+      memories,
+      personalizationPolicy,
+      adaptiveResponsePolicy,
+      proactivePolicy,
+      temporalOptions
+    );
+    const fullInstruction = dynamicContext.length > 0
+      ? `${staticPrefix}\n\n${dynamicContext}`
+      : staticPrefix;
+    const prefixHash = this.computePrefixHash(staticPrefix);
+
+    return {
+      staticPrefix,
+      dynamicContext,
+      fullInstruction,
+      prefixHash,
+    };
+  }
+
+  /**
+   * Primary vendor-neutral system instruction builder (100% backwards-compatible API).
+   */
+  public static buildSystemInstruction(
+    memories?: string[],
+    languageContext?: LanguageContext,
+    personalityContext?: PersonalityContext,
+    personalizationPolicy?: PersonalizationPolicy,
+    adaptiveResponsePolicy?: AdaptiveResponsePolicy,
+    proactivePolicy?: ProactivePolicy,
+    temporalOptions?: TemporalContextOptions | Date
+  ): string {
+    const structured = this.buildStructuredSystemInstruction(
+      memories,
+      languageContext,
+      personalityContext,
+      personalizationPolicy,
+      adaptiveResponsePolicy,
+      proactivePolicy,
+      temporalOptions
+    );
+    return structured.fullInstruction;
   }
 }

@@ -10,3 +10,4 @@ export * from './search_ranker';
 export * from './search_refiner';
 export * from './search_presentation_policy';
 export * from './search_context_manager';
+export * from './search_evidence_compactor';

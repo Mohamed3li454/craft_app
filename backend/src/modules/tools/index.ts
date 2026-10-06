@@ -23,6 +23,7 @@ export * from './validation/input_validator';
 export * from './safety/permission_gate';
 export * from './safety/output_sanitizer';
 export * from './safety/tool_capability_policy';
+export * from './safety/adaptive_tool_policy';
 export * from './safety/trigger_contract';
 
 // Adapters & Formatting
@@ -31,6 +32,9 @@ export * from './adapters/tool_result_formatter';
 // Lifecycle Management & Registry
 export * from './lifecycle/tool_lifecycle';
 export * from './registry';
+
+// Search Intelligence & Compaction (Phase 14.4)
+export * from './search';
 
 // Built-in Tools
 export * from './builtins/time.tool';

@@ -10,6 +10,7 @@ export * from './routing_policy';
 export * from './provider_registry';
 export * from './router';
 export * from './prompts/system_prompt';
+export * from './prompts/synthesis_prompt';
 export * from './providers/groq/provider';
 export * from './providers/groq/mapper';
 export * from './providers/mock/mock_provider';

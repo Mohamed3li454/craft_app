@@ -15,6 +15,7 @@ import { SearchQueryPlanner } from '../search/search_query_planner';
 import { SearchDeduplicator } from '../search/search_deduplicator';
 import { SearchRanker } from '../search/search_ranker';
 import { SearchRefiner } from '../search/search_refiner';
+import { SearchEvidenceCompactor } from '../search/search_evidence_compactor';
 
 export interface SearchResultItem {
   title: string;
@@ -145,13 +146,14 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
             const normalized = this.toNormalizedResults(tavilyResults);
             const deduped = SearchDeduplicator.deduplicate(normalized);
             const ranked = SearchRanker.rank(deduped, plan.plannedQuery, plan.intent);
+            const compacted = SearchEvidenceCompactor.compactResults(ranked, { maxResults: 8 });
             return {
               success: true,
               output: {
                 query: rawQuery,
                 intent: plan.intent,
                 source: 'tavily',
-                results: ranked.slice(0, 8),
+                results: compacted.results,
               },
             };
           }
@@ -190,8 +192,9 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
 
       // 5. Successful Ranked Output
       if (ranked.length > 0) {
+        const compacted = SearchEvidenceCompactor.compactResults(ranked, { maxResults: 8 });
         logger.info(
-          `Search Intelligence returned [${ranked.length}] ranked results for "${rawQuery}" [Intent: ${plan.intent}] in ${executionLatencyMs}ms`
+          `Search Intelligence returned [${compacted.results.length}] compacted results for "${rawQuery}" [Intent: ${plan.intent}] in ${executionLatencyMs}ms (saved ~${compacted.tokensSavedEstimate} tokens)`
         );
         return {
           success: true,
@@ -199,7 +202,7 @@ export class WebSearchTool implements AgentTool<SearchArgs> {
             query: rawQuery,
             intent: plan.intent,
             source: 'live_web',
-            results: ranked.slice(0, 8),
+            results: compacted.results,
           },
         };
       }

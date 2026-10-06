@@ -73,4 +73,5 @@ export interface ContextWindowOptions {
   readonly maxCharacters?: number;
   readonly maxTurns?: number;
   readonly memoryContextFacts?: readonly string[];
+  readonly budgetMode?: 'MINIMAL' | 'STANDARD' | 'RICH' | 'MULTI_STEP';
 }

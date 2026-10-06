@@ -9,6 +9,7 @@
  */
 
 import { GroqProvider } from '../../groq/groq.provider';
+import { logger } from '../../../core/logger';
 import { AgentExecutionState, ExecutionDecision, ExecutionEngineContext } from './types';
 import { redactSecrets } from '../../tools/contracts/error.types';
 import { ToolRegistry } from '../../tools/registry';
@@ -55,7 +56,7 @@ export class ExecutionPlanner {
     }
 
     // 2. Synthesize System Instruction using vendor-neutral builder
-    const systemInstruction = SystemPromptBuilder.buildSystemInstruction(
+    const structuredInstruction = SystemPromptBuilder.buildStructuredSystemInstruction(
       context.memories,
       context.languageContext,
       context.personalityContext,
@@ -64,9 +65,15 @@ export class ExecutionPlanner {
       context.proactivePolicy
     );
 
+    logger.debug('[ExecutionPlanner] System instruction synthesized', {
+      runId: context.runId,
+      step: state.currentStep,
+      prefixHash: structuredInstruction.prefixHash,
+    });
+
     // 3. Build normalized messages: System prompt + conversation history + execution steps taken so far
     const messages: AIMessage[] = [
-      { role: 'system', content: systemInstruction },
+      { role: 'system', content: structuredInstruction.fullInstruction },
       ...conversationHistory,
     ];
 
@@ -121,10 +128,15 @@ export class ExecutionPlanner {
       }
     }
 
-    // 4. Construct normalized AIRequest with tools
-    const tools = this.capabilityPolicy.getFilteredOpenAITools(
+    // 4. Construct normalized AIRequest with adaptive tools (Phase 14.3)
+    const tools = this.capabilityPolicy.getAdaptiveFilteredOpenAITools(
       this.toolRegistry,
-      context.triggerType
+      context.triggerType,
+      state.goal || context.userGoal,
+      {
+        hasPriorSteps: state.steps.length > 0,
+        recentMessages: context.recentMessages,
+      }
     );
     const aiRequest: AIRequest = {
       messages,

@@ -25,6 +25,7 @@ import {
   AIMessage,
   AIRequest,
   SystemPromptBuilder,
+  SynthesisPromptBuilder,
   ProviderRegistry,
   GroqAIProvider,
   AIProviderError,
@@ -394,7 +395,7 @@ export class ExecutionEngine {
   /**
    * Synthesizes final response text based on the verified execution state and results.
    */
-  private async synthesizeFinalAnswer(
+  public async synthesizeFinalAnswer(
     state: AgentExecutionState,
     context: ExecutionEngineContext,
     baseConversationHistoryOrStatus: GroqMessage[] | string,
@@ -464,7 +465,7 @@ export class ExecutionEngine {
       synthesisContent = `[Execution Outcomes from Verified Tools]:\n${observationsBlock}\n\n[Instruction]:\n${instruction}`;
     }
 
-    const systemInstruction = SystemPromptBuilder.buildSystemInstruction(
+    const systemInstruction = SynthesisPromptBuilder.buildSynthesisInstruction(
       context.memories,
       context.languageContext,
       context.personalityContext,
@@ -482,6 +483,8 @@ export class ExecutionEngine {
           content: synthesisContent,
         },
       ],
+      tools: undefined,
+      toolChoice: undefined,
       metadata: {
         runId: context.runId,
         userId: context.userId,
