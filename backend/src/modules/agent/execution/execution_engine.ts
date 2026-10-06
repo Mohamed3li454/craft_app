@@ -44,6 +44,7 @@ import { LoopGuard } from './loop_guard';
 import { FailureHandler } from './failure_handler';
 import { StepExecutor } from './step_executor';
 import { ExecutionPlanner } from './planner';
+import { ExecutionContextCompactor } from './execution_context_compactor';
 import { MetricsCollector } from '../../observability';
 
 export class ExecutionEngine {
@@ -415,22 +416,8 @@ export class ExecutionEngine {
       return isEnglish ? 'Your request was processed successfully.' : 'تمت معالجة طلبك بنجاح.';
     }
 
-    // Build synthesized observations
-    const observationSnippets: string[] = [];
-    for (const step of state.steps) {
-      if (step.status === 'succeeded') {
-        const serialized =
-          step.serializedResult ||
-          (typeof step.result === 'object' ? JSON.stringify(step.result) : String(step.result));
-        observationSnippets.push(`[Verified Result: ${step.toolName}]\n${serialized}`);
-      } else if (step.status === 'failed') {
-        observationSnippets.push(
-          `[Failed Step: ${step.toolName}]\nReason: ${step.error?.userSafeMessage || step.error?.message || 'Action could not be completed'}`
-        );
-      }
-    }
-
-    const observationsBlock = observationSnippets.join('\n\n');
+    // Build synthesized observations (Phase 14.6: deduplicated & compacted)
+    const observationsBlock = ExecutionContextCompactor.formatObservationsForSynthesis(state.steps, policy);
 
     let instruction = '';
     if (status === 'partially_completed') {

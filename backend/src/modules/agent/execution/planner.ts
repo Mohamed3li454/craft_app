@@ -14,6 +14,7 @@ import { AgentExecutionState, ExecutionDecision, ExecutionEngineContext } from '
 import { redactSecrets } from '../../tools/contracts/error.types';
 import { ToolRegistry } from '../../tools/registry';
 import { ToolCapabilityPolicy } from '../../tools/safety/tool_capability_policy';
+import { ExecutionContextCompactor } from './execution_context_compactor';
 import {
   AIRouter,
   AIMessage,
@@ -71,39 +72,13 @@ export class ExecutionPlanner {
       prefixHash: structuredInstruction.prefixHash,
     });
 
-    // 3. Build normalized messages: System prompt + conversation history + execution steps taken so far
+    // 3. Build normalized messages: System prompt + conversation history + compacted execution steps (Phase 14.6)
+    const compactedStepMessages = ExecutionContextCompactor.compactPlannerMessages(state.steps);
     const messages: AIMessage[] = [
       { role: 'system', content: structuredInstruction.fullInstruction },
       ...conversationHistory,
+      ...compactedStepMessages,
     ];
-
-    // Append prior execution steps as structured context turns
-    for (const step of state.steps) {
-      if (step.status === 'succeeded' || step.status === 'partial') {
-        messages.push({
-          role: 'assistant',
-          content: `Called tool: ${step.toolName} with parameters: ${JSON.stringify(step.input)}`,
-        });
-
-        const outcomeText =
-          step.serializedResult ||
-          (typeof step.result === 'object' ? JSON.stringify(step.result) : String(step.result || 'Success'));
-
-        messages.push({
-          role: 'user',
-          content: `[Observation for tool "${step.toolName}"]:\n${redactSecrets(outcomeText)}`,
-        });
-      } else if (step.status === 'failed') {
-        messages.push({
-          role: 'assistant',
-          content: `Called tool: ${step.toolName}`,
-        });
-        messages.push({
-          role: 'user',
-          content: `[Tool Error for "${step.toolName}"]: ${step.error?.userSafeMessage || step.error?.message || 'Execution failed'}. Please decide if an alternative step is required or finish with explanation.`,
-        });
-      }
-    }
 
     // Append image attachment to last user message if on first step
     const isFirstStep = state.steps.length === 0;
@@ -128,13 +103,14 @@ export class ExecutionPlanner {
       }
     }
 
-    // 4. Construct normalized AIRequest with adaptive tools (Phase 14.3)
+    // 4. Construct normalized AIRequest with adaptive tools (Phase 14.3 / Phase 14.6)
     const tools = this.capabilityPolicy.getAdaptiveFilteredOpenAITools(
       this.toolRegistry,
       context.triggerType,
       state.goal || context.userGoal,
       {
         hasPriorSteps: state.steps.length > 0,
+        priorToolNames: state.steps.map((s) => s.toolName),
         recentMessages: context.recentMessages,
       }
     );

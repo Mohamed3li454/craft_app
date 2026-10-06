@@ -21,3 +21,4 @@ export * from './failure_handler';
 export * from './step_executor';
 export * from './planner';
 export * from './execution_engine';
+export * from './execution_context_compactor';

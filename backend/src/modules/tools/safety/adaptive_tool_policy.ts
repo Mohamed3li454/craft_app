@@ -23,6 +23,7 @@ export type ToolManifestMode = 'NONE' | 'SCOPED' | 'FULL';
 
 export interface AdaptiveToolOptions {
   readonly hasPriorSteps?: boolean;
+  readonly priorToolNames?: readonly string[];
   readonly recentMessages?: Array<{ role?: string; senderRole?: string; text?: string; content?: string }>;
 }
 
@@ -45,8 +46,61 @@ export class AdaptiveToolPolicy {
     options?: AdaptiveToolOptions
   ): AdaptiveToolManifestResult {
     // 0. Safety Guard: If execution has already progressed past step 0, NEVER return NONE.
-    // Full or scoped tools must remain available to complete multi-step reasoning.
+    // If prior steps or query clearly indicate a single domain, keep tool manifest SCOPED
+    // to avoid token compounding. Otherwise, fail open to FULL.
     if (options?.hasPriorSteps) {
+      const rawQuery = (query || '').trim();
+      const normQuery = rawQuery ? this.normalizeText(rawQuery) : '';
+      const cleanQ = normQuery ? normQuery.replace(/[؟?!\.,\u060C]/g, '').trim() : '';
+
+      const priorTools = options.priorToolNames || [];
+      const hasSearchPrior = priorTools.includes('web_search');
+      const hasReminderPrior = priorTools.some((t) =>
+        ['create_reminder', 'list_reminders', 'complete_reminder'].includes(t)
+      );
+      const hasWeatherPrior = priorTools.includes('get_weather');
+      const hasTimePrior = priorTools.includes('get_current_time');
+
+      // Domain-aware scoping for multi-step runs (saves ~620 tokens per planner call):
+      if ((hasSearchPrior || (cleanQ && this.isSearchIntent(cleanQ))) && !hasReminderPrior) {
+        const searchToolNames = ['web_search', 'get_current_time'];
+        const searchTools = allowedTools.filter((t) => searchToolNames.includes(t.name));
+        if (searchTools.length > 0) {
+          return {
+            mode: 'SCOPED',
+            tools: searchTools,
+            toolNames: searchTools.map((t) => t.name),
+            reason: 'SCOPED_SEARCH_INTENT_PRIOR_STEPS',
+          };
+        }
+      }
+
+      if ((hasReminderPrior || (cleanQ && this.isReminderIntent(cleanQ))) && !hasSearchPrior) {
+        const reminderToolNames = ['create_reminder', 'list_reminders', 'complete_reminder', 'get_current_time'];
+        const reminderTools = allowedTools.filter((t) => reminderToolNames.includes(t.name));
+        if (reminderTools.length > 0) {
+          return {
+            mode: 'SCOPED',
+            tools: reminderTools,
+            toolNames: reminderTools.map((t) => t.name),
+            reason: 'SCOPED_REMINDER_INTENT_PRIOR_STEPS',
+          };
+        }
+      }
+
+      if ((hasWeatherPrior || (cleanQ && this.isWeatherIntent(cleanQ))) && !hasSearchPrior && !hasReminderPrior) {
+        const weatherTools = allowedTools.filter((t) => t.name === 'get_weather');
+        if (weatherTools.length > 0) {
+          return {
+            mode: 'SCOPED',
+            tools: weatherTools,
+            toolNames: weatherTools.map((t) => t.name),
+            reason: 'SCOPED_WEATHER_INTENT_PRIOR_STEPS',
+          };
+        }
+      }
+
+      // Default for prior steps (ambiguous, mixed domains, or generic conversational turns with prior steps)
       return {
         mode: 'FULL',
         tools: allowedTools,
@@ -67,7 +121,7 @@ export class AdaptiveToolPolicy {
     }
 
     const normalized = this.normalizeText(raw);
-    const cleanText = normalized.replace(/[؟?!\.,]/g, '').trim();
+    const cleanText = normalized.replace(/[؟?!\.,\u060C]/g, '').trim();
 
     // 2. Pure Conversational Intent Check (NONE)
     // Only applies if the query matches a pure conversational pattern AND has ZERO action/tool indicators
@@ -163,34 +217,39 @@ export class AdaptiveToolPolicy {
 
   private static isPureGreeting(text: string): boolean {
     const patterns = [
-      /^(ازيك|عامل ايه|عامل اي|اخبارك|اخبارك ايه|صباح الخير|مساء الخير|سلام عليكم|السلام عليكم|مرحبا|اهلا|اهلين|هاي|هالو|الو)(\s+(يا\s+)?(كرافت|craft))?$/,
-      /^(ازيك\s+عامل\s+(ايه|اي)|ازيك\s+يا\s+كرافت\s+عامل\s+(ايه|اي)|عامل\s+ايه\s+يا\s+كرافت)$/,
-      /^(hi|hello|hey|good\s+morning|good\s+evening|good\s+afternoon|howdy)(\s+(craft))?$/,
-      /^(how\s+are\s+you|how\s+r\s+u|hows\s+it\s+going|whats\s+up)$/,
+      /^(ازيك|عامل ايه|عامل اي|اخبارك|اخبارك ايه|صباح الخير|صباح النور|مساء الخير|مساء النور|سلام عليكم|السلام عليكم|مرحبا|اهلا|اهلين|هاي|هالو|الو|يا هلا|اهلا و سهلا|اهلا وسهلا)(\s+(يا\s+)?(كرافت|craft|باشا|فنان|غالي|حبيبي|بطل|bro))?$/,
+      /^(ازيك\s+عامل\s+(ايه|اي)|ازيك\s+يا\s+كرافت\s+عامل\s+(ايه|اي)|عامل\s+ايه\s+يا\s+(كرافت|craft|باشا|فنان|غالي|حبيبي|بطل))$/,
+      /^(انا\s+)?(كويس|تمام|بخير|الحمد لله)(\s+(الحمد لله|بخير|تمام|كويس))?(\s+(انت\s+)?(عامل ايه|عامل اي|اخبارك|اخبارك ايه|ازيك))?(\s+(يا\s+)?(كرافت|craft|باشا|فنان|غالي))?$/,
+      /^(الحمد لله)(\s+(انا\s+)?(كويس|تمام|بخير))?(\s+(انت\s+)?(عامل ايه|عامل اي|اخبارك|اخبارك ايه|ازيك))?(\s+(يا\s+)?(كرافت|craft|باشا|فنان|غالي))?$/,
+      /^(كله\s+تمام(\s+الحمد لله)?)(\s+(انت\s+)?(عامل ايه|عامل اي|اخبارك|اخبارك ايه|ازيك))?$/,
+      /^(hi|hello|hey|good\s+morning|good\s+evening|good\s+afternoon|howdy)(\s+(craft|bro|there))?$/,
+      /^(how\s+are\s+you|how\s+r\s+u|hows\s+it\s+going|whats\s+up)(\s+(craft|bro))?$/,
+      /^(im\s+good|im\s+fine|doing\s+well|good)(\s+(how\s+are\s+you|how\s+about\s+you|and\s+you))?$/,
     ];
     return patterns.some((p) => p.test(text));
   }
 
   private static isPureThanks(text: string): boolean {
     const patterns = [
-      /^(شكرا|شكرا\s+جزيلا|شكرا\s+ليك|تمام\s+شكرا|الف\s+شكر|تسلم|الله\s+يخليك|مشكور|يعطيك\s+العافيه|شكرا\s+يا\s+كرافت)$/,
-      /^(thanks|thank\s+you|thx|thank\s+you\s+so\s+much|appreciate\s+it)(\s+(craft))?$/,
+      /^(شكرا|شكرا\s+جزيلا|شكرا\s+ليك|تمام\s+شكرا|الف\s+شكر|تسلم|الله\s+يخليك|مشكور|مشكور\s+جدا|يعطيك\s+العافيه|يعطيك\s+الف\s+عافيه|تسلم\s+ايدك)(\s+(يا\s+)?(كرافت|craft|باشا|فنان|غالي|حبيبي|سيدي))?$/,
+      /^(thanks|thank\s+you|thx|thank\s+you\s+so\s+much|appreciate\s+it)(\s+(craft|bro))?$/,
     ];
     return patterns.some((p) => p.test(text));
   }
 
   private static isPureAcknowledgment(text: string): boolean {
     const patterns = [
-      /^(تمام|ماشي|اوك|اوكي|حلو|كويس|فهمتك|تمام\s+كده|عظيم|حبيبي)$/,
-      /^(ok|okay|cool|great|got\s+it|understood|nice|perfect)$/,
+      /^(تمام|ماشي|اوك|اوكي|حلو|كويس|فهمتك|تمام\s+كده|عظيم|حبيبي)(\s+(يا\s+)?(باشا|فنان|غالي|سيدي|كرافت|craft|bro))?$/,
+      /^(حلو\s+جدا|عظيم\s+جدا|تمام\s+جدا|تمام\s+يا\s+باشا|ماشي\s+يا\s+باشا|تسلم\s+يا\s+غالي)$/,
+      /^(ok|okay|cool|great|got\s+it|understood|nice|perfect)(\s+(craft|bro))?$/,
     ];
     return patterns.some((p) => p.test(text));
   }
 
   private static isPureFarewell(text: string): boolean {
     const patterns = [
-      /^(مع\s+السلامه|باي|تصبح\s+على\s+خير|تصبح\s+علي\s+خير|سلام|اشوفك\s+بعدين)$/,
-      /^(bye|goodbye|good\s+night|see\s+you|see\s+ya)$/,
+      /^(مع\s+السلامه|باي|تصبح\s+على\s+خير|تصبح\s+علي\s+خير|سلام|اشوفك\s+بعدين|سلام\s+يا\s+صاحبي)(\s+(يا\s+)?(كرافت|craft|باشا|bro))?$/,
+      /^(bye|goodbye|good\s+night|see\s+you|see\s+ya)(\s+(craft|bro))?$/,
     ];
     return patterns.some((p) => p.test(text));
   }
@@ -200,9 +259,11 @@ export class AdaptiveToolPolicy {
       /(فكرني|ذكرني|تذكير|remind)/,
       /(الساعه|الوقت|تاريخ|النهارده كام|clock|\btime\b|\bdate\b)/,
       /(الجو|طقس|حراره|مطر|امطار|\bweather\b|\btemperature\b|\bforecast\b)/,
-      /(ابحث|سيرش|سعر|اسعار|مواصفات|اخبار|تسريبات|\bsearch\b|\bprice\b|\bspecs\b|\bnews\b)/,
+      /(ابحث|ابحثلي|سيرش|دورلي|سعر|اسعار|مواصفات|تسريبات|\bsearch\b|\bprice\b|\bspecs\b|\bnews\b|(?:^|\s)اخبار(?!\s*ك))/,
       /(احفظ|افتكر|فاكر|\bsave\b|\bremember\b)/,
       /(\bflutter\b|\bdart\b|\bapi\b|\bcode\b|كود|برمجه|ايه الفرق|ازاي|طريقه)/,
+      /(?:^|\s)(اعمل|اعمللي|اعملي|اعملنا|سو|ساوي|نفذ|نفذها|نفذه|نفذلي|طبق|كمل|استمر|قارن|قارنلي|احسب|احسبلي|اكتب|اكتبلي|لخص|لخصلي)(?:\s|$|[^\w\u0600-\u06FF])/,
+      /\b(execute|run|do|make|create|calculate|compare|write|summarize|continue)\b/,
     ];
     return patterns.some((p) => p.test(text));
   }
@@ -240,9 +301,11 @@ export class AdaptiveToolPolicy {
   private static isSearchIntent(text: string): boolean {
     const patterns = [
       /(ابحث|ابحثلي|سيرش|دورلي|ابحث عن|سيرش عن)/,
-      /(سعر|اسعار|كام سعر|بكام|مواصفات|تسريبات|اخر اخبار|اخبار|سعر الدولار|سعر الذهب)/,
-      /\b(search|search for|lookup|look up|latest news|specs|price of|leaks)\b/,
-      /\b(iphone|samsung|xiaomi|pixel|macbook|playstation|xbox|watch dogs)\b/,
+      /(سعر|اسعار|كام سعر|بكام|مواصفات|تسريبات|اخر اخبار|اخبار|سعر الدولار|سعر الذهب|احدث موديل|مفيش اخبار عن)/,
+      /(ليه سموه|ليه اتسمى|سبب تسميه|مين هو|مين هي|ايه هو|ايه هي|ما هو|ما هي|معلومات عن|تفاصيل عن)/,
+      /(قارن بين|مقارنه بين|الفرق بين سعر)/,
+      /\b(search|search for|lookup|look up|latest news|specs|price of|leaks|compare)\b/,
+      /\b(iphone|samsung|xiaomi|pixel|macbook|playstation|xbox|watch dogs|argon|gemini|claude|chatgpt|openai|deepseek|llama|qwen|mistral|grok)\b/,
     ];
     return patterns.some((p) => p.test(text));
   }
