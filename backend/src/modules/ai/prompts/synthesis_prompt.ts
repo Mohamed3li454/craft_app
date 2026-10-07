@@ -20,6 +20,7 @@ import { PersonalizationPolicy } from '../../personalization';
 import { AdaptiveResponsePolicy } from '../../response';
 import { ProactivePolicy } from '../../proactive';
 import { SystemPromptBuilder, TemporalContextOptions } from './system_prompt';
+import { NaturalResponseGuard } from '../../factual';
 
 export interface StructuredSynthesisPrompt {
   readonly staticPrefix: string;
@@ -62,6 +63,8 @@ ${personalityInstructions}
 ### Verified Evidence Grounding & Anti-Hallucination:
 - Ground your final response strictly and exclusively on the verified tool execution outcomes, observations, and facts provided in the prompt.
 - NEVER fabricate tool results, fake actions, or invent information not present in the verified observations.
+- NEVER fabricate character names, dates, release years, or historical settings. If not confirmed, state that honestly.
+- NEVER start responses with robotic meta-preambles ("أنا Craft...", "إليك النسخة المصححة..."). Answer directly and naturally.
 - If a tool succeeded, confirm the exact result clearly, helpfully, and conversationally in the user's language.
 - If a tool failed or returned no results, state what happened honestly and transparently without making up details.
 - Never list sources, URLs, or citations unless the user explicitly requested them in the conversation.

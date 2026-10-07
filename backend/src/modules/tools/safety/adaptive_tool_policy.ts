@@ -18,6 +18,7 @@
  */
 
 import { AgentTool } from '../contracts/tool.types';
+import { PrecisionFactualDetector } from '../../factual';
 
 export type ToolManifestMode = 'NONE' | 'SCOPED' | 'FULL';
 
@@ -62,7 +63,10 @@ export class AdaptiveToolPolicy {
       const hasTimePrior = priorTools.includes('get_current_time');
 
       // Domain-aware scoping for multi-step runs (saves ~620 tokens per planner call):
-      if ((hasSearchPrior || (cleanQ && this.isSearchIntent(cleanQ))) && !hasReminderPrior) {
+      const priorFactualEval = cleanQ ? PrecisionFactualDetector.evaluate(cleanQ) : undefined;
+      const isPriorPrecisionFactual = priorFactualEval?.policy === 'PRECISION_FACTUAL';
+
+      if ((hasSearchPrior || (cleanQ && this.isSearchIntent(cleanQ)) || isPriorPrecisionFactual) && !hasReminderPrior) {
         const searchToolNames = ['web_search', 'get_current_time'];
         const searchTools = allowedTools.filter((t) => searchToolNames.includes(t.name));
         if (searchTools.length > 0) {
@@ -70,7 +74,9 @@ export class AdaptiveToolPolicy {
             mode: 'SCOPED',
             tools: searchTools,
             toolNames: searchTools.map((t) => t.name),
-            reason: 'SCOPED_SEARCH_INTENT_PRIOR_STEPS',
+            reason: isPriorPrecisionFactual
+              ? `SCOPED_PRECISION_FACTUAL_PRIOR_STEPS`
+              : 'SCOPED_SEARCH_INTENT_PRIOR_STEPS',
           };
         }
       }
@@ -195,6 +201,21 @@ export class AdaptiveToolPolicy {
       }
     }
 
+    // E. Precision Factual Intent (Phase 15.1F)
+    const factualEval = PrecisionFactualDetector.evaluate(cleanText);
+    if (factualEval.policy === 'PRECISION_FACTUAL') {
+      const searchToolNames = ['web_search', 'get_current_time'];
+      const searchTools = allowedTools.filter((t) => searchToolNames.includes(t.name));
+      if (searchTools.length > 0) {
+        return {
+          mode: 'SCOPED',
+          tools: searchTools,
+          toolNames: searchTools.map((t) => t.name),
+          reason: `SCOPED_PRECISION_FACTUAL_${factualEval.category || 'INTENT'}`,
+        };
+      }
+    }
+
     // 4. Default Fail-Open (FULL)
     return {
       mode: 'FULL',
@@ -262,6 +283,7 @@ export class AdaptiveToolPolicy {
       /(ابحث|ابحثلي|سيرش|دورلي|سعر|اسعار|مواصفات|تسريبات|\bsearch\b|\bprice\b|\bspecs\b|\bnews\b|(?:^|\s)اخبار(?!\s*ك))/,
       /(احفظ|افتكر|فاكر|\bsave\b|\bremember\b)/,
       /(\bflutter\b|\bdart\b|\bapi\b|\bcode\b|كود|برمجه|ايه الفرق|ازاي|طريقه)/,
+      /(ترتيب|رتبلي|تسلسل|اجزاء|سلسله|سلاسل|صححلي|تصحيح|مش صح|غلط|راجعلي)/,
       /(?:^|\s)(اعمل|اعمللي|اعملي|اعملنا|سو|ساوي|نفذ|نفذها|نفذه|نفذلي|طبق|كمل|استمر|قارن|قارنلي|احسب|احسبلي|اكتب|اكتبلي|لخص|لخصلي)(?:\s|$|[^\w\u0600-\u06FF])/,
       /\b(execute|run|do|make|create|calculate|compare|write|summarize|continue)\b/,
     ];

@@ -15,6 +15,7 @@ import { redactSecrets } from '../../tools/contracts/error.types';
 import { ToolRegistry } from '../../tools/registry';
 import { ToolCapabilityPolicy } from '../../tools/safety/tool_capability_policy';
 import { ExecutionContextCompactor } from './execution_context_compactor';
+import { PrecisionFactualDetector } from '../../factual';
 import {
   AIRouter,
   AIMessage,
@@ -114,10 +115,25 @@ export class ExecutionPlanner {
         recentMessages: context.recentMessages,
       }
     );
+    const rawGoal = state.goal || context.userGoal;
+    const factualEval = PrecisionFactualDetector.evaluate(rawGoal);
+    const hasSearchTool = tools.some((t: any) => t.function?.name === 'web_search');
+    let toolChoice: any = tools.length > 0 ? 'auto' : undefined;
+
+    // Mandate web_search on step 0 for PRECISION_FACTUAL to eliminate parametric confabulation
+    if (state.steps.length === 0 && factualEval.policy === 'PRECISION_FACTUAL' && hasSearchTool) {
+      toolChoice = { type: 'function', function: { name: 'web_search' } };
+      logger.info('[ExecutionPlanner] Enforced mandatory web_search for PRECISION_FACTUAL query', {
+        goal: rawGoal,
+        category: factualEval.category,
+        score: factualEval.score,
+      });
+    }
+
     const aiRequest: AIRequest = {
       messages,
       tools: tools.length > 0 ? (tools as any) : undefined,
-      toolChoice: tools.length > 0 ? 'auto' : undefined,
+      toolChoice,
       metadata: {
         runId: context.runId,
         userId: context.userId,

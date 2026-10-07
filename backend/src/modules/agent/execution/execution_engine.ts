@@ -15,6 +15,11 @@ import { ToolResultFormatter } from '../../tools/adapters/tool_result_formatter'
 import { SearchFallbackFormatter } from '../../tools/adapters/search_fallback_formatter';
 import { redactSecrets } from '../../tools/contracts/error.types';
 import {
+  PrecisionFactualDetector,
+  FactualClaimGuard,
+  NaturalResponseGuard,
+} from '../../factual';
+import {
   SearchPresentationPolicy,
   SearchPresentationPolicyResolver,
   SearchContextManager,
@@ -353,6 +358,23 @@ export class ExecutionEngine {
       MetricsCollector.getInstance().increment('craft.agent.cancelled', 1, { channel: context.channel });
     }
 
+    // 8.5 Precision Factual Search Failure Safety (Phase 15.1F)
+    const factualEval = PrecisionFactualDetector.evaluate(context.userGoal);
+    if (factualEval.policy === 'PRECISION_FACTUAL') {
+      const failureSafety = FactualClaimGuard.evaluateSearchOutcome(
+        context.userGoal,
+        state.steps,
+        context.languageContext
+      );
+      if (failureSafety.shouldFallback && failureSafety.fallbackMessage) {
+        logger.warn('[ExecutionEngine] Precision factual search failure safety triggered', {
+          userGoal: context.userGoal,
+          reason: failureSafety.reason,
+        });
+        finalReply = failureSafety.fallbackMessage;
+      }
+    }
+
     // 9. Generate Final Response Synthesis if not already produced by Planner
     if (!finalReply || finalReply.trim().length === 0 || finalReply.startsWith('Called tool:')) {
       finalReply = await this.synthesizeFinalAnswer(
@@ -374,6 +396,11 @@ export class ExecutionEngine {
         searchPresentationPolicy,
         context.languageContext
       );
+    }
+
+    // 11. Natural Response Guard: Strip robotic preambles and meta-comments (Phase 15.1F)
+    if (finalReply) {
+      finalReply = NaturalResponseGuard.cleanResponsePreamble(finalReply, context.userGoal);
     }
 
     const durationMs = Date.now() - startTime;
@@ -449,7 +476,18 @@ export class ExecutionEngine {
           ? ` Answer naturally and directly based on the verified facts above. Do NOT include raw search result listings, do NOT dump URLs, and do NOT list sources unless explicitly requested.`
           : ` أجب بأسلوب طبيعي ومباشر من واقع الحقائق الموثقة أعلاه. إياك وسرد نتائج البحث الخام أو وضع روابط أو مصادر للمستخدم لأن المستخدم لم يطلبها.`;
       }
+      const factualEval = PrecisionFactualDetector.evaluate(context.userGoal);
+      if (factualEval.policy === 'PRECISION_FACTUAL') {
+        const factualDirective = FactualClaimGuard.buildEvidenceBoundDirective(true, context.languageContext);
+        instruction += `\n${factualDirective}`;
+      }
       synthesisContent = `[Execution Outcomes from Verified Tools]:\n${observationsBlock}\n\n[Instruction]:\n${instruction}`;
+    }
+
+    const factualEval = PrecisionFactualDetector.evaluate(context.userGoal);
+    if (factualEval.policy === 'PRECISION_FACTUAL' && state.steps.length === 1 && state.steps[0].status === 'succeeded') {
+      const factualDirective = FactualClaimGuard.buildEvidenceBoundDirective(true, context.languageContext);
+      synthesisContent += `\n\n[Factual Grounding Rule]:\n${factualDirective}`;
     }
 
     const systemInstruction = SynthesisPromptBuilder.buildSynthesisInstruction(
@@ -495,7 +533,7 @@ export class ExecutionEngine {
         : '';
 
       if (text.length > 0) {
-        return text;
+        return NaturalResponseGuard.cleanResponsePreamble(text, context.userGoal);
       }
 
       throw new AIProviderError({

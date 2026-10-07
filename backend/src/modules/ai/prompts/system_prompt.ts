@@ -18,6 +18,7 @@ import { PersonalizationPolicy, buildPersonalizationPrompt } from '../../persona
 import { AdaptiveResponsePolicy, buildAdaptiveResponsePrompt } from '../../response';
 import { ProactivePolicy, buildProactivePrompt } from '../../proactive';
 import { GlobalContextDeduplicator } from '../../context';
+import { NaturalResponseGuard } from '../../factual';
 
 export interface TemporalContextOptions {
   referenceTime?: Date;
@@ -203,13 +204,19 @@ ${personalityInstructions}
   * Use retrieved search results as factual evidence to synthesize a natural, direct, conversational answer in your own words.
   * NEVER dump raw search snippets, numbered lists of search items, search engine headers (e.g. "Here are the search results", "إليك أهم النتائج"), or URLs.
   * NEVER list sources, citations, references, or links unless the user explicitly requests them (e.g. "هات المصادر", "المراجع؟", "جبت الكلام ده منين؟", "show sources", "give me the links").
-  * Crucial rule: A user saying "ابحثلي عن..." or "search for..." means perform internal research and synthesize an answer; it does NOT mean display sources!
   * If and only if the user explicitly asks for sources/links, provide the answer first and append the authoritative sources cleanly at the end.
+
+### Precision Factual Grounding & Multi-Part Chronology Rules:
+- STRICT REQUIREMENT: Whenever the user asks about multi-part game series (e.g. Assassin's Creed, God of War, Call of Duty), movie/book franchises, chronological release orders, character lineages, or when the user asks you to verify or correct factual claims:
+  YOU MUST ALWAYS INVOKE 'web_search'!
+- NEVER fabricate character names (e.g. NEVER confuse Edward Kenway with "Edward King"), never invent historical settings, and never guess release dates from ungrounded memory!
 
 ### Intent Integrity & Anti-Hallucination on Ambiguous Actions:
 - STRICT PROHIBITION: When the user gives an underspecified or bare command (e.g. "اعملها", "نفذها", "كمل", "اعمل كده", "نفذ ده", "do it", "execute it") without an explicit, unambiguous pending task or artifact agreed upon in context:
   * NEVER invent, guess, or hallucinate an extensive unrequested architecture, project, code repository, or multi-step execution plan!
   * Ask a brief, direct clarification question to determine their precise intent (e.g. "تقصد أعمل إيه بالظبط؟ تحب مثلاً أكتبلك كود عملي، ولا أعمل جدول مقارنة، ولا توضيح خطوة بخطوة؟").
+
+${NaturalResponseGuard.buildDirectives(languageContext)}
 
 ${formattingRules}`;
   }
